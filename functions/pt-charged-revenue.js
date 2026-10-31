@@ -8,6 +8,7 @@ const { readContractRecognitionState } = require('./finance-recognition-balance'
 const { resolveRevenueAllocation } = require('./pt-revenue-allocation')
 const { ptFinanceBranch } = require('./pt-finance-branch')
 const { serviceRevenueJournal } = require('./accounting-core')
+const { zeroValueEvidenceKey } = require('./pt-zero-value-evidence')
 
 function ptRevenueJournalWrite({ recognition, contract, sessionId, actorUid }) {
   const advanceAccountCode = ['131', '3387'].includes(contract?.accountingAdvanceAccountCode) ? contract.accountingAdvanceAccountCode : '131'
@@ -42,9 +43,10 @@ async function chargedRevenuePlan({ transaction, db, sessionId, session, attenda
     throw new HttpsError('failed-precondition', 'Bút toán doanh thu không khớp bằng chứng trừ buổi.', { issueCode: 'SESSION_RECOGNITION_MISMATCH' })
   }
   const writes = []
-  let issue = '', allocation = null, recognition = null, journal = null
+  let issue = '', allocation = null, recognition = null, journal = null, zeroValueConfirmed = false
   const complete = Boolean(value && existingJournal.exists)
-  if (!complete && period.exists && period.data().status === 'locked') issue = 'FINANCE_PERIOD_LOCKED'
+  const locked = period.exists && period.data().status === 'locked'
+  if (!complete && locked && !session.zeroValueApproval?.evidenceKey) issue = 'FINANCE_PERIOD_LOCKED'
   if (!value && !issue) {
     // Financial owner is resolved separately; validate the consuming identity
     // and quota before applying the original selling price to a carried share.
@@ -57,7 +59,13 @@ async function chargedRevenuePlan({ transaction, db, sessionId, session, attenda
     if (allocation) {
       issue = recognitionEvidenceIssue({ sessionId, session: { ...session, contractId: allocation.contractId },
         contract: allocation.contract, serviceOrdinal: allocation.serviceOrdinal })
-      if (!issue) {
+      if (issue === 'RECOGNITION_ZERO_VALUE_REQUIRES_REVIEW' && session.zeroValueApproval?.evidenceKey ===
+        zeroValueEvidenceKey({ sessionId, contractId, serviceOrdinal, allocation })) {
+        const state = await readContractRecognitionState(transaction, db, allocation.contractId)
+        issue = recognitionBalanceIssue({ state, sessionId, serviceOrdinal: allocation.serviceOrdinal, amount: 0, netValue: 0 })
+        zeroValueConfirmed = !issue
+      }
+      if (!issue && !zeroValueConfirmed) {
         const state = knownState && allocation.contractId === contractId ? knownState
           : await readContractRecognitionState(transaction, db, allocation.contractId)
         const pending = pendingByContract?.get(allocation.contractId)
@@ -84,6 +92,7 @@ async function chargedRevenuePlan({ transaction, db, sessionId, session, attenda
       }
     }
   }
+  if (!complete && locked && !zeroValueConfirmed) { issue = 'FINANCE_PERIOD_LOCKED'; recognition = null }
   value = recognition || value
   if (!issue && value && !existingJournal.exists) {
     let owner = allocation?.contract || contract
@@ -94,15 +103,16 @@ async function chargedRevenuePlan({ transaction, db, sessionId, session, attenda
     }
     if (!issue) journal = ptRevenueJournalWrite({ recognition: value, contract: owner, sessionId, actorUid })
   }
-  if (strict && (issue || !value)) throw new HttpsError('failed-precondition', 'Chưa thể tính buổi vì doanh thu chưa đủ điều kiện ghi nhận. Dữ liệu chưa thay đổi.', { issueCode: issue || 'RECOGNITION_AMOUNT_UNAVAILABLE' })
+  if (strict && (issue || (!value && !zeroValueConfirmed))) throw new HttpsError('failed-precondition', 'Chưa thể tính buổi vì doanh thu chưa đủ điều kiện ghi nhận. Dữ liệu chưa thay đổi.', { issueCode: issue || 'RECOGNITION_AMOUNT_UNAVAILABLE' })
   if (recognition) writes.push({ type: 'create', reference, data: recognition })
   if (journal) writes.push({ type: 'create', reference: journalReference, data: journal })
   const patch = { branchId: ptFinanceBranch(session, contract) || ptFinanceBranch(attendance),
-    revenueRecognitionState: issue ? 'review_required' : value ? 'posted' : 'not_applicable',
+    revenueRecognitionState: issue ? 'review_required' : value ? 'posted' : zeroValueConfirmed ? 'zero_value_confirmed' : 'not_applicable',
     revenueRecognitionEntryId: value ? entryId : null,
     revenueRecognitionJournalId: journal || existingJournal.exists ? journalReference.id : null,
     recognitionReviewRequired: Boolean(issue), recognitionReviewIssueCode: issue || null,
-    ...(value ? { revenueContractId: value.contractId, revenueServiceOrdinal: value.serviceOrdinal } : {}) }
+    ...(value ? { revenueContractId: value.contractId, revenueServiceOrdinal: value.serviceOrdinal } : {}),
+    ...(zeroValueConfirmed ? { zeroValueApproval: session.zeroValueApproval, revenueContractId: allocation.contractId, revenueServiceOrdinal: allocation.serviceOrdinal } : {}) }
   if (issue && (!review.exists || review.data().status !== 'open' || review.data().issueCode !== issue)) {
     writes.push({ type: review.exists ? 'update' : 'create', reference: reviewReference, data: {
       schemaVersion: 1, status: 'open', issueCode: issue, sessionId, attendanceEventId: attendance.id || sessionId, contractId,
@@ -116,7 +126,7 @@ async function chargedRevenuePlan({ transaction, db, sessionId, session, attenda
     writes.push({ type: 'update', reference: reviewReference, data: { status: 'resolved', resolvedAt: FieldValue.serverTimestamp(),
       resolvedBy: actorUid, resolution: 'charged_session_reconciled' } })
   }
-  return { writes, patch, recognition, journal, value, allocation, issue, entryId: value ? entryId : null,
+  return { writes, patch, recognition, journal, value, allocation, issue, zeroValueConfirmed, entryId: value ? entryId : null,
     journalId: patch.revenueRecognitionJournalId, createdRevenue: recognition?.revenueImpact || 0,
     createdServiceOrdinal: recognition?.serviceOrdinal, revenueContractId: value?.contractId || contractId }
 }

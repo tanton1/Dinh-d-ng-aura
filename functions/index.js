@@ -1300,6 +1300,11 @@ exports.savePerformanceGateAssessmentV2 = performanceScoreV2Functions.savePerfor
 exports.refreshPerformanceSnapshotV2 = performanceScoreV2Functions.refreshPerformanceSnapshot
 exports.setPerformanceSnapshotLockV2 = performanceScoreV2Functions.setPerformanceSnapshotLock
 const businessReportingFunctions = createBusinessReportingFunctions({ db, onCall })
+const { createFinanceReconciliationFunctions } = require('./finance-reconciliation')
+const financeReconciliationFunctions = createFinanceReconciliationFunctions({ db, onCall })
+exports.listFinanceReconciliationCases = financeReconciliationFunctions.listFinanceReconciliationCases
+exports.getFinanceReconciliationCase = financeReconciliationFunctions.getFinanceReconciliationCase
+exports.resolveFinanceReconciliationCase = financeReconciliationFunctions.resolveFinanceReconciliationCase
 Object.assign(exports, businessReportingFunctions)
 // Static exports make the reporting endpoints selectable in a safe rollout.
 exports.listBusinessPerformance = businessReportingFunctions.listBusinessPerformance
@@ -1331,6 +1336,9 @@ const businessReportingOverflowFunctions = createBusinessReportingFunctions({
   onCall: businessReportingOverflowOnCall,
 })
 exports.listBusinessPerformanceRegional = businessReportingOverflowFunctions.listBusinessPerformance
+const financeReconciliationRegional = createFinanceReconciliationFunctions({ db, onCall: businessReportingOverflowOnCall })
+exports.listFinanceReconciliationCasesRegional = financeReconciliationRegional.listFinanceReconciliationCases
+exports.getFinanceReconciliationCaseRegional = financeReconciliationRegional.getFinanceReconciliationCase
 exports.listStudentTrainingHistoryRegional = businessReportingOverflowFunctions.listStudentTrainingHistory
 exports.listTrainerTeachingHistoryRegional = businessReportingOverflowFunctions.listTrainerTeachingHistory
 exports.getStudentContractUsageRegional = businessReportingOverflowFunctions.getStudentContractUsage

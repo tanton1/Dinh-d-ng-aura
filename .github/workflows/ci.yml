@@ -165,6 +165,9 @@ jobs:
       - name: Test listener and background read budgets
         if: matrix.project == 'chromium'
         run: npm run test:data-cost-ui
+      - name: Test reconciliation evidence and demand-only reads
+        if: matrix.project == 'chromium'
+        run: npx playwright test --config tests/finance-reconciliation-ui/playwright.config.ts
       - name: Test history pagination and fresh correction totals
         if: matrix.project == 'chromium'
         run: npx playwright test --config tests/training-history-panel-ui/playwright.config.ts --project=history-chromium

@@ -561,7 +561,7 @@ function createBusinessReportingFunctions({ db, onCall }) {
     const recognisedAttendanceEvents = [...attendanceSessionIds].filter((sessionId) => recognisedSessionIds.has(sessionId)).length
     const unrecognisedAttendanceEvents = Math.max(0, attendanceSessionIds.size - recognisedAttendanceEvents)
     const reconciliation = attendanceReconciliation(attendanceSnapshot.docs.slice(0, MAX_ATTENDANCE_DOCUMENTS)
-      .map(item => ({ ...item.data(), id: item.id })), ledgerEntries)
+      .map(item => ({ ...item.data(), id: item.id })), ledgerEntries, { includeIndex: request.data?.includeReconciliationIndex === true })
     const qualityMessages = []
     if (reconciliation.unresolved || reconciliation.conflicts) qualityMessages.push(`${reconciliation.unresolved + reconciliation.conflicts} bằng chứng PT cần xác minh liên kết hoặc kỳ ghi nhận; chưa kết luận thiếu doanh thu`)
     if (reconciliation.pendingConfirmation + reconciliation.automaticReview + reconciliation.billingReview + reconciliation.recognitionReview) qualityMessages.push('còn buổi PT chưa khớp doanh thu hoặc cần rà soát dữ liệu tính buổi')

@@ -2,6 +2,19 @@ const {test}=require('node:test')
 const assert=require('node:assert/strict')
 const {attendanceReconciliation:reconcile}=require('./attendance-reconciliation')
 const ledger=(patch={})=>({id:'entry',sessionId:'session',attendanceEventId:'session',type:'revenue_recognition',source:'pt_gym',status:'posted',...patch})
+test('drill-down index reuses period evidence, preserves grouping, and splits excluded records from approved zero value',()=>{
+  const rows=[{id:'a',sessionId:'duplicate',billingStatus:'exempt',duplicateOfSessionId:'original'},
+    {id:'b',sessionId:'returned',billingStatus:'exempt',returnedAt:'2026-10-31'},
+    {id:'c',sessionId:'free',billingStatus:'exempt',makeupSession:true},
+    {id:'d',sessionId:'legacy',billingStatus:'exempt'},
+    {id:'e',sessionId:'zero',billingStatus:'charged',revenueRecognitionState:'zero_value_confirmed',zeroValueApproval:{evidenceKey:'proof'}},
+    {id:'mirror',sessionId:'zero',billingStatus:'charged',revenueRecognitionState:'zero_value_confirmed',zeroValueApproval:{evidenceKey:'proof'}}]
+  const result=reconcile(rows,[],{includeIndex:true})
+  assert.equal(result.evidenceCount,5);assert.equal(result.exempt,4);assert.equal(result.zeroValueConfirmed,1)
+  assert.deepEqual(result.exemptBreakdown,{duplicate:1,returned:1,complimentary:1,other:1})
+  assert.deepEqual(result.caseIndex.exempt,['a','b','c','d']);assert.deepEqual(result.caseIndex.zeroValueConfirmed,['e'])
+  assert.equal(reconcile(rows,[]).caseIndex,undefined)
+})
 test('pending, automatic, exempt and quota evidence are not described as missing revenue',()=>{
   const result=reconcile([
     {id:'pending',sessionId:'pending',attendanceStatus:'pending'},
