@@ -244,7 +244,9 @@ jobs:
   rules:
     name: Rules (${{ matrix.suite }})
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Firestore also runs six transaction suites and repeatedly starts the
+    # emulator; allow them to finish on a fresh runner.
+    timeout-minutes: ${{ matrix.suite == 'firestore' && 30 || 15 }}
     strategy:
       fail-fast: false
       matrix:
