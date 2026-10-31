@@ -73,7 +73,7 @@ function preferredSession(left, right) {
   return String(left.id || '').localeCompare(String(right.id || '')) <= 0 ? left : right
 }
 
-function canonicalSessionRows(rows = []) {
+function canonicalSessionRows(rows = [], prefer = preferredSession) {
   const grouped = new Map()
   const ungrouped = []
   for (const row of Array.isArray(rows) ? rows : []) {
@@ -84,7 +84,7 @@ function canonicalSessionRows(rows = []) {
       continue
     }
     const current = grouped.get(key)
-    grouped.set(key, current ? preferredSession(current, value) : value)
+    grouped.set(key, current ? prefer(current, value) : value)
   }
   return [...ungrouped, ...grouped.values()]
 }

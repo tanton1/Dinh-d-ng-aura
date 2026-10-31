@@ -65,7 +65,7 @@ async function syncContractUsageProjection({ db, event, logger = console }) {
         logger.error('Contract usage projection skipped truncated history', { contractId: snapshot.id, sessionId, evidenceSessions: evidenceSnapshot.size })
         continue
       }
-      const rows = evidenceSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+      const rows = evidenceSnapshot.docs.map((item) => ({ ...item.data(), id: item.id }))
       const summary = summarizeContractUsage(contract, rows)
       const chargedSessionIds = [...new Set((Array.isArray(summary.canonicalChargedSessionIds) ? summary.canonicalChargedSessionIds : []).filter(Boolean))]
       const previousAttended = [...new Set((Array.isArray(contract.attendedClasses) ? contract.attendedClasses : []).filter((value) => typeof value === 'string' && value))]

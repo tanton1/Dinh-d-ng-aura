@@ -30,7 +30,7 @@ function evidenceHash({ session, attendance, billing, contract }) {
 }
 function runtimeHash() {
   return digest(['pt-charged-revenue.js','pt-revenue-allocation.js','finance-recognition.js','finance-recognition-evidence.js',
-    'finance-recognition-balance.js','service-ordinal-allocation.js','contract-usage-core.js','accounting-core.js','session-operations.js','pt-finance-branch.js']
+    'finance-recognition-balance.js','service-ordinal-allocation.js','contract-usage-core.js','session-schedule-normalization.js','accounting-core.js','session-operations.js','pt-finance-branch.js']
     .map(file => fs.readFileSync(path.join(__dirname, '../functions', file), 'utf8')).concat(fs.readFileSync(__filename, 'utf8')))
 }
 async function period(db, collection, field) {

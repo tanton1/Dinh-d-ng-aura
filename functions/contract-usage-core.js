@@ -74,6 +74,11 @@ function usageEvidencePriority(session = {}) {
 }
 
 function preferredUsageSession(left, right) {
+  // Returning or exempting a duplicate keeps its attendance history. That
+  // history must never displace the other valid charged session for the day.
+  const leftCharged = sessionCountsTowardContract(left)
+  const rightCharged = sessionCountsTowardContract(right)
+  if (leftCharged !== rightCharged) return leftCharged ? left : right
   const leftPriority = usageEvidencePriority(left)
   const rightPriority = usageEvidencePriority(right)
   if (leftPriority !== rightPriority) return leftPriority > rightPriority ? left : right
@@ -106,7 +111,7 @@ function preferredUsageSession(left, right) {
  * record cannot hide a valid appointment.
  */
 function canonicalUsageSessions(sessions = []) {
-  const scheduleRows = canonicalSessionRows(Array.isArray(sessions) ? sessions : [])
+  const scheduleRows = canonicalSessionRows(Array.isArray(sessions) ? sessions : [], preferredUsageSession)
   const grouped = new Map()
   const ungrouped = []
   for (const row of scheduleRows) {
