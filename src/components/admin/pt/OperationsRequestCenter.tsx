@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   CalendarClock,
   CalendarRange,
@@ -23,6 +23,8 @@ import {
   type PtOperationsRequestStatus,
 } from '../../../services/sessionOperationsService'
 import '../../../styles-operations-requests.css'
+
+const StudentOffModal = lazy(() => import('./StudentOffModal'))
 
 type RequestKind = 'all' | 'session' | 'pause'
 type Props = { kind?: RequestKind; initialFilter?: RequestKind }
@@ -61,6 +63,7 @@ export default function OperationsRequestCenter({ kind = 'all', initialFilter }:
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<StatusFilter>('pending')
   const [category, setCategory] = useState<RequestKind>(kind === 'all' ? initialFilter || 'all' : kind)
+  const [offDialog, setOffDialog] = useState<{ contractId: string; requestId: string } | null>(null)
   const [decision, setDecision] = useState<Decision | null>(null)
   const [decisionReason, setDecisionReason] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -86,6 +89,7 @@ export default function OperationsRequestCenter({ kind = 'all', initialFilter }:
 
   useEffect(() => {
     ++scopeRef.current
+    setOffDialog(null)
     setPage(null)
     setQuery('')
     setStatus('pending')
@@ -141,9 +145,9 @@ export default function OperationsRequestCenter({ kind = 'all', initialFilter }:
         if (action === 'approve') await approveSessionRequest({ requestId: record.id, expectedSessionRevision: record.sessionRevision })
         else await rejectSessionRequest({ requestId: record.id, reason: decisionReason.trim() })
       } else if (action === 'approve') {
-        const result = await approveContractPauseRequest(record.id, record.requiresExceptionApproval ? decisionReason.trim() : undefined)
+        const result = await approveContractPauseRequest(record.id, record.requiresExceptionApproval ? decisionReason.trim() : undefined, record.revision)
         autoRejectedSessionRequestCount = result.autoRejectedSessionRequestCount || 0
-      } else await rejectContractPauseRequest(record.id, decisionReason.trim())
+      } else await rejectContractPauseRequest(record.id, decisionReason.trim(), record.revision)
       if (scope !== scopeRef.current) return
       setNotice(action === 'approve'
         ? autoRejectedSessionRequestCount > 0
@@ -221,10 +225,15 @@ export default function OperationsRequestCenter({ kind = 'all', initialFilter }:
           {record.kind === 'session' ? <><span>{record.requestedBy === 'trainer' ? 'PT gửi' : 'Học viên gửi'}</span>{record.type === 'additional' ? <><span>Ưu tiên {record.priorityTier || 3}/3</span><span>{record.weeklyScheduled || 0}/{record.weeklyTarget || 0} buổi mục tiêu tuần</span>{record.requiresManagerApproval && <span>Cần quản lý xác nhận</span>}</> : record.type === 'makeup' ? <><span>Không trừ thêm buổi</span><span>Không tính hoa hồng ca bù</span></> : <span>{record.countsTowardContract ? 'Có tính buổi' : `Miễn tính buổi · ${record.policySequence || 1}/${record.complimentaryLimit}`}</span>}{record.suggestionRank && <span>Gợi ý #{record.suggestionRank}</span>}</> : <><span>{record.durationDays} ngày</span><span>{record.cancelledSessionCount} ca được xử lý</span>{record.newContractEndDate && <span>Hạn mới {dateLabel(record.newContractEndDate)}</span>}</>}
         </div>
         <details><summary><Clock3 size={14} /> Chi tiết lưu trữ</summary><dl><div><dt>Mã yêu cầu</dt><dd>{record.id}</dd></div><div><dt>Ngày gửi</dt><dd>{dateLabel(record.createdAt)}</dd></div><div><dt>Ngày xử lý</dt><dd>{dateLabel(record.processedAt)}</dd></div>{record.kind === 'pause' && record.exceptionReason && <div><dt>Lý do ngoại lệ</dt><dd>{record.exceptionReason}</dd></div>}{record.adminNote && <div><dt>Ghi chú quản lý</dt><dd>{record.adminNote}</dd></div>}</dl></details>
-        {record.status === 'pending' && <footer><button type="button" className="is-approve" onClick={() => openDecision(record, 'approve')}><Check size={16} /> Duyệt</button><button type="button" className="is-reject" onClick={() => openDecision(record, 'reject')}><X size={16} /> Từ chối</button></footer>}
+        {(record.status === 'pending' || currentPage?.canManageStudentOff && record.kind === 'pause' && record.type === 'off' && record.status === 'approved') && <footer>
+          {record.status === 'pending' && <><button type="button" className="is-approve" onClick={() => openDecision(record, 'approve')}><Check size={16} /> Duyệt</button><button type="button" className="is-reject" onClick={() => openDecision(record, 'reject')}><X size={16} /> Từ chối</button></>}
+          {currentPage?.canManageStudentOff && record.kind === 'pause' && record.type === 'off' && <button type="button" onClick={() => setOffDialog({ contractId: record.contractId, requestId: record.id })}><CalendarRange size={16} /> Sửa ngày OFF</button>}
+        </footer>}
+
       </article>)}
     </div>
 
+    {offDialog && <Suspense fallback={<p role="status">Đang mở OFF…</p>}><StudentOffModal key={`${offDialog.contractId}/${offDialog.requestId}`} {...offDialog} onClose={() => setOffDialog(null)} onSaved={() => { setOffDialog(null); setNotice('Đã cập nhật ngày OFF.'); void load() }} /></Suspense>}
     {decision && <div className="operations-request-decision" role="presentation"><button className="operations-request-decision__backdrop" type="button" aria-label="Đóng" onClick={() => setDecision(null)} /><section role="dialog" aria-modal="true" aria-labelledby="request-decision-title"><header><div><small>AURA · XÁC NHẬN NGHIỆP VỤ</small><h3 id="request-decision-title">{decision.action === 'approve' ? 'Duyệt yêu cầu?' : 'Từ chối yêu cầu?'}</h3></div><button type="button" aria-label="Đóng" onClick={() => setDecision(null)}><X /></button></header><p>{decision.record.studentName} · {decision.record.reason}</p>{requiresExceptionReason && <div className="operations-requests__notice"><CircleAlert size={17} /> Đây là OFF gửi sau giờ chốt. Duyệt sẽ cộng ngày hợp đồng như OFF thường; lý do ngoại lệ được lưu vào nhật ký.</div>}{decision.record.kind === 'session' && decision.record.type === 'reschedule' && decision.record.studentAvailabilityOverride && <div className="operations-requests__notice"><CircleAlert size={17} /> Ca mới nằm ngoài lịch rảnh đã đăng ký của học viên; hãy kiểm tra ca trong kho lịch trước khi duyệt.</div>}{decision.record.kind === 'session' && decision.record.type !== 'cancel' && <div className="operations-request-decision__change">{decision.record.type !== 'additional' && <span><small>{decision.record.type === 'makeup' ? 'Buổi gốc' : 'Lịch gốc'}</small><strong>{slotLabel(decision.record.originalDate, decision.record.originalHour)}</strong><em>{decision.record.trainerName}</em></span>}<span><small>{decision.record.type === 'additional' ? 'Ca sẽ được tạo' : decision.record.type === 'makeup' ? 'Ca bù' : 'Lịch mới'}</small><strong>{slotLabel(decision.record.newDate, decision.record.newHour)}</strong><em>{decision.record.newTrainerName || decision.record.trainerName}</em></span></div>}{decision.record.kind === 'session' && decision.record.type === 'additional' && decision.record.preAbsenceSourceSessionId && <div className="operations-requests__notice">Duyệt sẽ giải phóng chỗ của ca nguồn đã báo nghỉ trước giờ; học viên mới được tạo một buổi thường theo hợp đồng.</div>}{decision.record.kind === 'session' && decision.record.type === 'makeup' && <div className="operations-requests__notice">Buổi gốc giữ điểm danh Không đến · ca bù không trừ thêm buổi · không tính hoa hồng riêng.</div>}{(decision.action === 'reject' || requiresExceptionReason) && <label>{requiresExceptionReason ? 'Lý do duyệt ngoại lệ' : 'Lý do từ chối'}<textarea value={decisionReason} maxLength={500} onChange={(event) => setDecisionReason(event.target.value)} placeholder={requiresExceptionReason ? 'Nêu căn cứ chấp thuận trường hợp trễ…' : 'Nêu rõ lý do để học viên/PT theo dõi…'} /></label>}{error && <div className="operations-requests__error"><CircleAlert size={17} /> {error}</div>}<footer><button type="button" onClick={() => setDecision(null)} disabled={submitting}>Quay lại</button><button type="button" className={decision.action === 'approve' ? 'is-approve' : 'is-reject'} onClick={() => void submitDecision()} disabled={submitting}>{submitting ? 'Đang lưu…' : decision.action === 'approve' ? 'Xác nhận duyệt' : 'Xác nhận từ chối'}</button></footer></section></div>}
   </section>
 }

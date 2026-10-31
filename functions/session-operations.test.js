@@ -2059,3 +2059,145 @@ test('new branch schedule keeps learners in a dedicated operational tab without 
   assert.match(branchScheduleWorkspace, /Lịch sử & khôi phục/)
   assert.doesNotMatch(branchScheduleWorkspace, /SessionRequestApprovals|LeaveApprovals/)
 })
+
+// Admin OFF uses the same real policy/schedule helpers as learner approval.
+const adminOffBase = {
+  'contracts/contract-1': { studentId: 'student-1', branchId: 'branch-1', packageId: 'p3', status: 'active', startDate: '2026-08-01', endDate: '2026-10-31', revision: 0, totalSessions: 36, usedSessions: 3 },
+  'packages/p3': { durationMonths: 3 }, 'students/student-1': { name: 'Học viên OFF' },
+}
+const adminOffCommand = (patch = {}) => ({ action: 'create', contractId: 'contract-1', startDate: '2026-08-24', endDate: '2026-08-26', reason: 'Công tác', expectedContractRevision: 0, idempotencyKey: 'admin-create', ...patch })
+const adminOffState = (rows = {}, actor = { uid: 'admin-1', accessRole: 'admin' }) => operationsFor({ ...adminOffBase, ...rows }, async () => actor)
+const adminOffEdit = (state, first, patch = {}) => adminOffCommand({ action: 'edit', requestId: first.requestId, expectedRevision: first.revision, expectedContractRevision: state.read('contracts/contract-1').revision, idempotencyKey: 'admin-edit', ...patch })
+
+test('only admin and super admin may create/edit or load OFF context', async () => {
+  for (const accessRole of ['student', 'staff']) {
+    const state = adminOffState({}, { uid: 'staff', accessRole, capabilities: ['pt.operations.manage'] })
+    await assert.rejects(state.manageStudentOff({ data: adminOffCommand() }), { code: 'permission-denied' })
+    await assert.rejects(state.manageStudentOff({ data: { action: 'context', contractId: 'contract-1' } }), { code: 'permission-denied' })
+  }
+  const state = adminOffState({}, { uid: 'super', accessRole: 'super_admin' })
+  assert.equal((await state.manageStudentOff({ data: adminOffCommand() })).newEndDate, '2026-11-03')
+})
+
+test('admin OFF creation, extension/shrink and retries never grant days or allowance twice', async () => {
+  const state = adminOffState()
+  const first = await state.manageStudentOff({ data: adminOffCommand() })
+  assert.equal(first.deltaDays, 3)
+  assert.equal((await state.manageStudentOff({ data: adminOffCommand() })).unchanged, true)
+  assert.equal(state.read('contracts/contract-1').endDate, '2026-11-03')
+  const bigger = adminOffEdit(state, first, { endDate: '2026-08-28' })
+  const next = await state.manageStudentOff({ data: bigger })
+  assert.equal(next.deltaDays, 2)
+  assert.equal(next.newEndDate, '2026-11-05')
+  assert.equal((await state.manageStudentOff({ data: bigger })).unchanged, true)
+  const shorter = adminOffEdit(state, next, { endDate: '2026-08-25', idempotencyKey: 'shorter' })
+  const last = await state.manageStudentOff({ data: shorter })
+  assert.equal(last.deltaDays, -3)
+  assert.equal(last.newEndDate, '2026-11-02')
+  assert.equal(state.read('contracts/contract-1').pausePeriods.length, 1)
+  assert.equal(state.read('contracts/contract-1').extensions.length, 1)
+  assert.equal(state.read('contracts/contract-1').extensions[0].days, 2)
+  assert.equal(state.paths().filter(path => path.startsWith('leaveRequests/')).length, 1)
+  assert.equal(state.paths().filter(path => path.startsWith('contractPauseEvents/')).length, 3)
+  assert.equal(state.read('contracts/contract-1').usedSessions, 3)
+  await assert.rejects(state.manageStudentOff({ data: { ...shorter, endDate: '2026-08-26' } }), { code: 'already-exists' })
+  await assert.rejects(state.manageStudentOff({ data: { ...bigger, idempotencyKey: 'stale' } }), { code: 'aborted' })
+})
+
+test('admin OFF validates custom duration, overlap, allowance, dates, and contract revision', async () => {
+  const cases = [
+    { rows: { 'settings/scheduleConfig': { offMaxDaysPerRequest: 2 } }, command: {}, code: 'failed-precondition' },
+    { rows: { 'leaveRequests/other': { contractId: 'contract-1', studentId: 'student-1', status: 'pending', type: 'off', startDate: '2026-08-25', endDate: '2026-08-25' } }, command: {}, code: 'already-exists' },
+    { rows: { 'settings/scheduleConfig': { offLimitsByDuration: { threeMonths: 0 } } }, command: {}, code: 'failed-precondition' },
+    { command: { endDate: '2026-08-23' }, code: 'invalid-argument' },
+    { command: { startDate: '2026-02-30' }, code: 'invalid-argument' },
+    { command: { startDate: '2026-07-31' }, code: 'failed-precondition' },
+    { command: { startDate: '2026-10-31', endDate: '2026-11-01' }, code: 'failed-precondition' },
+    { command: { expectedContractRevision: 2 }, code: 'aborted' },
+    { command: { expectedContractRevision: undefined }, code: 'invalid-argument' },
+  ]
+  for (const item of cases) {
+    const state = adminOffState(item.rows)
+    await assert.rejects(state.manageStudentOff({ data: adminOffCommand(item.command) }), { code: item.code })
+    assert.equal(state.read('contracts/contract-1').endDate, '2026-10-31')
+    assert.equal(state.paths().filter(path => path.startsWith('contractPauseEvents/')).length, 0)
+  }
+})
+
+test('admin late OFF requires a separate exception reason and records it', async () => {
+  const state = adminOffState()
+  const command = adminOffCommand({ startDate: '2026-08-19', endDate: '2026-08-20' })
+  await assert.rejects(state.manageStudentOff({ data: command }), error => error.details?.issueCode === 'OFF_REGISTRATION_DEADLINE_PASSED')
+  const saved = await state.manageStudentOff({ data: { ...command, exceptionReason: 'Xác minh nghỉ ốm' } })
+  const request = state.read('leaveRequests/' + saved.requestId)
+  assert.equal(request.exceptionApproved, true)
+  assert.equal(request.exceptionReason, 'Xác minh nghỉ ốm')
+  assert.equal(saved.newEndDate, '2026-11-02')
+})
+
+test('editing pending OFF preserves pending status and does not extend the contract', async () => {
+  const state = adminOffState({ 'leaveRequests/pending': { contractId: 'contract-1', studentId: 'student-1', status: 'pending', type: 'off', startDate: '2026-08-24', endDate: '2026-08-26', reason: 'Gốc', revision: 2 } })
+  const result = await state.manageStudentOff({ data: adminOffCommand({ action: 'edit', requestId: 'pending', expectedRevision: 2, endDate: '2026-08-25' }) })
+  assert.equal(result.status, 'pending')
+  assert.equal(result.deltaDays, 0)
+  assert.equal(state.read('contracts/contract-1').endDate, '2026-10-31')
+  assert.equal(state.read('leaveRequests/pending').reason, 'Gốc')
+  assert.equal(state.read('leaveRequests/pending').adminNote, 'Công tác')
+})
+
+for (const evidence of [{ billingStatus: 'charged' }, { attendanceStatus: 'present' }, { status: 'attended' }, { attendanceEventId: 'proof' }]) test('admin OFF protects existing attendance/charges: ' + JSON.stringify(evidence), async () => {
+  const state = adminOffState({ 'sessions/charged': { studentId: 'student-1', contractId: 'contract-1', date: '2026-08-25', status: 'scheduled', ...evidence } })
+  await assert.rejects(state.manageStudentOff({ data: adminOffCommand() }), { code: 'failed-precondition' })
+  assert.equal(state.read('contracts/contract-1').endDate, '2026-10-31')
+})
+
+test('admin OFF cancels only this contract, removes scheduled entries, closes requests, and reports released cancelled slots', async () => {
+  const entry = { studentId: 'student-1', trainerId: 'trainer-1', branchId: 'branch-1', type: 'training' }
+  const session = { studentId: 'student-1', contractId: 'contract-1', trainerId: 'trainer-1', branchId: 'branch-1', date: '2026-08-25', hour: 18, status: 'scheduled', scheduleWeekId: '2026-08-24', slotId: 'T3-18', revision: 2 }
+  const state = adminOffState({
+    'sessions/ours': session, 'sessions/another-contract': { ...session, contractId: 'contract-2', status: 'completed' },
+    'ptScheduleDrafts/branch-1_2026-08-24': { branchId: 'branch-1', weekId: '2026-08-24', status: 'published', revision: 2, publishedRevision: 2, schedule: { 'T3-18': [entry] } },
+    'sessionRequests/change': { studentId: 'student-1', contractId: 'contract-1', status: 'pending', sessionId: 'ours' },
+  })
+  const first = await state.manageStudentOff({ data: adminOffCommand() })
+  assert.equal(first.cancelledSessionCount, 1)
+  assert.equal(state.read('sessions/ours').status, 'student_cancelled')
+  assert.equal(state.read('sessions/another-contract').status, 'completed')
+  assert.equal(state.read('sessionRequests/change').status, 'rejected')
+  assert.deepEqual(state.read('ptScheduleDrafts/branch-1_2026-08-24').schedule, {})
+  const corrected = await state.manageStudentOff({ data: adminOffEdit(state, first, { startDate: '2026-08-26', endDate: '2026-08-27' }) })
+  assert.equal(corrected.rescheduleNeededCount, 1)
+  assert.equal(state.read('sessions/ours').status, 'student_cancelled')
+})
+
+test('shortening OFF cannot strand a booking beyond the corrected expiration', async () => {
+  const state = adminOffState({ 'sessions/tail': { studentId: 'student-1', contractId: 'contract-1', date: '2026-11-03', status: 'scheduled' } })
+  const first = await state.manageStudentOff({ data: adminOffCommand() })
+  await assert.rejects(state.manageStudentOff({ data: adminOffEdit(state, first, { endDate: '2026-08-24' }) }), { code: 'failed-precondition' })
+  assert.equal(state.read('contracts/contract-1').endDate, '2026-11-03')
+})
+
+for (const action of ['approve', 'reject']) test('pending OFF decision must use the revision after an admin date correction: ' + action, async () => {
+  const state = adminOffState({
+    'leaveRequests/pending-edit': { studentId: 'student-1', contractId: 'contract-1', status: 'pending', type: 'off', startDate: '2026-08-24', endDate: '2026-08-26', reason: 'Công tác', submittedAtIso: '2026-08-19T00:00:00Z', revision: 2 },
+    'sessions/other-contract': { studentId: 'student-1', contractId: 'contract-2', date: '2026-08-24', status: 'scheduled' },
+  })
+  const edited = await state.manageStudentOff({ data: adminOffCommand({ action: 'edit', requestId: 'pending-edit', expectedRevision: 2, endDate: '2026-08-25' }) })
+  const decide = action === 'approve' ? state.approveContractPauseRequest : state.rejectContractPauseRequest
+  for (const expectedRevision of [undefined, 2]) await assert.rejects(decide({ data: { requestId: 'pending-edit', expectedRevision, reason: 'Không phù hợp lịch' } }), { code: 'aborted' })
+  assert.equal(state.read('leaveRequests/pending-edit').status, 'pending')
+  await decide({ data: { requestId: 'pending-edit', expectedRevision: edited.revision, reason: 'Không phù hợp lịch' } })
+  assert.equal(state.read('contracts/contract-1').endDate, action === 'approve' ? '2026-11-02' : '2026-10-31')
+  assert.equal(state.read('sessions/other-contract').status, 'scheduled')
+})
+
+test('approval of an edited pending OFF cannot erase unbilled attendance', async () => {
+  const state = adminOffState({
+    'leaveRequests/pending': { studentId: 'student-1', contractId: 'contract-1', status: 'pending', type: 'off', startDate: '2026-08-24', endDate: '2026-08-26', submittedAtIso: '2026-08-19T00:00:00Z', revision: 0 },
+    'sessions/attended': { studentId: 'student-1', contractId: 'contract-1', date: '2026-08-25', status: 'scheduled', billingStatus: 'pending', attendanceStatus: 'present' },
+  })
+  const edited = await state.manageStudentOff({ data: adminOffCommand({ action: 'edit', requestId: 'pending', expectedRevision: 0, endDate: '2026-08-25' }) })
+  await assert.rejects(state.approveContractPauseRequest({ data: { requestId: 'pending', expectedRevision: edited.revision } }), { code: 'failed-precondition' })
+  assert.equal(state.read('sessions/attended').attendanceStatus, 'present')
+  assert.equal(state.read('contracts/contract-1').endDate, '2026-10-31')
+})

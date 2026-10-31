@@ -293,11 +293,11 @@ function RenewContractWizard({ row, options, scope, onClose, onSuccess }: Modern
           {requiresApproval && quoteId && <div className="renewal-approval-box"><label>Lý do xin duyệt<textarea value={approvalReason} disabled={submitting} onChange={(event) => setApprovalReason(event.target.value)} maxLength={500} /></label><button type="button" disabled={submitting || Boolean(approvalId)} onClick={() => void requestApproval()}>{approvalStatus === 'approved' ? 'Đã duyệt' : approvalStatus === 'pending' ? 'Đang chờ duyệt' : 'Gửi quản lý duyệt'}</button>{approvalStatus === 'pending' && <small>Cần một Quản lý chi nhánh hoặc Admin khác phê duyệt. Sau khi được duyệt, bấm Tiếp tục để kiểm tra lại.</small>}</div>}
         </section>}
 
-        {step === 3 && <section className="renewal-form-section renewal-step-panel"><div className="renewal-section-title"><span>03</span><div><h3>Thu tiền & công nợ</h3><p>Phiếu thu được tạo khi xác nhận hợp đồng.</p></div></div><div className="renewal-form-grid">
+        {step === 3 && <section className="renewal-form-section renewal-step-panel"><div className="renewal-section-title"><span>03</span><div><h3>Thu tiền & công nợ</h3></div></div><div className="renewal-form-grid">
           <label>Số tiền trả trước<input type="number" inputMode="numeric" min="0" step="1" max={finalPrice} value={initialPayment || ''} placeholder="0" onChange={(event) => setInitialPayment(Math.max(0, Number(event.target.value) || 0))} /></label>
-          <label>Phương thức<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} disabled={!initialPayment}><option value="transfer">Chuyển khoản</option><option value="cash">Tiền mặt</option><option value="card">Thẻ</option></select></label>
+          {initialPayment > 0 && <label>Phương thức<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}><option value="transfer">Chuyển khoản</option><option value="cash">Tiền mặt</option><option value="card">Thẻ</option></select></label>}
           {initialPayment > 0 && <label className="is-wide">Tài khoản quỹ<select required value={cashAccountId} onChange={(event) => setCashAccountId(event.target.value)}><option value="">Chọn quỹ nhận tiền</option>{cashAccounts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
-        </div><div className="renewal-money-summary"><div><span>Trả trước</span><strong>{money(initialPayment)}</strong></div><div><span>Còn phải thu</span><strong>{money(debt)}</strong></div></div>
+        </div>
           <ContractPaymentPlanEditor installments={installments} remainingAmount={debt} startDate={startDate} endDate={endDate} minDate={startDate} maxDate={endDate} maxInstallments={12} onChange={setCustomInstallments} />
         </section>}
 

@@ -146,7 +146,7 @@ test('reporting runtime selects only exact allowlisted targets outside every dis
 test('all four targets preserve real SDK metadata, named database, public IAM and App Check without unrelated domains', () => {
   for (const environment of [{}, { ENFORCE_APP_CHECK: 'true' }, { ENFORCE_AI_APP_CHECK: 'true', FIRESTORE_DATABASE_ID: 'reporting-test-database' }]) {
     const discovery = probe({ environment })
-    assert.equal(discovery.exportNames.length, 576)
+    assert.equal(discovery.exportNames.length, 578)
     for (const target of REPORTING_READ_TARGETS) {
       const runtime = probe({ environment: { ...environment, FUNCTION_TARGET: target } })
       assert.deepEqual(runtime.exportNames, [target])

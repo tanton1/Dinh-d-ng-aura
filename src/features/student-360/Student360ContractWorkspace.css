@@ -13,8 +13,6 @@
 
 .student360-contract-form fieldset.student360-contract-create-fields{border:0;padding:0;margin:0;min-width:0}
 .student360-payment-actions{display:flex;flex-wrap:wrap;gap:8px}
-.student360-contract-upfront-note{margin:0;color:#775d68;font-size:12px;line-height:1.6}
-.student360-contract-form .contract-payment-plan label{font-size:12px}
 .student360-contract-form .contract-payment-plan :is(input,select){font-size:14px}
 
 .student360-contract-assignment-issues > strong {
@@ -37,3 +35,9 @@
 .student360-renewal-dates small,.student360-renewal-dates strong{display:block}.student360-renewal-dates small{color:#7b6d75;font-size:11px;margin-bottom:5px}.student360-renewal-dates strong{font-size:13px}
 .student360-renewal-dates p{grid-column:1/-1;margin:0;font-size:12px;line-height:1.6;color:#7b6d75}
 @media(max-width:600px){.student360-renewal-dates{grid-template-columns:1fr}.student360-renewal-dates>div{display:flex;justify-content:space-between;gap:12px}}
+
+.student360-contract-ledger .student360-off-edit{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;min-width:42px;min-height:42px;margin-left:auto;border:1px solid #e6d4dd;border-radius:8px;background:#fff;color:#b92259;cursor:pointer}
+
+.student360-contract-form fieldset.student360-contract-upfront{border:0;padding:0;margin:14px 0;min-width:0}
+.student360-contract-upfront .student360-contract-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.student360-contract-upfront .student360-contract-form-grid>label:first-child{grid-column:1 / -1}

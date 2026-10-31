@@ -12,6 +12,7 @@ const regionalOperationNames = new Set([
   'createMyContractPauseRequest',
   'approveContractPauseRequest',
   'rejectContractPauseRequest',
+  'manageStudentOff',
 ])
 
 function call<Input, Output>(name: string, input: Input) {
@@ -82,6 +83,7 @@ export interface PtSessionOperationsRequest extends PtOperationsRequestBase {
 }
 
 export interface PtPauseOperationsRequest extends PtOperationsRequestBase {
+  revision?: number
   kind: 'pause'
   type: 'off' | 'preservation'
   startDate: string
@@ -102,11 +104,59 @@ export interface PtPauseOperationsRequest extends PtOperationsRequestBase {
 export type PtOperationsRequest = PtSessionOperationsRequest | PtPauseOperationsRequest
 
 export interface PtOperationsRequestPage {
+  canManageStudentOff?: boolean
   schemaVersion: number
   kind: 'all' | 'session' | 'pause'
   summary: { total: number; pending: number; approved: number; rejected: number }
   records: PtOperationsRequest[]
   truncated: boolean
+}
+
+export interface StudentOffContext {
+  contractId: string
+  contractRevision: number
+  studentName: string
+  packageName: string
+  startDate: string
+  endDate: string
+  maxOffEndDate: string
+  now: string
+  today: string
+  policy: { maxDays: number; cutoffHour: number; offLimit: number; offUsed: number }
+  request: { id: string; revision: number; status: 'pending' | 'approved'; startDate: string; endDate: string; reason: string } | null
+}
+
+export interface StudentOffCommand {
+  action: 'create' | 'edit'
+  contractId: string
+  requestId?: string
+  expectedContractRevision: number
+  expectedRevision?: number
+  startDate: string
+  endDate: string
+  reason: string
+  exceptionReason: string
+  idempotencyKey: string
+}
+
+export interface StudentOffResult {
+  requestId: string
+  status: 'pending' | 'approved'
+  revision: number
+  durationDays: number
+  deltaDays: number
+  newEndDate: string
+  cancelledSessionCount: number
+  rescheduleNeededCount: number
+  unchanged: boolean
+}
+
+export function getStudentOffContext(contractId: string, requestId?: string) {
+  return call<{ action: 'context'; contractId: string; requestId?: string }, StudentOffContext>('manageStudentOff', { action: 'context', contractId, ...(requestId ? { requestId } : {}) })
+}
+
+export function saveStudentOff(input: StudentOffCommand) {
+  return call<StudentOffCommand, StudentOffResult>('manageStudentOff', input)
 }
 
 export function listPtOperationsRequests(kind: 'all' | 'session' | 'pause') {
@@ -319,10 +369,10 @@ export function createMyContractPauseRequest(input: ContractPauseRequestInput) {
   return call<typeof input, ContractPauseRequestResult>('createMyContractPauseRequest', input)
 }
 
-export function approveContractPauseRequest(requestId: string, exceptionReason?: string) {
-  return call<{ requestId: string; exceptionReason?: string }, { unchanged: boolean; status: 'approved'; type: 'off' | 'preservation'; durationDays: number; newEndDate: string; cancelledSessionCount: number; autoRejectedSessionRequestCount?: number; offSequence?: number | null; offLimit?: number; exceptionApproved?: boolean }>('approveContractPauseRequest', { requestId, ...(exceptionReason ? { exceptionReason } : {}) })
+export function approveContractPauseRequest(requestId: string, exceptionReason?: string, expectedRevision?: number) {
+  return call<{ requestId: string; exceptionReason?: string; expectedRevision?: number }, { unchanged: boolean; status: 'approved'; type: 'off' | 'preservation'; durationDays: number; newEndDate: string; cancelledSessionCount: number; autoRejectedSessionRequestCount?: number; offSequence?: number | null; offLimit?: number; exceptionApproved?: boolean }>('approveContractPauseRequest', { requestId, ...(exceptionReason ? { exceptionReason } : {}), ...(expectedRevision === undefined ? {} : { expectedRevision }) })
 }
 
-export function rejectContractPauseRequest(requestId: string, reason: string) {
-  return call<{ requestId: string; reason: string }, { unchanged: boolean; status: 'rejected' }>('rejectContractPauseRequest', { requestId, reason })
+export function rejectContractPauseRequest(requestId: string, reason: string, expectedRevision?: number) {
+  return call<{ requestId: string; reason: string; expectedRevision?: number }, { unchanged: boolean; status: 'rejected' }>('rejectContractPauseRequest', { requestId, reason, ...(expectedRevision === undefined ? {} : { expectedRevision }) })
 }

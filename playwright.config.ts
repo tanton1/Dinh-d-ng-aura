@@ -14,7 +14,7 @@ export default defineConfig({
   testDir: './tests/e2e',
   // Academy fixtures use their own Vite server and are all covered by the
   // dedicated Academy CI job; the production preview does not serve them.
-  testIgnore: ['**/academy-*.spec.ts', '**/contract-renewal-handover.spec.ts', '**/nutrition-queue-wait.spec.ts', '**/workout-save-recovery.spec.ts', '**/operations-request-center.spec.ts'],
+  testIgnore: ['**/academy-*.spec.ts', '**/contract-renewal-handover.spec.ts', '**/nutrition-queue-wait.spec.ts', '**/workout-save-recovery.spec.ts', '**/operations-request-center.spec.ts', '**/student-off.spec.ts'],
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,

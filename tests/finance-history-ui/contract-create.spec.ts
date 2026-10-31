@@ -11,7 +11,7 @@ async function openCreate(page: import('@playwright/test').Page) {
 }
 
 test('new contract collects upfront and sends only the unequal remaining debt, preserving custom amounts after a price change', async ({ page }, testInfo) => {
-  await page.setViewportSize({ width: 390, height: 844 })
+  await page.setViewportSize({ width: 360, height: 844 })
   const form = await openCreate(page)
   expect(await page.evaluate(() => (window as any).financeState.cashCalls.length)).toBe(0)
   await form.getByLabel('Số tiền trả trước', { exact: true }).fill('300000')
@@ -27,9 +27,10 @@ test('new contract collects upfront and sends only the unequal remaining debt, p
   await form.getByRole('button', { name: 'Lưu hợp đồng', exact: true }).click()
   expect(await page.evaluate(() => (window as any).financeState.contractCreateCalls.length)).toBe(0)
   await form.getByLabel('Số tiền kỳ 3', { exact: true }).fill('400000')
-  await expect(form.locator('.contract-payment-plan__balance')).not.toContainText('Vượt')
+  await expect(form.locator('.contract-payment-plan__error')).toHaveCount(0)
   await page.screenshot({ path: `test-results/${testInfo.project.name}-contract-payment-plan.png`, fullPage: true })
   expect(await form.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+  for (const input of await form.locator('input[type="date"]').all()) expect(await input.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
   await form.getByRole('button', { name: 'Lưu hợp đồng', exact: true }).evaluate((button: HTMLButtonElement) => { button.click(); button.click() })
   await expect(form).toHaveCount(0)
   const calls = await page.evaluate(() => (window as any).financeState.contractCreateCalls)
@@ -64,7 +65,7 @@ test('fully paid creation has no installments and a cash read failure can be ret
   await form.getByLabel('Số tiền trả trước', { exact: true }).fill('1200000')
   await form.getByRole('button', { name: 'Tải lại quỹ', exact: true }).click()
   await expect(form.getByLabel('Quỹ nhận tiền', { exact: true })).toHaveValue('cash-a')
-  await expect(form.getByText('Đã thanh toán đủ. Không còn kỳ phải thu.', { exact: true })).toBeVisible()
+  await expect(form.locator('.contract-payment-plan > header')).toContainText('Còn phải thu 0đ')
   await expect(form.locator('.contract-payment-plan__row')).toHaveCount(0)
   await form.getByRole('button', { name: 'Lưu hợp đồng', exact: true }).click()
   await expect(form).toHaveCount(0)
@@ -120,3 +121,20 @@ test('lost create response freezes the original draft and retries stable ID with
   await expect(form).toHaveCount(0)
   expect(await page.evaluate(() => (window as any).financeState.contractCreateCalls[2].contractId)).not.toBe(state.calls[0].contractId)
 })
+
+test('student contract opens admin OFF for the selected contract and resets on account changes', async ({ page }) => {
+  await page.route('**/src/services/sessionOperationsService.ts*', route => route.fulfill({ contentType: 'application/javascript', body: `
+    window.adminOffContractIds = [];
+    export const getStudentOffContext = async contractId => { window.adminOffContractIds.push(contractId); return { contractId, contractRevision: 1, studentName: 'Test learner A', packageName: 'Test package A', startDate: '2026-10-01', endDate: '2026-12-31', maxOffEndDate: '2026-12-31', now: '2026-10-23T00:00:00Z', today: '2026-10-23', policy: { maxDays: 14, cutoffHour: 9, offLimit: 2, offUsed: 0 }, request: null }; };
+    export const saveStudentOff = async () => ({});
+  ` }));
+  await page.goto('/tests/finance-history-ui/index.html?workspace=student');
+  await page.getByRole('button', { name: 'Tạo OFF', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Tạo OFF', exact: true })).toBeVisible();
+  await expect(page.getByRole('dialog')).toContainText('Test learner A');
+  const ids = await page.evaluate(() => (window as any).adminOffContractIds as string[]);
+  expect(ids.length).toBeGreaterThan(0);
+  expect(ids.every(id => id === 'contract-a')).toBe(true);
+  await page.getByRole('button', { name: 'Change account' }).evaluate((el: HTMLButtonElement) => el.click());
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+});

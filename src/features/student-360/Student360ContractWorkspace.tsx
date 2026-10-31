@@ -45,6 +45,7 @@ import './Student360ContractWorkspace.css'
 
 const ContractSettlementPanel = lazy(() => import('./ContractSettlementPanel'))
 const RenewContractModal = lazy(() => import('../../components/admin/pt/RenewContractModal'))
+const StudentOffModal = lazy(() => import('../../components/admin/pt/StudentOffModal'))
 const ContractInvoice = lazy(() => import('../../components/admin/pt/ContractInvoice'))
 const money = new Intl.NumberFormat('vi-VN')
 const date = new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })
@@ -224,10 +225,10 @@ function formFor(workspace: Workspace, contract?: Student360ContractRecord): Con
 export default function Student360ContractWorkspace(props: Props) {
   const { user, profile, authzReady } = useAuth()
   const authority = JSON.stringify([props.studentId, user?.uid, profile?.uid, profile?.role, profile?.accessRole, profile?.authzVersion, profile?.disabled, profile?.branchId, [...(profile?.positions || [])].sort(), authzReady])
-  return <ContractWorkspaceSession key={authority} {...props} ownerUid={user?.uid || profile?.uid || ''} />
+  return <ContractWorkspaceSession key={authority} {...props} ownerUid={user?.uid || profile?.uid || ''} canManageOff={['admin', 'super_admin'].includes(profile?.accessRole || profile?.role || '') && !props.isDemo} />
 }
 
-function ContractWorkspaceSession({ studentId, overview, source, isDemo, onNavigate, onChanged, onNotice, ownerUid }: Props & { ownerUid: string }) {
+function ContractWorkspaceSession({ studentId, overview, source, isDemo, onNavigate, onChanged, onNotice, ownerUid, canManageOff }: Props & { ownerUid: string; canManageOff: boolean }) {
   const mounted = useRef(true)
   const cashRequest = useRef(0)
   const workspaceRequest = useRef(0)
@@ -251,6 +252,7 @@ function ContractWorkspaceSession({ studentId, overview, source, isDemo, onNavig
   const [initialCashLoading, setInitialCashLoading] = useState(false)
   const [initialCashError, setInitialCashError] = useState('')
   const [initialCashAttempt, setInitialCashAttempt] = useState(0)
+  const [offDialog, setOffDialog] = useState<{ contractId: string; requestId?: string } | null>(null)
   const [extendOpen, setExtendOpen] = useState(false)
   const [addSessionsForm, setAddSessionsForm] = useState<AddSessionsForm | null>(null)
   const [newEndDate, setNewEndDate] = useState('')
@@ -572,6 +574,7 @@ function ContractWorkspaceSession({ studentId, overview, source, isDemo, onNavig
     <section className="student360-contract-commandbar">
       <div><small>Thao tác hợp đồng</small><strong>{selected ? selected.packageName : 'Quản lý quyền lợi học viên'}</strong><span>Thay đổi được lưu vào nhật ký để đối soát.</span></div>
       <div>
+        {canManageOff && selected && ['active', 'frozen'].includes(selected.status) && !selected.renewalSupersededBy && <button type="button" onClick={() => setOffDialog({ contractId: selected.id })}><CalendarClock /> Tạo OFF</button>}
         {selected && selected.status !== 'cancelled' && workspace.permissions.canManageContract && <button type="button" onClick={() => openForm('edit')}><FilePenLine /> Chỉnh sửa</button>}
         {workspace.permissions.canCreateContract && <button type="button" onClick={() => openForm('create')}><FilePlus2 /> Tạo hợp đồng</button>}
         {selected && <details className="student360-contract-more-actions"><summary><MoreHorizontal /> Thêm</summary><div>
@@ -614,14 +617,14 @@ function ContractWorkspaceSession({ studentId, overview, source, isDemo, onNavig
       {selected.status === 'cancelled' && workspace.permissions.canViewFinancialAmounts && !isDemo && <Suspense fallback={<p role="status">Đang mở quyết toán…</p>}><ContractSettlementPanel contractId={selected.id} branchId={selected.branchId} onChanged={refreshSettlementSummary} /></Suspense>}
 
       {workspace.permissions.canViewFinancialAmounts && selected.status !== 'cancelled' && <section className="student360-contract-payment-board">
-        <header><div><WalletCards /><span><strong>Thanh toán & trả góp</strong><small>Thu tiền sinh phiếu thu; hoàn tiền sinh bút toán đối ứng.</small></span></div><div className="student360-payment-actions">{workspace.permissions.canManageContract && workspace.permissions.canEditFinancialTerms && <button type="button" onClick={() => { openForm('edit'); setPaymentPlanOnly(true) }}><FilePenLine /> Chỉnh lịch thanh toán</button>}{workspace.permissions.canCollectPayments && <button type="button" onClick={() => void openFinance()}><CircleDollarSign /> {financeOpen ? 'Đóng quản lý' : 'Quản lý thu tiền'}</button>}</div></header>
+        <header><div><WalletCards /><span><strong>Thanh toán & trả góp</strong></span></div><div className="student360-payment-actions">{workspace.permissions.canManageContract && workspace.permissions.canEditFinancialTerms && <button type="button" onClick={() => { openForm('edit'); setPaymentPlanOnly(true) }}><FilePenLine /> Chỉnh lịch thanh toán</button>}{workspace.permissions.canCollectPayments && <button type="button" onClick={() => void openFinance()}><CircleDollarSign /> {financeOpen ? 'Đóng quản lý' : 'Quản lý thu tiền'}</button>}</div></header>
         <div className="student360-contract-money"><span>Giá trị <b>{money.format(selected.totalPrice || 0)}đ</b></span><span>Đã thu <b>{money.format(selected.paidAmount || 0)}đ</b></span><span>Còn nợ <b>{money.format(outstanding || 0)}đ</b></span></div>
         {financeOpen && workspace.permissions.canCollectPayments && <div className="student360-contract-cash-controls"><label>Quỹ nhận/chi<select value={cashAccountId} onChange={(event) => setCashAccountId(event.target.value)}><option value="">Chọn quỹ bắt buộc</option>{cashAccounts.map((item) => <option key={item.id} value={item.id}>{item.name} · {money.format(item.balance)}đ</option>)}</select></label><label>Phương thức<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}><option value="transfer">Chuyển khoản</option><option value="cash">Tiền mặt</option><option value="wallet">Ví điện tử</option></select></label></div>}
         <div className="student360-contract-installments">{selected.installments.map((item, index) => <article key={item.id} className={`is-${item.status}`}><span>{index + 1}</span><div><strong>{item.amount === undefined ? 'Đã ẩn số tiền' : `${money.format(item.amount)}đ`}</strong><small>Hạn {dateLabel(item.date)}</small></div><b>{installmentLabel(item.status)}</b>{financeOpen && item.status === 'pending' && <button type="button" onClick={() => setConfirmation({ action: 'payment', title: 'Xác nhận thu tiền', message: `Aura sẽ thu ${money.format(item.amount || 0)}đ vào quỹ đã chọn và tự tạo phiếu thu.`, installment: item })}>Thu tiền</button>}{financeOpen && item.status === 'paid' && <button type="button" onClick={() => { setReason(''); setConfirmation({ action: 'refund', title: 'Xác nhận hoàn tiền', message: `Aura sẽ tạo bút toán hoàn ${money.format(item.amount || 0)}đ; chứng từ thu cũ không bị xóa.`, installment: item }) }}><RotateCcw /> Hoàn tác</button>}</article>)}{selected.installments.length === 0 && <p>Hợp đồng chưa có lịch trả góp.</p>}</div>
       </section>}
 
       {(selected.pausePeriods.length > 0 || selected.extensions.length > 0) && <section className="student360-contract-ledger">
-        <div><h3>OFF & bảo lưu</h3>{selected.pausePeriods.map((item) => <article key={item.requestId}><PauseCircle /><span><strong>{item.type === 'preservation' ? 'Bảo lưu' : 'OFF'} · {item.durationDays} ngày</strong><small>{dateLabel(item.startDate)} → {dateLabel(item.endDate)}</small></span></article>)}{selected.pausePeriods.length === 0 && <p>Chưa có kỳ OFF hoặc bảo lưu.</p>}</div>
+        <div><h3>OFF & bảo lưu</h3>{selected.pausePeriods.map((item) => <article key={item.requestId}><PauseCircle /><span><strong>{item.type === 'preservation' ? 'Bảo lưu' : 'OFF'} · {item.durationDays} ngày</strong><small>{dateLabel(item.startDate)} → {dateLabel(item.endDate)}</small></span>{canManageOff && item.type === 'off' && ['active', 'frozen'].includes(selected.status) && !selected.renewalSupersededBy && <button type="button" className="student360-off-edit" aria-label={`Sửa ngày OFF ${dateLabel(item.startDate)}`} onClick={() => setOffDialog({ contractId: selected.id, requestId: item.requestId })}><FilePenLine size={16} /></button>}</article>)}{selected.pausePeriods.length === 0 && <p>Chưa có kỳ OFF hoặc bảo lưu.</p>}</div>
         <div><h3>Lịch sử gia hạn ngày</h3>{selected.extensions.map((item) => <article key={item.id}><CalendarClock /><span><strong>{dateLabel(item.oldEndDate)} → {dateLabel(item.newEndDate)}</strong><small>{item.reason || 'Không có ghi chú'}</small></span></article>)}{selected.extensions.length === 0 && <p>Chưa gia hạn ngày hợp đồng.</p>}</div>
       </section>}
     </>}
@@ -650,7 +653,6 @@ function ContractWorkspaceSession({ studentId, overview, source, isDemo, onNavig
         </div>
         {initialCashError && form.initialPayment > 0 && !pendingCreate && <p role="alert">{initialCashError} <button type="button" onClick={() => setInitialCashAttempt(value => value + 1)}>Tải lại quỹ</button></p>}
         {!initialCashLoading && !initialCashError && form.initialPayment > 0 && !pendingCreate && initialCashAccounts.length === 0 && <p role="alert">Chưa có quỹ nhận tiền đang hoạt động tại chi nhánh này.</p>}
-        {form.initialPayment > 0 && <p className="student360-contract-upfront-note">Khi lưu thành công, tự tạo phiếu thu {money.format(form.initialPayment)}đ.</p>}
       </fieldset>}
       {workspace.permissions.canEditFinancialTerms && <ContractPaymentPlanEditor installments={formInstallments} remainingAmount={formRemaining} startDate={form.startDate} endDate={form.endDate} minDate={formMode === 'create' ? form.startDate : undefined} maxDate={formMode === 'create' ? form.endDate : undefined} onChange={items => setForm({ ...form, installments: items, installmentsCustomized: true })} />}
       {!paymentPlanOnly && <label>Ghi chú<textarea rows={3} maxLength={1000} value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} /></label>}</fieldset><footer><button type="button" onClick={() => setFormMode(null)}>Hủy</button><button type="submit" disabled={saving || (!paymentPlanOnly && assignmentIssues.length > 0)}>{saving ? 'Đang lưu…' : pendingCreate && formMode === 'create' ? 'Kiểm tra / tạo lại hợp đồng' : !paymentPlanOnly && assignmentIssues.length ? `Gỡ ${assignmentIssues.length} liên kết để lưu` : paymentPlanOnly ? 'Lưu lịch thanh toán' : 'Lưu hợp đồng'}</button></footer></form></div>}
@@ -678,6 +680,7 @@ function ContractWorkspaceSession({ studentId, overview, source, isDemo, onNavig
         <footer><button type="button" disabled={preparingRenewal} onClick={() => openForm('create', true)}>Tạo hợp đồng độc lập</button>{overview.permissions.canViewRenewal && <button type="button" disabled={preparingRenewal} onClick={() => void openRenewal()}>{preparingRenewal ? 'Đang mở…' : 'Tiếp tục nối tiếp'}</button>}</footer>
       </>}
     </section></div>}
+    {offDialog && <Suspense fallback={<div role="status">Đang mở OFF…</div>}><StudentOffModal key={`${offDialog.contractId}/${offDialog.requestId || 'new'}`} {...offDialog} onClose={() => setOffDialog(null)} onSaved={() => { setOffDialog(null); void load(); void onChanged(); onNotice('Đã cập nhật OFF và thời hạn hợp đồng.') }} /></Suspense>}
     {preparedRenewal && <Suspense fallback={<div role="status">Đang mở hợp đồng nối tiếp…</div>}><RenewContractModal row={preparedRenewal.row} options={preparedRenewal.options} scope={preparedRenewal.scope} onClose={() => setPreparedRenewal(null)} onSuccess={async () => { setPreparedRenewal(null); await load(); await onChanged(); onNotice('Đã tạo hợp đồng nối tiếp và ghi nhận thanh toán.'); }} /></Suspense>}
     {invoiceOpen && selected && <Suspense fallback={<div className="student360-dialog-layer"><div className="student360-contract-workspace-state"><LoaderCircle className="is-spinning" /> Đang mở hợp đồng…</div></div>}><ContractInvoice student={toInvoiceStudent(workspace)} contract={toInvoiceContract(selected)} onClose={() => setInvoiceOpen(false)} /></Suspense>}
   </div>

@@ -1182,6 +1182,7 @@ exports.rejectSessionRequest = sessionOperationFunctions.rejectSessionRequest
 exports.createMyContractPauseRequest = sessionOperationFunctions.createMyContractPauseRequest
 exports.approveContractPauseRequest = sessionOperationFunctions.approveContractPauseRequest
 exports.rejectContractPauseRequest = sessionOperationFunctions.rejectContractPauseRequest
+exports.manageStudentOff = sessionOperationFunctions.manageStudentOff
 
 // Contract pause requests are interactive and must remain available when the
 // shared asia-southeast1 Cloud Run quota is saturated. Keep the original
@@ -1198,6 +1199,7 @@ exports.listPtOperationsRequestsRegional = sessionOperationRegionalFunctions.lis
 exports.createMyContractPauseRequestRegional = sessionOperationRegionalFunctions.createMyContractPauseRequest
 exports.approveContractPauseRequestRegional = sessionOperationRegionalFunctions.approveContractPauseRequest
 exports.rejectContractPauseRequestRegional = sessionOperationRegionalFunctions.rejectContractPauseRequest
+exports.manageStudentOffRegional = sessionOperationRegionalFunctions.manageStudentOff
 // Route the complete learner/admin request lifecycle through the same bounded
 // overflow profile. Keeping the southeast names above preserves rollback and
 // older clients, while the current web client no longer splits one workflow

@@ -6,6 +6,7 @@ const { prepareRenewalSessionCharge, renewalHandoverPlan, applyRenewalHandover, 
 const { contractSalesIndexPatch } = require('./contract-sales-index')
 const { createHash } = require('node:crypto')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
+const { canManageStudentOff, createAdminStudentOffFunction, hasProtectedOffSession } = require('./admin-student-off')
 const { ptRevenueRecognitionWrite, contractNetValue } = require('./finance-recognition')
 const { recognitionBalanceIssue } = require('./finance-recognition-evidence')
 const { nextServiceOrdinal } = require('./service-ordinal-allocation')
@@ -2224,7 +2225,7 @@ async function adminActor(request, db) {
 
 function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminActor, authorizeStudent = studentActor, now = () => new Date(), logger = console }) {
   const listPtOperationsRequests = onCall(async (request) => {
-    await authorizeAdmin(request, db)
+    const actor = await authorizeAdmin(request, db)
     const kind = request.data?.kind === 'pause'
       ? 'pause'
       : request.data?.kind === 'session'
@@ -2308,6 +2309,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           offLimit: Number(item.offLimit || 0) || null,
           newContractEndDate: optionalText(item.newContractEndDate, 10) || null,
           cancelledSessionCount: Number(item.cancelledSessionCount || 0),
+          revision: Number(item.revision || 0),
           requiresExceptionApproval: item.requiresExceptionApproval === true,
           exceptionType: optionalText(item.exceptionType, 64) || null,
           exceptionReason: optionalText(item.exceptionReason) || null,
@@ -2362,7 +2364,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       result[item.status] += 1
       return result
     }, { total: 0, pending: 0, approved: 0, rejected: 0 })
-    return { schemaVersion: 1, kind, summary, records, truncated }
+    return { schemaVersion: 1, kind, summary, records, truncated, canManageStudentOff: canManageStudentOff(actor) }
   })
 
   const getMySessionChangeSuggestions = onCall(async (request) => {
@@ -4294,6 +4296,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         return { unchanged: true, status: 'approved', type: requestData.type, durationDays: requestData.durationDays, newEndDate: requestData.newContractEndDate, cancelledSessionCount: requestData.cancelledSessionCount || 0 }
       }
       if (requestData.status !== 'pending') throw new HttpsError('failed-precondition', 'Yêu cầu này không còn chờ duyệt.')
+      if ((requestData.lastAdminOperationId || request.data?.expectedRevision !== undefined) && request.data?.expectedRevision !== Number(requestData.revision || 0)) throw new HttpsError('aborted', 'Ngày OFF đã thay đổi. Hãy tải lại yêu cầu trước khi duyệt.')
       const studentId = id(requestData.studentId, 'Mã học viên')
       const contractId = id(requestData.contractId, 'Mã hợp đồng')
       const startDate = date(requestData.startDate)
@@ -4371,9 +4374,10 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           if (Object.keys(patch).length) linkedRenewal = { reference: linkedReference, patch: { ...patch, ...contractSalesIndexPatch({ ...linked, ...patch }), revision: Number(linked.revision || 0) + 1, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid } }
         }
       }
-      const activeSessions = sessionsSnapshot.docs.filter((item) => isActiveSessionStatus(item.data().status))
-      if (activeSessions.some((item) => isSessionCharged(item.data()))) {
-        throw new HttpsError('failed-precondition', 'Khoảng nghỉ có buổi đã được tính. Hãy điều chỉnh riêng buổi đó trước khi duyệt.')
+      if (sessionsSnapshot.docs.some(item => !item.data().contractId && (isActiveSessionStatus(item.data().status) || hasProtectedOffSession(item.data())))) throw new HttpsError('failed-precondition', 'Có buổi tập thiếu mã hợp đồng trong khoảng nghỉ. Hãy đối soát trước.')
+      const activeSessions = sessionsSnapshot.docs.filter((item) => item.data().contractId === contractId && isActiveSessionStatus(item.data().status))
+      if (sessionsSnapshot.docs.some(item => item.data().contractId === contractId && hasProtectedOffSession(item.data()))) {
+        throw new HttpsError('failed-precondition', 'Khoảng nghỉ có buổi đã điểm danh hoặc tính phí. Hãy đối soát buổi đó trước khi duyệt.')
       }
       const activeSessionIds = new Set(activeSessions.map((item) => item.id))
       const pendingSessionRequests = sessionRequestsSnapshot.docs
@@ -4512,6 +4516,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       const data = snapshot.data()
       if (data.status === 'rejected') return { unchanged: true, status: 'rejected' }
       if (data.status !== 'pending') throw new HttpsError('failed-precondition', 'Yêu cầu này không còn chờ duyệt.')
+      if ((data.lastAdminOperationId || request.data?.expectedRevision !== undefined) && request.data?.expectedRevision !== Number(data.revision || 0)) throw new HttpsError('aborted', 'Ngày OFF đã thay đổi. Hãy tải lại yêu cầu trước khi từ chối.')
       transaction.update(requestReference, {
         status: 'rejected',
         adminNote: reason,
@@ -4595,6 +4600,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
   })
 
   return {
+    manageStudentOff: createAdminStudentOffFunction({ db, onCall, authorizeAdmin, now, readCancellationSchedulePlan, applyCancellationSchedulePlan }),
     listPtOperationsRequests,
     getMySessionChangeSuggestions,
     getMyAdditionalSessionSuggestions,
