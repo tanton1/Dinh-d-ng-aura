@@ -198,7 +198,7 @@ test('real SDK registration opts in six exports and the original source guards r
   assert.ok(row)
   const value = JSON.parse(row.slice('EVENT_REGISTRATION:'.length))
   const targets = ['syncSessionOperationalActions', 'syncStaffOperationalSummary', 'syncStudent360OperationalActions']
-  assert.equal(value.count, 576); assert.deepEqual(value.registered.sort(), [
+  assert.equal(value.count, 578); assert.deepEqual(value.registered.sort(), [
     'processStudent360SourceQueue', 'rebuildDirtyPtScheduleWeeklyViewsScheduled', 'recoverStudent360SourceQueueScheduled', ...targets,
   ].sort())
   assert.equal(value.logs.length, 3)

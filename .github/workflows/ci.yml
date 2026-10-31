@@ -177,6 +177,12 @@ jobs:
       - name: Test finance history reads on demand
         if: matrix.project == 'chromium'
         run: npm run test:finance-history-ui -- --project=finance-chromium
+      - name: Test admin OFF dates, policy and request scope
+        if: matrix.project == 'chromium'
+        run: npx playwright test --config playwright.operations-requests.config.ts --project=operations-requests-chromium
+      - name: Test admin OFF on mobile Safari
+        if: matrix.project == 'mobile-webkit'
+        run: npx playwright test --config playwright.operations-requests.config.ts --project=operations-requests-mobile-webkit
       - name: Test finance history reads on mobile Safari
         if: matrix.project == 'mobile-webkit'
         run: npm run test:finance-history-ui -- --project=finance-mobile-webkit
