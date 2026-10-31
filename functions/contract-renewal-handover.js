@@ -6,6 +6,7 @@ const { renewalRevenueAllocation, revenueSegments } = require('./pt-revenue-allo
 const { contractPausedOn, contractEffectiveOnDate } = require('./contract-status')
 const { summarizeContractUsage, MAX_SESSION_EVIDENCE } = require('./contract-usage')
 const { addDateDays, vietnamDateKey } = require('./pt-policy')
+const { contractSalesIndexPatch } = require('./contract-sales-index')
 
 const blockedStatuses = new Set(['cancelled', 'inactive', 'archived', 'draft', 'frozen'])
 const count = (value) => Math.max(0, Math.floor(Number(value) || 0))
@@ -105,7 +106,7 @@ function renewalHandoverPlan({ sourceId = null, source = null, nextId, next, dat
   if (projection.packageSessions < 1 || projection.effectiveStartDate > projection.effectiveEndDate) {
     throw new HttpsError('failed-precondition', 'Quyền lợi hợp đồng nối tiếp không hợp lệ.')
   }
-  return {
+  const plan = {
     sourceId, nextId, projection,
     caseId: next.renewalCaseId || sourceId || null, studentId: next.studentId || '', branchId: next.branchId || '',
     nextPatch: {
@@ -133,6 +134,9 @@ function renewalHandoverPlan({ sourceId = null, source = null, nextId, next, dat
       updatedAt: FieldValue.serverTimestamp(), revision: count(source.revision) + 1,
     } : null,
   }
+  Object.assign(plan.nextPatch, contractSalesIndexPatch({ ...next, ...plan.nextPatch }))
+  if (plan.sourcePatch) Object.assign(plan.sourcePatch, contractSalesIndexPatch({ ...source, ...plan.sourcePatch }))
+  return plan
 }
 
 function applyRenewalHandover(transaction, db, plan, actorUid) {

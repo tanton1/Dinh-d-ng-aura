@@ -70,6 +70,8 @@ test('full-price regional renewal commits contract, receipt, ledger and cash onc
     db.doc(`contractRenewalCases/${sourceId}`), db.doc(`quotes/${input.quoteId}`), db.doc(`cashAccounts/${cashAccountId}`),
   )
   assert.equal(contract.data().status, 'future')
+  assert(require('./contract-sales-index').hasCurrentContractSalesIndex(contract.data()))
+  assert.equal(contract.data().financeSalesIndex.key, today, 'future activation does not defer the new sale')
   assert.equal(contract.data().totalSessions, 36)
   assert.equal(contract.data().plannedCarryOverSessions, 3)
   assert.equal(contract.data().carriedOverSessions, 0)

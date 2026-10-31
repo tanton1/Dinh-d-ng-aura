@@ -77,6 +77,7 @@ export interface BusinessPerformanceReport {
     ledgerTruncated: boolean
     contractsTruncated?: boolean
     scannedSalesContracts?: number
+    contractSalesReadMode?: 'indexed' | 'legacy_gate' | 'legacy_coverage' | 'legacy_stale' | 'legacy_index' | 'not_requested'
     cancelledSalesBaselineUnverified?: number
     contractSalesDatesMissing?: number
     cashTransactionsTruncated?: boolean

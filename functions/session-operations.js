@@ -3,6 +3,7 @@ const { HttpsError } = require('firebase-functions/v2/https')
 const { effectiveContractStatus, contractPausedOn } = require('./contract-status')
 const { confirmedStudentOff } = require('./schedule-entitlement-policy')
 const { prepareRenewalSessionCharge, renewalHandoverPlan, applyRenewalHandover, renewalReservationProjection, renewalDateSyncPatch, assertRenewalLink } = require('./contract-renewal-handover')
+const { contractSalesIndexPatch } = require('./contract-sales-index')
 const { createHash } = require('node:crypto')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { ptRevenueRecognitionWrite, contractNetValue } = require('./finance-recognition')
@@ -4367,7 +4368,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           const linked = linkedSnapshot.data()
           assertRenewalLink(contractId, contract, linkedSnapshot.id, linked)
           const patch = renewalDateSyncPatch({ ...contract, endDate: nextEndDateKey }, linked)
-          if (Object.keys(patch).length) linkedRenewal = { reference: linkedReference, patch: { ...patch, revision: Number(linked.revision || 0) + 1, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid } }
+          if (Object.keys(patch).length) linkedRenewal = { reference: linkedReference, patch: { ...patch, ...contractSalesIndexPatch({ ...linked, ...patch }), revision: Number(linked.revision || 0) + 1, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid } }
         }
       }
       const activeSessions = sessionsSnapshot.docs.filter((item) => isActiveSessionStatus(item.data().status))

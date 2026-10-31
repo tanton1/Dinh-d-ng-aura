@@ -873,6 +873,9 @@ async function sourceEventTargets({ db, event, source } = {}) {
 }
 
 async function syncPtScheduleWeeklyViewSource({ db, event, source = 'source', logger = console } = {}) {
+  if (source === 'contract' && !projectionSourceChanged(event, 'contracts')) {
+    return { source, marked: 0, skipped: 'source_metadata_only' }
+  }
   if (source === 'contractUsage' && !projectionSourceChanged(event, 'contractUsageViews')) {
     return { source, marked: 0, skipped: 'projection_timestamps_only' }
   }

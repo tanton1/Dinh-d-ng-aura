@@ -1,4 +1,5 @@
 const { FieldValue, FieldPath, Timestamp } = require('firebase-admin/firestore')
+const { contractSalesIndexPatch } = require('./contract-sales-index')
 const { createHash } = require('node:crypto')
 const { withPrivateFunctionTelemetry } = require('./observability')
 const { ptOperationsPolicySnapshot } = require('./pt-policy')
@@ -266,7 +267,7 @@ async function activateDueRenewalContractsCore({ db, today = vietnamDateKey(), a
       if (handover) applyRenewalHandover(transaction, db, handover, actorUid)
       else {
         const patch = renewalDateSyncPatch(currentSource, next)
-        if (Object.keys(patch).length) transaction.update(item.ref, { ...patch, revision: Number(next.revision || 0) + 1, updatedAt: FieldValue.serverTimestamp() })
+        if (Object.keys(patch).length) transaction.update(item.ref, { ...patch, ...contractSalesIndexPatch({ ...next, ...patch }), revision: Number(next.revision || 0) + 1, updatedAt: FieldValue.serverTimestamp() })
       }
       return handover
     })
@@ -1353,6 +1354,10 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger, resolv
       }
       newContract.revenueAllocation = renewalRevenueAllocation({ sourceId: sourceContractId, source: currentSource,
         nextId: newContractReference.id, next: newContract, carriedOverSessions: handoverDue ? carriedOverSessions : 0 })
+      // Pin the signing instant once. Server timestamp sentinels cannot be
+      // normalized before commit, and activation may occur much later.
+      newContract.signedAt = paymentAt
+      Object.assign(newContract, contractSalesIndexPatch(newContract))
       transaction.create(newContractReference, newContract)
       let paymentEntryId = null
       let receiptVoucherId = null

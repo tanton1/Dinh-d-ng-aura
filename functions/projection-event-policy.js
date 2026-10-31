@@ -6,13 +6,17 @@ const { isDeepStrictEqual } = require('node:util')
 // In particular, sourceFingerprint remains meaningful: it identifies the
 // business projection, unlike the private transaction/deduplication markers.
 function projectionSourcePayload(value, collection) {
+  if (collection === 'contracts' && value) {
+    const { financeSalesIndex, ...body } = value
+    return body
+  }
   if (collection !== 'contractUsageViews' || !value) return value
   const { generatedAt, reconciledAt, contractSourceFingerprint, lastSessionSourceFingerprint, reconciliationProjectionFingerprint, ...body } = value
   return body
 }
 
 /** Compare source data before any Firestore lookups or projection leases.
- * Only explicitly known usage verification metadata is ignored. All other
+ * Only explicitly known usage verification and sales query metadata is ignored. All other
  * fields (including schema, business fingerprints and future fields) remain
  * significant, and creates/deletes always propagate.
  */

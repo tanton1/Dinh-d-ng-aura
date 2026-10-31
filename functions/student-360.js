@@ -1,7 +1,8 @@
 const { renewalDateSyncPatch, assertRenewalLink } = require('./contract-renewal-handover')
+const { contractSalesIndexPatch } = require('./contract-sales-index')
 const { createHash } = require('node:crypto')
 const { isDeepStrictEqual } = require('node:util')
-const { FieldPath, FieldValue } = require('firebase-admin/firestore')
+const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext } = require('./identity-access')
 const { PT_OPERATIONS_POLICY_EFFECTIVE_FROM, PT_OPERATIONS_POLICY_VERSION } = require('./pt-policy')
@@ -3026,7 +3027,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
           const linked = linkedSnapshot.data()
           assertRenewalLink(contractId, next, linkedSnapshot.id, linked)
           const patch = renewalDateSyncPatch(next, linked)
-          if (Object.keys(patch).length) linkedRenewal = { reference: linkedReference, patch: { ...patch, revision: Number(linked.revision || 0) + 1, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid } }
+          if (Object.keys(patch).length) linkedRenewal = { reference: linkedReference, patch: { ...patch, ...contractSalesIndexPatch({ ...linked, ...patch }), revision: Number(linked.revision || 0) + 1, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid } }
         }
       }
 
@@ -3046,11 +3047,14 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
       }
       if (action === 'create') {
         persisted.signedDate = vietnamDateKey(new Date(now))
+        persisted.signedAt = Timestamp.fromMillis(now)
         persisted.activationDate = persisted.status === 'active' ? persisted.startDate : null
         persisted.createdAt = FieldValue.serverTimestamp()
         persisted.createdBy = actor.uid
+        Object.assign(persisted, contractSalesIndexPatch(persisted))
         transaction.create(reference, persisted)
       } else {
+        Object.assign(persisted, contractSalesIndexPatch(persisted))
         transaction.set(reference, persisted, { merge: false })
       }
       if (linkedRenewal) transaction.update(linkedRenewal.reference, linkedRenewal.patch)

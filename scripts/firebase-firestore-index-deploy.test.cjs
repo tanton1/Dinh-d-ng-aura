@@ -49,6 +49,18 @@ test('CPU background dry-run remains read-only and apply keeps the exact target 
   assert.throws(() => parseArguments(['help']), /--scope=cpu-background/)
 })
 
+test('contract sales scope selects only global/branch date and coverage indexes', () => {
+  const selected = selectIndexes(indexes, 'contract-sales-range')
+  assert.equal(selected.length, 4)
+  assert(selected.every(index => index.collectionGroup === 'contracts' && index.queryScope === 'COLLECTION'))
+  assert.deepEqual(parseArguments(['dry-run', '--scope=contract-sales-range']), { mode: 'dry-run', scope: 'contract-sales-range' })
+  assert.throws(() => parseArguments(['apply', '--scope=contract-sales-range']), /confirmation/)
+  for (const index of selected) {
+    assert.throws(() => selectIndexes(indexes.filter(value => value !== index), 'contract-sales-range'), /exactly once/)
+    assert.throws(() => selectIndexes([...indexes, index], 'contract-sales-range'), /exactly once/)
+  }
+})
+
 test('business report scope reuses ledger/attendance indexes and creates only branch cash range', () => {
   const selected = selectIndexes(indexes, 'business-report-branch-reads')
   assert.deepEqual(selected.map(index => index.collectionGroup), ['ledgerEntries', 'cashTransactions', 'attendanceEvents'])

@@ -8,6 +8,7 @@ const { canonicalSessionRows } = require('./session-schedule-normalization')
 const { decodeHistoryCursor, historyCursorScope, readCanonicalHistoryPage } = require('./training-history-pagination')
 const { ledgerReceiptImpact } = require('./finance-receipt-impact')
 const { contractSalesContribution } = require('./contract-financial-status')
+const { contractSalesDateKey, readContractSalesRange } = require('./contract-sales-index')
 const { effectiveContractStatus } = require('./contract-status')
 
 const MAX_RANGE_DAYS = 366
@@ -17,7 +18,6 @@ const MAX_HISTORY_PAGE = 100
 const DEFAULT_HISTORY_PAGE = 50
 const MAX_USAGE_SESSIONS = 10000
 const MAX_SALES_CONTRACTS = 2000
-const SALES_CONTRACT_FIELDS = ['branchId', 'status', 'totalPrice', 'discount', 'signedAt', 'createdAt', 'contractDate', 'startDate', 'salesCancellationSnapshot']
 const validHistoryStatuses = new Set([
   'scheduled',
   'rescheduled',
@@ -243,8 +243,7 @@ function businessContractSales(contracts, summary, input, { contractsTruncated =
       if (contract.status === 'cancelled') cancelledSalesBaselineUnverified++
       continue
     }
-    const millis = timestampMillis(sale.effectiveAt)
-    const date = millis ? vietnamDateKey(new Date(millis)) : ''
+    const date = contractSalesDateKey(sale.effectiveAt)
     if (!date) { contractSalesDatesMissing++; continue }
     if (date < input.startDate || date > input.endDate) continue
     grossContractSales += sale.amount
@@ -543,13 +542,10 @@ function createBusinessReportingFunctions({ db, onCall }) {
       if (input.branchId !== 'all') query = query.where('branchId', '==', input.branchId).orderBy(field, direction)
       return query.limit(maximum).get()
     }
-    // Signing dates have several supported legacy representations. A bounded
-    // metadata-only branch query preserves those dates and cancellation
-    // snapshots; it never calls the broader operations dashboard or scans its
-    // student, schedule, nutrition or payroll workspaces for a sales chart.
+    // Canonical Vietnam dates bound sales reads to the period. Exceptional
+    // undated/cancelled evidence remains visible; incomplete migration or a
+    // missing index falls back to the bounded historical metadata scan.
     const salesSupported = input.source === 'all' || input.source === 'pt_gym'
-    let salesQuery = salesSupported ? db.collection('contracts').select(...SALES_CONTRACT_FIELDS) : null
-    if (salesQuery && input.branchId !== 'all') salesQuery = salesQuery.where('branchId', '==', input.branchId)
     const [ledgerSnapshot, cashSnapshot, payrollSnapshot, attendanceSnapshot, cashAccountSnapshot, contractSnapshot] = await Promise.all([
       scopedRange('ledgerEntries', 'effectiveAt', MAX_LEDGER_DOCUMENTS + 1, 'desc'),
       scopedRange('cashTransactions', 'effectiveAt', MAX_LEDGER_DOCUMENTS + 1, 'desc'),
@@ -558,11 +554,11 @@ function createBusinessReportingFunctions({ db, onCall }) {
       db.collection('payrollRuns').where('paidAt', '>=', start).where('paidAt', '<', end).limit(500).get(),
       scopedRange('attendanceEvents', 'occurredAt', MAX_ATTENDANCE_DOCUMENTS + 1),
       db.collection('cashAccounts').limit(201).get(),
-      salesQuery ? salesQuery.limit(MAX_SALES_CONTRACTS + 1).get() : Promise.resolve(null),
+      salesSupported ? readContractSalesRange(db, input, MAX_SALES_CONTRACTS) : Promise.resolve(null),
     ])
     const ledgerEntries = ledgerSnapshot.docs.slice(0, MAX_LEDGER_DOCUMENTS).map((item) => ({ ...item.data(), id: item.id }))
     const summary = summaryFromLedger(ledgerEntries, input)
-    const contractsTruncated = Boolean(contractSnapshot && contractSnapshot.size > MAX_SALES_CONTRACTS)
+    const contractsTruncated = Boolean(contractSnapshot?.truncated)
     const sales = contractSnapshot ? businessContractSales(contractSnapshot.docs.slice(0, MAX_SALES_CONTRACTS).map(item => item.data()), summary, input,
       { contractsTruncated, ledgerTruncated: ledgerSnapshot.size > MAX_LEDGER_DOCUMENTS }) : null
     const unlinkedCashRows = cashSnapshot.docs
@@ -623,7 +619,8 @@ function createBusinessReportingFunctions({ db, onCall }) {
         scannedLedgerEntries: ledgerSnapshot.size,
         ledgerTruncated: ledgerSnapshot.size > MAX_LEDGER_DOCUMENTS,
         contractsTruncated,
-        scannedSalesContracts: contractSnapshot?.size || 0,
+        scannedSalesContracts: contractSnapshot?.scanned || 0,
+        contractSalesReadMode: contractSnapshot?.mode || 'not_requested',
         cancelledSalesBaselineUnverified: sales?.cancelledSalesBaselineUnverified || 0,
         contractSalesDatesMissing: sales?.contractSalesDatesMissing || 0,
         cashTransactionsTruncated: cashSnapshot.size > MAX_LEDGER_DOCUMENTS,

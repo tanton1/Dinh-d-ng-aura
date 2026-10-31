@@ -144,7 +144,10 @@ exports.syncContractUsageView = onDocumentWritten({
   cpu: 'gcf_gen1',
   maxInstances: 1,
   retry: true,
-}, async (event) => syncContractUsageView({ db, event, logger }))
+}, async (event) => Promise.all([
+  syncContractUsageView({ db, event, logger }),
+  require('./contract-sales-index').syncContractSalesIndex({ db, event }),
+]))
 
 // The atomic session writer updates both contracts and contractUsageViews.
 // Keep one retry-enabled subscription; a second subscription only repeats reads.

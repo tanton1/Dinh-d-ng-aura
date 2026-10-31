@@ -47,6 +47,10 @@ function reportFixture(values = {}, user = { role: 'admin' }) {
     },
   })
   const db = {
+    runTransaction: async (handler, options) => {
+      assert.deepEqual(options, { readOnly: true })
+      return handler({ get: reference => reference.get() })
+    },
     collection: name => { assert(['ledgerEntries', 'cashTransactions', 'payrollRuns', 'attendanceEvents', 'cashAccounts', 'contracts'].includes(name)); return query(name) },
     doc: path => ({ get: async () => { authReads.push(path); return snapshot(path === 'users/actor' ? user : undefined) } }),
   }

@@ -26,7 +26,7 @@ Read-only source counts measured on 2026-10-31 (all branches, all sources) illus
 
 These aggregate counts imply about 67.5% fewer source documents for this seven-day report, not a measured reduction in billed reads or money. Billing export is unavailable. Authorization reads, indexes, empty queries, concurrent changes, cache hits and display-name reads are outside this comparison. Opening installments now causes zero **period-report** calls; installments still have their own bounded reads.
 
-The report's ledger, cash, attendance and payroll queries are date-bounded. Contract sales metadata still requires a bounded branch-wide scan because historical signing dates use mixed formats. A further backend reduction should first canonicalize the signing date, audit old and cancelled contracts, then migrate sales reporting to indexed range reads or an invalidated daily projection with completeness checks. Do not apply a date filter blindly: it would omit historical sales. This UI release changes no financial source data or backend calculation.
+The report's ledger, cash, attendance and payroll queries are date-bounded. The follow-up [contract sales range rollout](contract-sales-range.md) adds canonical date metadata, indexed period reads and explicit exceptional-contract diagnostics. Until its coverage and serving-revision checks pass, contract sales retain the original bounded branch-wide scan. This optimization does not change financial amounts or the cancellation baseline policy.
 
 ## Decisions
 
