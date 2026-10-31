@@ -28,7 +28,9 @@ test.describe('Aura Finance Intelligence responsive workspace', () => {
     }))
     expect(metricBounds.every((item) => item.width > 0 && item.height >= 88)).toBe(true)
 
-    await workspace.locator('.finance-review').scrollIntoViewIfNeeded()
+    // The demo shell has no authenticated finance-report API. Loaded evidence
+    // and decision dialogs are covered by tests/finance-reconciliation-ui.
+    await workspace.locator('.business-performance__source-details').scrollIntoViewIfNeeded()
     await expectNoHorizontalOverflow(page)
   })
 

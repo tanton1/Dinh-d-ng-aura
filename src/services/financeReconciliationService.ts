@@ -16,6 +16,7 @@ export interface ReconciliationCase extends ReconciliationRow {
   token: string; contract: ReviewContract | null; revenueContract: ReviewContract | null
   actions: ReviewAction[]; blockers: string[]; candidates: ReviewContract[]; duplicateOfSessionId: string
   billing: { status: string; ordinal: number | null } | null
+  usageProof?: { chargedSessions: number; storedUsedSessions: number; retainedOrdinal: number } | null
   returned: { reason: string; returnedSessions: number; revenueReversed: number } | null
   ledger: Array<{ id: string; status: string; type: string; revenue: number; cash: number; date: string; contractId: string }>
   history: Array<{ id: string; action: string; reason: string; actorName: string; createdAt: string; effect: ReviewAction; currentEvidence: boolean }>

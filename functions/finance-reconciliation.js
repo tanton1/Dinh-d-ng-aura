@@ -11,6 +11,7 @@ const { nextServiceOrdinal } = require('./service-ordinal-allocation')
 const { readContractRecognitionState } = require('./finance-recognition-balance')
 const { revenueSegments } = require('./pt-revenue-allocation')
 const { contractSchedulableOn } = require('./contract-status')
+const { canonicalUsageSessions, sessionCountsTowardContract } = require('./contract-usage-core')
 const { assertCancellationEvidenceChange } = require('./session-operations')
 
 const id = value => {
@@ -106,6 +107,7 @@ async function readCase({ db, transaction, attendanceId, actor, targetContractId
     category, ledger, candidates, target, linkedEvidence: duplicates.docs.map(d => ({ ...d.data(), id: d.id })) }
   const actions = [{ id: 'acknowledge', label: 'Lưu xác nhận đã kiểm tra', sessionsDelta: 0, revenueDelta: 0, cashDelta: 0 }]
   const blockers = [], plans = {}
+  let usageProof = null
   const canonical = session && attendance.sessionId === sessionId && (!attendance.chargeId || attendance.chargeId === sessionId)
     && attendance.contractId === session.contractId && attendance.studentId === session.studentId && contract?.studentId === session.studentId
     && evidence.linkedEvidence.filter(a => !a.chargeId || a.chargeId === sessionId).length === 1
@@ -139,9 +141,26 @@ async function readCase({ db, transaction, attendanceId, actor, targetContractId
         if (plan.issue && plan.issue !== 'RECOGNITION_ZERO_VALUE_REQUIRES_REVIEW') blockers.push(issueMessage(plan.issue))
       } catch (error) { if (!(error instanceof HttpsError)) throw error; blockers.push(error.message) }
     }
-    const uncharged = category === 'billingReview' && !billing && session.billingStatus === 'review_required'
-      && !session.serviceOrdinal && !attendance.serviceOrdinal && !ledger.length
+    const unchargedEvidence = category === 'billingReview' && !billing && session.billingStatus === 'review_required' && !ledger.length
       && ![...(contract.chargedSessionIds || []), ...(contract.attendedClasses || [])].includes(sessionId)
+    let uncharged = unchargedEvidence && !session.serviceOrdinal && !attendance.serviceOrdinal
+    if (unchargedEvidence && !uncharged) {
+      // Some historical quota failures retained an ordinal even though no
+      // charge receipt was created. An ordinal alone is not proof of a debit.
+      // Require a bounded, transactionally consistent full usage comparison
+      // before allowing a decision; never return an extra credit here.
+      const sourceSessions = await get(db.collection('sessions').where('contractId', '==', contractId).limit(5001))
+      const charged = canonicalUsageSessions(sourceSessions.docs.map(d => ({ ...d.data(), id: d.id }))).filter(sessionCountsTowardContract)
+      const storedUsed = Number(contract.usedSessions)
+      if (sourceSessions.size <= 5000 && Number.isSafeInteger(storedUsed) && storedUsed >= 0 && storedUsed <= Number(contract.totalSessions)
+        && sourceSessions.docs.some(d => d.id === sessionId) && charged.length === storedUsed
+        && charged.every(s => s.id !== sessionId && s.studentId === contract.studentId)) {
+        uncharged = true
+        usageProof = { chargedSessions: charged.length, storedUsedSessions: storedUsed, retainedOrdinal: session.serviceOrdinal || attendance.serviceOrdinal }
+      } else blockers.push('Bản ghi còn thứ tự tính buổi cũ nhưng số buổi hợp đồng chưa khớp lịch sử. Cần đối soát số buổi trước khi miễn trừ hoặc tính lại.')
+    } else if (category === 'billingReview' && !unchargedEvidence) {
+      blockers.push('Bản ghi còn liên kết với chứng từ hoặc số buổi đã dùng. Cần đối chiếu lịch sử trước khi miễn trừ hoặc tính lại để tránh hoàn hay trừ hai lần.')
+    }
     if (uncharged && (!payroll || payroll.status === 'draft')) {
       actions.push({ id: 'exempt', label: 'Duyệt không trừ buổi', sessionsDelta: 0, revenueDelta: 0, cashDelta: 0 })
       if (target) {
@@ -168,7 +187,7 @@ async function readCase({ db, transaction, attendanceId, actor, targetContractId
     }
   }
   const token = hash([...versions].sort(([a], [b]) => a.localeCompare(b)))
-  return { ...evidence, actions: manage(actor) ? actions : [], blockers, plans, token }
+  return { ...evidence, actions: manage(actor) ? actions : [], blockers, plans, usageProof, token }
 }
 
 function rowView(attendanceId, a, session, names, ledger = []) {
@@ -239,7 +258,8 @@ async function resolveCase({ db, actor, input }) {
     const result = { action, unchanged: false, ...effect }
     transaction.set(caseRef, { attendanceId, sessionId, evidenceToken: state.token, action, reason, actorName: actor.actorName || 'Quản trị viên', ...audit })
     transaction.create(receiptRef, { signature, result, action, reason, actorUid: actor.uid, actorName: actor.actorName || 'Quản trị viên',
-      evidenceToken: state.token, before: { contractId: state.contractId, billingStatus: attendance.billingStatus || '', category: state.category },
+      evidenceToken: state.token, before: { contractId: state.contractId, billingStatus: attendance.billingStatus || '', category: state.category,
+        serviceOrdinal: session?.serviceOrdinal ?? attendance.serviceOrdinal ?? null, usageProof: state.usageProof },
       after: { contractId: target?.id || state.contractId, billingStatus: patch.billingStatus || attendance.billingStatus || '' }, createdAt: FieldValue.serverTimestamp() })
     return result
   })
@@ -267,7 +287,7 @@ function createFinanceReconciliationFunctions({ db, onCall }) {
     const allocation = state.plans.recognize?.allocation
     return { ...rowView(attendanceId, state.attendance, state.session, names, state.ledger), token: state.token,
       contract: contractView(state.contractId, state.contract), revenueContract: allocation ? contractView(allocation.contractId, allocation.contract) : null,
-      actions: state.actions, blockers: state.blockers, candidates: state.candidates.map(c => contractView(c.id, c)),
+      actions: state.actions, blockers: state.blockers, usageProof: state.usageProof, candidates: state.candidates.map(c => contractView(c.id, c)),
       duplicateOfSessionId: state.attendance.duplicateOfSessionId || state.billing?.duplicateOfSessionId || '',
       billing: state.billing ? { status: state.billing.billingStatus, ordinal: state.billing.serviceOrdinal || null } : null,
       returned: state.returned ? { reason: state.returned.returnReason || '', returnedSessions: state.returned.returnedSessions, revenueReversed: state.returned.revenueReversed } : null,

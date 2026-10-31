@@ -165,3 +165,22 @@ test('recognition repair posts the already consumed entitlement without deductin
   assert.equal((await db.collection('ledgerEntries').get()).size, 1)
   assert.ok(!(await preview(db)).actions.some(a => a.id === 'recognize'))
 })
+
+test('a legacy quota ordinal is not treated as a debit unless full canonical usage proves the contract counter', async () => {
+  const db = await fixture({ ...quota(), 'contracts/contract': { ...contract, totalSessions: 1, usedSessions: 1, chargedSessionIds: [], attendedClasses: [] },
+    'sessions/one': { ...session, billingStatus: 'review_required' }, 'attendanceEvents/one': { ...attendance, billingStatus: 'review_required' } })
+  let state = await preview(db)
+  assert.ok(!state.actions.some(a => a.id === 'exempt')); assert.ok(state.blockers.some(s => s.includes('thứ tự tính buổi cũ')))
+  await db.doc('sessions/real-charge').set({ ...session, date: '2026-10-19' })
+  state = await preview(db)
+  assert.deepEqual(state.usageProof, { chargedSessions: 1, storedUsedSessions: 1, retainedOrdinal: 1 })
+  const stale = request(state, 'exempt')
+  await db.doc('sessions/real-charge').update({ billingStatus: 'exempt' })
+  await assert.rejects(resolve(db, stale), e => e.code === 'aborted')
+  await db.doc('sessions/real-charge').update({ billingStatus: 'charged' })
+  await resolve(db, request(await preview(db), 'exempt'))
+  assert.equal((await read(db, 'contracts/contract')).usedSessions, 1)
+  assert.equal((await read(db, 'sessions/one')).serviceOrdinal, 1)
+  assert.equal((await read(db, 'sessions/one')).billingStatus, 'exempt')
+  assert.equal((await db.collection('ledgerEntries').get()).size, 0)
+})
