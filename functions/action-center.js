@@ -575,7 +575,7 @@ async function syncOperationalActionSource({ db, event, logger = console, review
     recordEventMetrics({ guardSkips: 1 })
     return { collection, sourceId, actions: 0, skipped: 'projection_timestamps_only' }
   }
-  if (collection === 'contractUsageViews' && !projectionSourceChanged(event, collection)) {
+  if (['contractUsageViews', 'contracts'].includes(collection) && !projectionSourceChanged(event, collection)) {
     return { collection, sourceId, actions: 0, skipped: 'projection_timestamps_only' }
   }
   if (collection === 'sessions') {

@@ -675,6 +675,22 @@
       ]
     },
     {
+      "collectionGroup": "contracts", "queryScope": "COLLECTION",
+      "fields": [{ "fieldPath": "financeSalesIndex.key", "order": "ASCENDING" }, { "fieldPath": "__name__", "order": "ASCENDING" }]
+    },
+    {
+      "collectionGroup": "contracts", "queryScope": "COLLECTION",
+      "fields": [{ "fieldPath": "financeSalesIndex.schemaVersion", "order": "ASCENDING" }, { "fieldPath": "__name__", "order": "ASCENDING" }]
+    },
+    {
+      "collectionGroup": "contracts", "queryScope": "COLLECTION",
+      "fields": [{ "fieldPath": "branchId", "order": "ASCENDING" }, { "fieldPath": "financeSalesIndex.key", "order": "ASCENDING" }]
+    },
+    {
+      "collectionGroup": "contracts", "queryScope": "COLLECTION",
+      "fields": [{ "fieldPath": "branchId", "order": "ASCENDING" }, { "fieldPath": "financeSalesIndex.schemaVersion", "order": "ASCENDING" }]
+    },
+    {
       "collectionGroup": "attendanceEvents",
       "queryScope": "COLLECTION",
       "fields": [

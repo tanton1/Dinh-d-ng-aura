@@ -31,6 +31,8 @@ async function fixture(entries = []) {
   }
   const reads = [], authReads = []
   const query = (target, name, filters = [], orders = [], maximum = Infinity) => ({
+    target,
+    record: result => reads.push({ collection: name, filters, orders, maximum, returned: result.size }),
     select: (...fields) => query(target.select(...fields), name, filters, orders, maximum),
     where: (...filter) => query(target.where(...filter), name, [...filters, filter], orders, maximum),
     orderBy: (...order) => query(target.orderBy(...order), name, filters, [...orders, order], maximum),
@@ -41,9 +43,21 @@ async function fixture(entries = []) {
       return result
     },
   })
-  // The callable can only read. No transaction, batch or write method is exposed.
+  // The callable can only read, including one consistent sales snapshot.
   const readDb = {
-    doc: path => ({ get: () => { assert.match(path, /^(users|roleAssignments)\//); authReads.push(path); return db.doc(path).get() } }),
+    doc: path => {
+      assert.match(path, /^(users|roleAssignments|reportingIndexes)\//)
+      const record = () => { if (!path.startsWith('reportingIndexes/')) authReads.push(path) }
+      return { target: db.doc(path), record, get: () => { record(); return db.doc(path).get() } }
+    },
+    runTransaction: (handler, options) => {
+      assert.deepEqual(options, { readOnly: true })
+      return db.runTransaction(transaction => handler({ get: async reference => {
+        const result = await transaction.get(reference.target)
+        reference.record(result)
+        return result
+      } }), options)
+    },
     collection: name => { assert(['ledgerEntries', 'cashTransactions', 'payrollRuns', 'attendanceEvents', 'cashAccounts', 'contracts'].includes(name)); return query(db.collection(name), name) },
   }
   const api = createBusinessReportingFunctions({ db: readDb, onCall: (_options, handler) => handler })
