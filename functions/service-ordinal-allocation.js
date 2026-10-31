@@ -34,8 +34,13 @@ function replacementServiceOrdinal({ sessionId, contract, sessions, billings, le
 }
 
 function nextServiceOrdinal({ usedSessions, totalSessions, billings, revenueOrdinals }) {
-  const occupied = new Set(billings.map(row=>Number(row.serviceOrdinal)))
+  const occupied = new Set(billings.filter(row => !['reversed', 'returned', 'exempt', 'void_duplicate'].includes(row.billingStatus))
+    .map(row=>Number(row.serviceOrdinal)).filter(n => Number.isSafeInteger(n) && n > 0))
   for(const ordinal of revenueOrdinals) occupied.add(Number(ordinal))
+  const returned = billings.filter(row => row.billingStatus === 'returned' || (row.billingStatus === 'void_duplicate' && row.duplicateOfSessionId))
+    .map(row => Number(row.serviceOrdinal))
+    .filter(n => Number.isSafeInteger(n) && n > 0 && n <= Number(totalSessions) && !occupied.has(n)).sort((a, b) => a - b)
+  if (returned.length) return returned[0]
   for(let ordinal=Math.max(1,Math.floor(Number(usedSessions||0))+1);ordinal<=Number(totalSessions);ordinal++) {
     if(!occupied.has(ordinal)) return ordinal
   }

@@ -2,6 +2,7 @@
 
 const { FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
+const { renewalRevenueAllocation, revenueSegments } = require('./pt-revenue-allocation')
 const { contractPausedOn, contractEffectiveOnDate } = require('./contract-status')
 const { summarizeContractUsage, MAX_SESSION_EVIDENCE } = require('./contract-usage')
 const { addDateDays, vietnamDateKey } = require('./pt-policy')
@@ -66,8 +67,11 @@ function renewalActivationProjection(source, nextContract, today = vietnamDateKe
 async function readRenewalUsage(transaction, db, contractId, contract) {
   const evidence = await transaction.get(db.collection('sessions').where('contractId', '==', contractId).limit(MAX_SESSION_EVIDENCE + 1))
   if (evidence.size > MAX_SESSION_EVIDENCE) throw new HttpsError('failed-precondition', 'Cần đối soát đầy đủ số buổi trước khi chuyển giao hợp đồng.')
-  const usage = summarizeContractUsage(contract, evidence.docs.map((item) => ({ id: item.id, ...item.data() })))
-  return { ...contract, usedSessions: usage.usedSessions }
+  const usage = summarizeContractUsage(contract, evidence.docs.map((item) => ({ ...item.data(), id: item.id })))
+  const canonical = new Set(usage.canonicalChargedSessionIds)
+  const revenueOccupiedOrdinals = evidence.docs.filter(item => canonical.has(item.id))
+    .map(item => Number(item.data().serviceOrdinal)).filter(n => Number.isSafeInteger(n) && n > 0)
+  return { ...contract, usedSessions: usage.usedSessions, revenueOccupiedOrdinals }
 }
 
 function assertRenewalLink(sourceId, source, nextId, next) {
@@ -110,6 +114,7 @@ function renewalHandoverPlan({ sourceId = null, source = null, nextId, next, dat
       originalStartDate: next.originalStartDate || next.startDate,
       originalEndDate: next.originalEndDate || next.endDate,
       totalSessions: projection.totalSessions, durationMonths: projection.durationMonths,
+      revenueAllocation: renewalRevenueAllocation({ sourceId, source, nextId, next, carriedOverSessions: projection.carriedOverSessions }),
       carriedOverSessions: projection.carriedOverSessions, carryOverPending: false,
       carryOverTransferredAt: FieldValue.serverTimestamp(),
       handoverStatus: 'active', handoverReason: projection.reason,
@@ -119,6 +124,7 @@ function renewalHandoverPlan({ sourceId = null, source = null, nextId, next, dat
       updatedAt: FieldValue.serverTimestamp(), revision: count(next.revision) + 1,
     },
     sourcePatch: source ? {
+      ...(!source.revenueAllocation ? { revenueAllocation: { version: 1, segments: revenueSegments(sourceId, source) } } : {}),
       status: 'expired', renewalSupersededBy: nextId,
       completionReason: projection.sourceRemaining === 0 ? 'quota_exhausted' : source.endDate < date ? 'term_ended' : 'renewal_handover',
       completedDate: projection.effectiveStartDate, completedAt: FieldValue.serverTimestamp(),

@@ -1,9 +1,8 @@
 const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { ptFinanceBranch } = require('./pt-finance-branch')
 
-// PT revenue is recognised only from eligible, confirmed service evidence.
-// Charging a contract entitlement and recognising earned revenue are separate
-// events: an elapsed scheduled slot alone is not proof that service occurred.
+// PT revenue follows each valid contract deduction, including charged no-shows
+// and pending/automatic attendance. A booking alone is never a deduction.
 function safeMoney(value) {
   const amount = Number(value || 0)
   return Number.isSafeInteger(amount) && amount > 0 ? amount : 0
@@ -71,7 +70,7 @@ function ptRevenueRecognitionWrite({ sessionId, session, contractId, contract, a
     type: 'revenue_recognition',
     eventClass: 'revenue_recognition',
     source: 'pt_gym',
-    recognitionPolicy: 'confirmed_attendance_v3',
+    recognitionPolicy: 'charged_session_v4',
     evidenceStatus,
     confirmationSource,
     contractId,

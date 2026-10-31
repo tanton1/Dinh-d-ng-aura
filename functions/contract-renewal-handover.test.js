@@ -64,8 +64,8 @@ function database(seed) {
   return { db, get: (path) => rows.get(path), rows }
 }
 
-const source = { studentId: 'student-1', branchId: 'branch-1', status: 'active', packageId: 'package-1', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 11, renewedByContractId: 'next', revision: 2 }
-const next = { studentId: 'student-1', branchId: 'branch-1', status: 'future', sourceContractId: 'source', startDate: '2026-09-01', endDate: '2026-12-01', signedDate: '2026-08-10', plannedActivationDate: '2026-09-01', activationMode: 'automatic', earlyHandoverRequested: true, handoverStatus: 'pending', packageSessions: 36, totalSessions: 36, usedSessions: 0, durationMonths: 3, plannedCarryOverSessions: 5, carryOverPending: true, revision: 0 }
+const source = { totalPrice: 1200000, discount: 0, paidAmount: 1200000, studentId: 'student-1', branchId: 'branch-1', status: 'active', packageId: 'package-1', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 11, renewedByContractId: 'next', revision: 2 }
+const next = { totalPrice: 9600000, discount: 0, paidAmount: 9600000, studentId: 'student-1', branchId: 'branch-1', status: 'future', sourceContractId: 'source', startDate: '2026-09-01', endDate: '2026-12-01', signedDate: '2026-08-10', plannedActivationDate: '2026-09-01', activationMode: 'automatic', earlyHandoverRequested: true, handoverStatus: 'pending', packageSessions: 36, totalSessions: 36, usedSessions: 0, durationMonths: 3, plannedCarryOverSessions: 5, carryOverPending: true, revision: 0 }
 const session = { studentId: 'student-1', trainerId: 'trainer-1', branchId: 'branch-1', contractId: 'source', status: 'scheduled', billingStatus: 'pending', date: '2026-08-20', hour: 8, revision: 0 }
 function fixture(sourcePatch = {}, nextPatch = {}, sessionPatch = {}, extra = {}) {
   return database({ 'contracts/source': { ...source, ...sourcePatch }, 'contracts/next': { ...next, ...nextPatch }, 'sessions/current': { ...session, ...sessionPatch }, ...extra })
@@ -159,7 +159,7 @@ test('a chargeable cancellation consumes the last source entitlement and release
 })
 
 test('a paid policy charge with missing financial terms cannot consume quota or release a renewal', async () => {
-  const state = fixture({}, {}, {}, {
+  const state = fixture({ totalPrice: null }, {}, {}, {
     'sessionRequests/cancel': { status: 'pending', type: 'cancel', sessionId: 'current', studentId: 'student-1', contractId: 'source', requestedBy: 'student', originalDate: session.date, originalHour: session.hour, originalSessionRevision: 0, reason: 'Bận đột xuất', submittedAtIso: '2026-08-20T00:00:00Z', policyMonth: '2026-08' },
   })
   const operations = createSessionOperationFunctions({ db: state.db, onCall: (...args) => args.at(-1), authorizeAdmin: async () => ({ uid: 'admin' }), now: () => new Date('2026-08-20T03:00:00Z') })

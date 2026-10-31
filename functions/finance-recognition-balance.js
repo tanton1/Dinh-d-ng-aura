@@ -5,8 +5,8 @@ const { HttpsError } = require('firebase-functions/v2/https')
 const MAX_CONTRACT_LEDGER_ENTRIES = 5000
 
 // Cash settlement uses earned revenue already posted to the canonical ledger.
-// Entitlement usage may include no-shows or unconfirmed service and is not a
-// substitute for those entries. Original reversed entries stay in the sum;
+// Deduction and recognition are committed together; legacy usage still cannot
+// substitute for posted evidence. Original reversed entries stay in the sum;
 // their append-only corrections supply the opposite signed impact.
 async function readContractLedger(transaction, db, contractId, fields) {
   const snapshot = await transaction.get(db.collection('ledgerEntries')

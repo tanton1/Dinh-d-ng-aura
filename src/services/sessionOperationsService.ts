@@ -134,6 +134,7 @@ export interface TeachingShiftCorrectionItem {
 }
 
 export interface TeachingShiftCorrectionInput {
+  action?: 'correct' | 'return_session'
   items: TeachingShiftCorrectionItem[]
   date: string
   hour: number

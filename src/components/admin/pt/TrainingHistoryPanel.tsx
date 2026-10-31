@@ -81,6 +81,7 @@ function formatDate(value: string) {
 }
 
 function attendanceLabel(record: TrainingHistoryPage['records'][number]) {
+  if (record.status === 'cancelled' && record.billingStatus === 'exempt') return 'Đã hủy / hoàn buổi'
   const status = record.attendance?.attendanceStatus
   const billingStatus = String(record.billingStatus || record.attendance?.billingStatus || '').toLowerCase()
   const makeup = record.isExempt || billingStatus === 'exempt'
@@ -104,6 +105,7 @@ type TrainerTeachingShift = {
 type EditableAttendanceStatus = '' | 'present' | 'late' | 'no_show'
 
 type TeachingShiftCorrectionDraft = {
+  returnSession: boolean
   records: TrainingHistoryPage['records']
   date: string
   hour: string
@@ -488,6 +490,7 @@ function TrainingHistoryContent({ subject, subjectId, subjectName, contractId, i
     // just because the legacy session branch differs from the PT profile.
     const sourceTrainerAvailable = trainers.some((trainer) => trainer.id === sourceTrainerId && trainer.status !== 'inactive')
     setCorrection({
+      returnSession: false,
       records: shift.records,
       date: shift.date,
       hour: shift.hour === null ? '' : String(shift.hour),
@@ -536,7 +539,7 @@ function TrainingHistoryContent({ subject, subjectId, subjectName, contractId, i
   const submitCorrection = async () => {
     if (!correction || correctionSaving) return
     const parsedHour = Number(correction.hour)
-    if (!correction.date || !Number.isInteger(parsedHour) || parsedHour < 0 || parsedHour > 23 || !correction.trainerId) {
+    if (!correction.returnSession && (!correction.date || !Number.isInteger(parsedHour) || parsedHour < 0 || parsedHour > 23 || !correction.trainerId)) {
       setCorrectionError('Vui lòng chọn đủ ngày, giờ và PT thực dạy.')
       return
     }
@@ -548,6 +551,7 @@ function TrainingHistoryContent({ subject, subjectId, subjectName, contractId, i
     setCorrectionError('')
     try {
       const result = await correctTeachingShift({
+        action: correction.returnSession ? 'return_session' : 'correct',
         items: correction.records.map((record) => {
           const attendanceStatus = correction.attendanceTouched[record.id] ? correction.attendanceStatuses[record.id] : ''
           return {
@@ -568,7 +572,7 @@ function TrainingHistoryContent({ subject, subjectId, subjectName, contractId, i
       })
       if (!mountedRef.current) return
       setCorrection(null)
-      setCorrectionNotice(result.unchanged
+      setCorrectionNotice(correction.returnSession ? 'Đã hoàn một buổi và đảo doanh thu tương ứng. Lịch sử gốc được giữ lại.' : result.unchanged
         ? 'Ca không có thay đổi mới.'
         : result.invalidatedPayrollPeriods.length
           ? `Đã điều chỉnh ca. Kỳ lương ${result.invalidatedPayrollPeriods.join(', ')} cần xóa nháp và lập lại.`
@@ -637,7 +641,8 @@ function TrainingHistoryContent({ subject, subjectId, subjectName, contractId, i
     {correction ? <div className="training-history__correction-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !correctionSaving) setCorrection(null) }}>
       <section className="training-history__correction" role="dialog" aria-modal="true" aria-labelledby="teaching-shift-correction-title">
         <header><div><small>ĐỐI SOÁT CÓ AUDIT</small><h3 id="teaching-shift-correction-title">Điều chỉnh ca dạy</h3><p>{correction.records.length} học viên · mọi thay đổi được lưu lại</p></div><button type="button" aria-label="Đóng điều chỉnh ca" disabled={correctionSaving} onClick={() => setCorrection(null)}><X size={20} /></button></header>
-        <div className="training-history__correction-grid">
+        {correction.records.length === 1 && correction.records[0].billingStatus === 'charged' ? <label className="training-history__correction-reason"><span><input type="checkbox" checked={correction.returnSession} disabled={correctionSaving} onChange={(event) => setCorrection((current) => current ? { ...current, returnSession: event.target.checked } : current)} /> Hoàn một buổi cho học viên</span><small>Trả lại một buổi vào hợp đồng và đảo doanh thu của buổi này. Tiền đã thu không thay đổi.</small></label> : null}
+        {!correction.returnSession && <><div className="training-history__correction-grid">
           <label><span>Ngày thực dạy</span><input type="date" value={correction.date} onChange={(event) => setCorrection((current) => current ? { ...current, date: event.target.value } : current)} /></label>
           <label><span>Giờ bắt đầu</span><select value={correction.hour} onChange={(event) => setCorrection((current) => current ? { ...current, hour: event.target.value } : current)}>{Array.from({ length: 24 }, (_, hour) => <option key={hour} value={hour}>{String(hour).padStart(2, '0')}:00</option>)}</select></label>
           <label className="is-wide"><span>PT thực dạy</span><select value={correction.trainerId} onChange={(event) => setCorrection((current) => current ? { ...current, trainerId: event.target.value } : current)}><option value="" disabled>Chọn PT thực dạy</option>{correctionTrainerOptions.map((trainer) => <option key={trainer.id} value={trainer.id}>{trainer.name || `PT ${trainer.id.slice(-6)}`}</option>)}</select></label>
@@ -649,10 +654,11 @@ function TrainingHistoryContent({ subject, subjectId, subjectName, contractId, i
             return <article key={record.id}><div><UserRound size={16} /><span><b>{record.counterpartName}</b><small>{record.attendance ? attendanceLabel(record) : 'Chưa có bản ghi điểm danh · sẽ tạo khi lưu'}</small></span></div><div className="training-history__correction-attendance-fields"><select aria-label={`Hiện diện ${record.counterpartName}`} value={attendanceStatus} onChange={(event) => setCorrection((current) => current ? { ...current, attendanceStatuses: { ...current.attendanceStatuses, [record.id]: event.target.value as EditableAttendanceStatus }, attendanceTouched: { ...current.attendanceTouched, [record.id]: true } } : current)}><option value="">Giữ nguyên</option><option value="present">Có tập</option><option value="late">Đi trễ</option><option value="no_show">Không đến</option></select>{attendanceStatus === 'late' ? <select aria-label={`Số phút đi trễ ${record.counterpartName}`} value={correction.lateMinutes[record.id]} onChange={(event) => setCorrection((current) => current ? { ...current, lateMinutes: { ...current.lateMinutes, [record.id]: Number(event.target.value) as 5 | 10 | 15 }, attendanceTouched: { ...current.attendanceTouched, [record.id]: true } } : current)}><option value={5}>5 phút</option><option value={10}>10 phút</option><option value={15}>15+ phút</option></select> : null}{attendanceStatus === 'no_show' ? <select aria-label={`Lý do vắng ${record.counterpartName}`} value={correction.noShowReasons[record.id]} onChange={(event) => setCorrection((current) => current ? { ...current, noShowReasons: { ...current.noShowReasons, [record.id]: event.target.value as TeachingShiftCorrectionDraft['noShowReasons'][string] }, attendanceTouched: { ...current.attendanceTouched, [record.id]: true } } : current)}>{noShowReasonOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select> : null}</div></article>
           })}
         </div>
-        <label className="training-history__correction-reason"><span>Lý do bắt buộc</span><textarea maxLength={500} value={correction.reason} onChange={(event) => setCorrection((current) => current ? { ...current, reason: event.target.value } : current)} placeholder="Ví dụ: PT thực dạy khác với lịch ban đầu; đối soát theo camera và xác nhận quản lý." /></label>
+        </>}
+        <label className="training-history__correction-reason"><span>Lý do bắt buộc</span><textarea maxLength={500} value={correction.reason} onChange={(event) => setCorrection((current) => current ? { ...current, reason: event.target.value } : current)} placeholder={correction.returnSession ? 'Ghi lý do hoàn buổi để lưu vào lịch sử đối soát.' : 'Ví dụ: PT thực dạy khác với lịch ban đầu; đối soát theo camera và xác nhận quản lý.'} /></label>
         <div className="training-history__correction-policy"><CircleAlert size={18} /><p>Kỳ lương nháp liên quan sẽ được đánh dấu cần lập lại. Kỳ đã duyệt, khóa hoặc chi sẽ không được sửa trực tiếp.</p></div>
         {correctionError ? <div className="training-history__notice"><CircleAlert size={18} /> {correctionError}</div> : null}
-        <footer><button type="button" disabled={correctionSaving} onClick={() => setCorrection(null)}>Hủy</button><button type="button" disabled={correctionSaving || correction.reason.trim().length < 3 || !correction.trainerId} onClick={() => void submitCorrection()}><Save size={16} /> {correctionSaving ? 'Đang đối soát…' : 'Xác nhận điều chỉnh'}</button></footer>
+        <footer><button type="button" disabled={correctionSaving} onClick={() => setCorrection(null)}>Hủy</button><button type="button" disabled={correctionSaving || correction.reason.trim().length < 3 || (!correction.returnSession && !correction.trainerId)} onClick={() => void submitCorrection()}><Save size={16} /> {correctionSaving ? 'Đang đối soát…' : correction.returnSession ? 'Xác nhận hoàn buổi' : 'Xác nhận điều chỉnh'}</button></footer>
       </section>
     </div> : null}
   </section>

@@ -564,7 +564,7 @@ function createBusinessReportingFunctions({ db, onCall }) {
       .map(item => ({ ...item.data(), id: item.id })), ledgerEntries)
     const qualityMessages = []
     if (reconciliation.unresolved || reconciliation.conflicts) qualityMessages.push(`${reconciliation.unresolved + reconciliation.conflicts} bằng chứng PT cần xác minh liên kết hoặc kỳ ghi nhận; chưa kết luận thiếu doanh thu`)
-    if (reconciliation.automaticReview + reconciliation.billingReview + reconciliation.recognitionReview) qualityMessages.push('còn bằng chứng PT chờ xác nhận hoặc rà soát điều kiện ghi nhận')
+    if (reconciliation.pendingConfirmation + reconciliation.automaticReview + reconciliation.billingReview + reconciliation.recognitionReview) qualityMessages.push('còn buổi PT chưa khớp doanh thu hoặc cần rà soát dữ liệu tính buổi')
     if (reconciliation.missingBranch) qualityMessages.push(`${reconciliation.missingBranch} bằng chứng chưa gắn chi nhánh`)
     if (cashAccountSnapshot.empty) qualityMessages.push('sổ quỹ chưa có tài khoản tiền mặt/ngân hàng/ví')
     if (unlinkedCashRows.length) qualityMessages.push('còn giao dịch sổ quỹ chưa liên kết ledger')

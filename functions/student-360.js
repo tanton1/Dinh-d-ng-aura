@@ -2855,7 +2855,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         if (current?.sourceContractId && current.handoverStatus === 'pending' && current.activationMode === 'automatic' && startDate !== current.startDate) throw new HttpsError('failed-precondition', 'Ngày bắt đầu tự động được tính theo hợp đồng nguồn; hãy điều chỉnh thời hạn hợp đồng nguồn.')
         const usedSessions = Math.max(0, Math.floor(finite(current?.usedSessions)))
         const totalSessions = input.totalSessions === undefined
-          ? Math.max(0, Math.floor(finite(packageValue.totalSessions)))
+          ? Math.max(0, Math.floor(finite(current?.totalSessions, packageValue.totalSessions)))
           : nonNegativeInteger(input.totalSessions, 'Tổng số buổi', 100_000)
         if (totalSessions < usedSessions) throw new HttpsError('failed-precondition', 'Tổng số buổi không thể thấp hơn số buổi đã sử dụng.')
         const currentTotalPrice = Math.max(0, Math.floor(finite(current?.totalPrice, packageValue.price)))
@@ -2865,6 +2865,10 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         const totalPrice = canManageFinancials && input.totalPrice !== undefined ? nonNegativeInteger(input.totalPrice, 'Giá trị hợp đồng') : currentTotalPrice
         const discount = canManageFinancials && input.discount !== undefined ? nonNegativeInteger(input.discount, 'Giảm giá') : currentDiscount
         if (discount > totalPrice) throw new HttpsError('invalid-argument', 'Giảm giá không thể lớn hơn giá trị hợp đồng.')
+        const allocated = usedSessions > 0 || Number(current?.carriedOverSessions || 0) > 0 || Number(current?.carryOverTransferredSessions || 0) > 0
+        if (current && allocated && (totalSessions !== Number(current.totalSessions) || totalPrice !== currentTotalPrice || discount !== currentDiscount)) {
+          throw new HttpsError('failed-precondition', 'Hợp đồng đã tính hoặc chuyển buổi nên không thể thay đơn giá gốc. Hãy tạo hợp đồng nối tiếp cho quyền lợi mới.', { issueCode: 'CONTRACT_REVENUE_PRICE_IMMUTABLE' })
+        }
         const paidAmount = Math.max(0, Math.floor(finite(current?.paidAmount)))
         const outstanding = totalPrice - discount - paidAmount
         if (outstanding < 0) throw new HttpsError('failed-precondition', 'Giá trị mới thấp hơn số tiền đã thu; hãy xử lý hoàn tiền trước.')
@@ -2901,6 +2905,8 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
           next.packageSessions = Math.max(0, totalSessions - Number(current.carriedOverSessions || 0))
           if (current.activationMode === 'fixed_date') next.plannedActivationDate = startDate
         }
+        if (current?.revenueAllocation && !allocated) next.revenueAllocation = { version: 1,
+          segments: [{ contractId, startOrdinal: 1, count: totalSessions, totalSessions, totalPrice, discount }] }
         if (action === 'create') {
           const policyConfigSnapshot = await transaction.get(db.doc('settings/scheduleConfig'))
           const operationsPolicy = ptOperationsPolicySnapshot(policyConfigSnapshot.exists ? policyConfigSnapshot.data() : {})
@@ -2911,6 +2917,9 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         }
       } else if (action === 'add_sessions') {
         if (!canManageFinancials) throw new HttpsError('permission-denied', 'Chỉ bộ phận tài chính được ghi nhận mua thêm buổi.')
+        if (Number(current.usedSessions || 0) > 0 || Number(current.carriedOverSessions || 0) > 0 || Number(current.carryOverTransferredSessions || 0) > 0) {
+          throw new HttpsError('failed-precondition', 'Hợp đồng đã tính hoặc chuyển buổi. Hãy tạo hợp đồng nối tiếp để buổi mua thêm không đổi đơn giá của buổi cũ.', { issueCode: 'CONTRACT_REVENUE_PRICE_IMMUTABLE' })
+        }
         if (!['active', 'future', 'frozen'].includes(bounded(current.status, 30))) {
           throw new HttpsError('failed-precondition', 'Chỉ hợp đồng đang hiệu lực, sắp hiệu lực hoặc bảo lưu mới được mua thêm buổi.')
         }
@@ -2932,6 +2941,8 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         next.totalSessions = Math.max(0, Math.floor(finite(current.totalSessions))) + extraSessions
         if (current.sourceContractId && current.handoverStatus === 'pending') next.packageSessions = Number(current.packageSessions || current.totalSessions || 0) + extraSessions
         next.totalPrice = Math.max(0, Math.floor(finite(current.totalPrice))) + extraPrice
+        if (current.revenueAllocation) next.revenueAllocation = { version: 1, segments: [{ contractId,
+          startOrdinal: 1, count: next.totalSessions, totalSessions: next.totalSessions, totalPrice: next.totalPrice, discount: Number(current.discount || 0) }] }
         next.endDate = newEndDate
         next.installments = installments
         next.nextPaymentDate = nextPending?.date || null

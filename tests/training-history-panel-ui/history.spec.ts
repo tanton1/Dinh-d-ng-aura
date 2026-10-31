@@ -7,6 +7,20 @@ const open = async (page: Page, hold = false) => {
 }
 const resolve = (page: Page, index: number, labels: string[], more = false) => page.evaluate(({ index, labels, more }) => (window as any).historyResolvers[index](labels, more), { index, labels, more })
 
+test('admin can explicitly return one charged session with a required reason and a single audited call', async ({ page }) => {
+  await open(page)
+  await page.getByRole('button', { name: 'Điều chỉnh', exact: true }).click()
+  await page.getByRole('checkbox', { name: 'Hoàn một buổi cho học viên' }).check()
+  const confirm = page.getByRole('button', { name: 'Xác nhận hoàn buổi', exact: true })
+  await expect(confirm).toBeDisabled()
+  await expect(page.getByText('Trả lại một buổi vào hợp đồng và đảo doanh thu của buổi này. Tiền đã thu không thay đổi.')).toBeVisible()
+  await page.getByPlaceholder('Ghi lý do hoàn buổi để lưu vào lịch sử đối soát.').fill('Hoàn buổi do ghi nhận nhầm lịch')
+  await confirm.click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect.poll(() => page.evaluate(() => (window as any).correctionCalls.length)).toBe(1)
+  expect(await page.evaluate(() => (window as any).correctionCalls[0])).toMatchObject({ action: 'return_session', reason: 'Hoàn buổi do ghi nhận nhầm lịch' })
+})
+
 test('filters and history do not read contract usage; explicit detail reuses its result until refresh', async ({ page }) => {
   await open(page)
   await page.getByRole('button', { name: 'Bộ lọc', exact: true }).click()

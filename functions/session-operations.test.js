@@ -100,7 +100,10 @@ function clone(value) {
 }
 
 function fakeDatabase(seed) {
-  const documents = new Map(Object.entries(seed).map(([path, data]) => [path, clone(data)]))
+  // Operational fixtures have a valid commercial value unless a test supplies
+  // an explicit invalid/zero value. Deduction now requires a priced contract.
+  const documents = new Map(Object.entries(seed).map(([path, data]) => [path, clone(data && path.startsWith('contracts/')
+    ? { totalPrice: 1200000, discount: 0, ...data } : data)]))
   let nextId = 0
 
   const reference = (path) => ({ kind: 'document', path, id: path.split('/').at(-1) })
@@ -509,7 +512,7 @@ test('same-month date and trainer corrections append balanced reversal/replaceme
   assert.equal(values.reduce((sum, value) => sum + value.revenueImpact, 0), 100_000)
 })
 
-test('correction does not recognise exempt make-up service or merely move automatically confirmed evidence', async () => {
+test('correction recognises charged automatic evidence while exempt make-up service stays excluded', async () => {
   for (const billingStatus of ['exempt', 'charged']) {
     const state = revenueCorrectionState({
       'sessions/revenue-session': { status: 'completed', billingStatus, attendanceStatus: 'present', attendanceEventId: 'revenue-session',
@@ -519,8 +522,8 @@ test('correction does not recognise exempt make-up service or merely move automa
         confirmationSource: 'auto_after_48h', confirmedBy: 'system', recognitionReviewRequired: billingStatus === 'charged' },
     })
     await state.correctTeachingShift(revenueCorrection(0, { items: [{ sessionId: 'revenue-session', expectedRevision: 0 }], trainerId: 'trainer-2' }))
-    assert.equal(state.paths().filter((path) => path.startsWith('ledgerEntries/')).length, 0)
-    assert.equal(state.read('sessions/revenue-session').recognitionReviewRequired, billingStatus === 'charged')
+    assert.equal(state.paths().filter((path) => path.startsWith('ledgerEntries/')).length, billingStatus === 'charged' ? 1 : 0)
+    assert.equal(state.read('sessions/revenue-session').recognitionReviewRequired, false)
   }
 })
 
@@ -1209,7 +1212,7 @@ test('attendance uses the session contract link and a deterministic event id', a
   assert.equal(state.read('attendanceEvents/session-attendance-1').contractId, 'contract-1')
   assert.equal(state.read('attendanceEvents/session-attendance-1').attendanceStatus, 'present')
   assert.equal(state.read('sessionBillingEvents/session-attendance-1').billingStatus, 'charged')
-  assert.equal(state.read('ledgerEntries/pt_session_session-attendance-1').recognitionPolicy, 'confirmed_attendance_v3')
+  assert.equal(state.read('ledgerEntries/pt_session_session-attendance-1').recognitionPolicy, 'charged_session_v4')
   assert.equal(state.read('ledgerEntries/pt_session_session-attendance-1').serviceOrdinal, 1)
   assert.equal(state.read('journalEntries/pt_session_session-attendance-1').totalDebit, 100000)
   assert.equal(state.read('journalEntries/pt_session_session-attendance-1').totalCredit, 100000)
@@ -1368,9 +1371,9 @@ test('unconfirmed charged attendance becomes present after 48 hours with an expl
   assert.equal(state.read('sessions/overdue-pending').confirmationSource, 'auto_after_48h')
   assert.equal(state.read('attendanceEvents/overdue-pending').attendanceStatus, 'present')
   assert.equal(state.read('attendanceEvents/overdue-pending').confirmationSource, 'auto_after_48h')
-  assert.equal(state.read('attendanceEvents/overdue-pending').recognitionReviewRequired, true)
-  assert.equal(state.read('revenueRecognitionReviews/overdue-pending').issueCode, 'AUTO_CONFIRMATION_REQUIRES_REVIEW')
-  assert.equal(state.read('ledgerEntries/pt_session_overdue-pending'), undefined)
+  assert.equal(state.read('attendanceEvents/overdue-pending').recognitionReviewRequired, false)
+  assert.equal(state.read('revenueRecognitionReviews/overdue-pending'), undefined)
+  assert.equal(state.read('ledgerEntries/pt_session_overdue-pending').revenueImpact, 100000)
   assert.equal(state.read('sessions/within-window').attendanceStatus, 'pending')
   assert.equal(state.paths().filter((path) => path.startsWith('attendanceAuditLogs/')).length, 1)
 })
@@ -1635,7 +1638,7 @@ test('second approved change in a calendar month creates one immutable policy ch
   assert.equal(result.countsTowardContract, true)
   assert.equal(state.read('attendanceEvents/policy_request-charge').type, 'charged_cancellation')
   assert.equal(state.read('sessionRequests/request-charge').countsTowardContract, true)
-  assert.equal(state.read('ledgerEntries/pt_policy_request-charge').recognitionPolicy, 'approved_policy_charge_v2')
+  assert.equal(state.read('ledgerEntries/pt_policy_request-charge').recognitionPolicy, 'charged_policy_v4')
   assert.equal(state.read('journalEntries/pt_policy_request-charge').totalDebit, 100000)
   assert.equal(state.paths().filter((path) => path === 'attendanceEvents/policy_request-charge').length, 1)
 })

@@ -18,7 +18,7 @@ test('PT revenue recognition is prorated per completed billable session', () => 
   assert.equal(write.revenueImpact, 100_001)
   assert.equal(write.deferredRevenueImpact, -100_001)
   assert.equal(write.idempotencyKey, 'pt-session-recognition:session-1')
-  assert.equal(write.recognitionPolicy, 'confirmed_attendance_v3')
+  assert.equal(write.recognitionPolicy, 'charged_session_v4')
   assert.equal(write.evidenceStatus, 'late')
   assert.equal(write.serviceOrdinal, 1)
 })
