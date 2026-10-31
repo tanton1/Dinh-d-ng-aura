@@ -54,7 +54,7 @@ const { trainerDailyLoadTarget } = require('./schedule-load-policy')
 // Bump the generator version when the lexicographic quality objective changes.
 // Existing drafts remain valid, but the version lets audit logs and the UI
 // distinguish schedules generated with the coverage-first/full-target policy.
-const OPTIMIZER_VERSION = 'optimizer-v15'
+const OPTIMIZER_VERSION = 'optimizer-v16'
 const MAX_DEEP_OPTIMIZATION_PASSES = 3
 // A bounded repair search can relocate auto-generated sessions from earlier
 // rounds. This closes the remaining gap between fair one-seat rounds and the
@@ -1974,6 +1974,28 @@ function assignedTrainerIds(contract) {
   ].filter(Boolean))]
 }
 
+function entryTrainerAssignmentOrder(data, entry) {
+  const assigned = assignedTrainerIds(scheduleIndexes(data).contractsById.get(entry.contractId))
+  if (!assigned.length) return null
+  const index = assigned.indexOf(entry.trainerId)
+  return index >= 0 ? index : 1000
+}
+
+function trainerAssignmentScore(data, schedule) {
+  let primary = 0, assigned = 0, secondaryOrder = 0
+  for (const entries of Object.values(schedule)) for (const entry of entries) {
+    if (entry.type === 'off') continue
+    const order = entryTrainerAssignmentOrder(data, entry)
+    if (order === null || order === 1000) continue
+    assigned += 1
+    if (order === 0) primary += 1
+    else secondaryOrder += order
+  }
+  // Learners without assigned PTs contribute no preference, retaining the
+  // existing pairing/load objectives. Resolve each entry's own contract.
+  return [primary, assigned, -secondaryOrder]
+}
+
 function trainerSchedulingPolicy(trainer, config) {
   const schedulingPriority = Math.max(1, Math.min(999, Math.trunc(Number(trainer?.schedulingPriority ?? trainer?.priority ?? 100) || 100)))
   const dailySessionTarget = trainerDailyLoadTarget(trainer, config?.scheduleLoadPolicy)
@@ -2257,14 +2279,10 @@ function compareSlots(left, right) {
 }
 
 function compareCandidatePriorities(left, right, leftOpensTeachingSlot, rightOpensTeachingSlot) {
-  // Lexicographic objective after maximum-cardinality learner matching:
-  // fill an existing 1/2 class before opening a new class. Spacing learner
-  // days is a soft preference: a full weekly target and a paired class are
-  // more valuable than leaving a valid seat empty. This keeps the optimizer
-  // aligned with Aura's operating goal while still preferring non-consecutive
-  // days whenever the utilization result is otherwise equal.
-  if (leftOpensTeachingSlot !== rightOpensTeachingSlot) return Number(leftOpensTeachingSlot) - Number(rightOpensTeachingSlot)
+  // Keep primary, then secondary PT ahead of pairing. Unassigned learners
+  // have the same assignmentOrder on every edge, so their flow is unchanged.
   if (left.assignmentOrder !== right.assignmentOrder) return left.assignmentOrder - right.assignmentOrder
+  if (leftOpensTeachingSlot !== rightOpensTeachingSlot) return Number(leftOpensTeachingSlot) - Number(rightOpensTeachingSlot)
   const tierComparison = schedulingTier(left) - schedulingTier(right)
   if (tierComparison !== 0) return tierComparison
   // Compact a PT's day before balancing equally valid work across PTs. This
@@ -2971,7 +2989,12 @@ function matchSchedulingRound(data, schedule, students) {
         if (occupants.length === 0 && capacity > 0) return 1
         return 2
       }
-      const rankDifference = liveTargetRank(left) - liveTargetRank(right)
+      const leftRank = liveTargetRank(left), rightRank = liveTargetRank(right)
+      const rankDifference = leftRank - rightRank
+      // An occupied primary is not a free seat. Only displace a matched
+      // learner when no direct seat works, avoiding needless support moves.
+      if ((leftRank === 2) !== (rightRank === 2)) return rankDifference
+      if (left.assignmentOrder !== right.assignmentOrder) return left.assignmentOrder - right.assignmentOrder
       if (rankDifference !== 0) return rankDifference
       const liveOpensSlot = (candidate) => {
         const targetKey = `${candidate.trainer.id}|${candidate.slotId}`
@@ -3176,6 +3199,7 @@ function rescueOutcomeScore(data, schedule, students, remainingByStudent, reloca
     // sessions must not outrank one that closes a learner's target entirely.
     futureCompletableStudents,
     futureRescuableSessions,
+    ...trainerAssignmentScore(data, schedule),
     utilization.pairedSlots,
     -utilization.singleSlots,
     -supportAssignments,
@@ -3456,6 +3480,7 @@ function compactPairedSlots(data, inputSchedule) {
     const targets = groups.filter((group) => group.entries.length === 1 && group.capacity >= 2)
     for (const source of sources) {
       const sourceEntry = source.entries[0]
+      const sourceAssignmentOrder = entryTrainerAssignmentOrder(data, sourceEntry)
       const student = studentsById.get(sourceEntry.studentId)
       if (!student) continue
       const beforeDays = buildSchedulingState(schedule, data).studentDays.get(student.id) || new Set()
@@ -3472,6 +3497,7 @@ function compactPairedSlots(data, inputSchedule) {
         .filter((target) => target.slotId !== source.slotId || target.trainerId !== source.trainerId)
         .map((target) => candidateRecord(data, temporary, temporaryState, new Map(), student, target.trainer, target.slotId))
         .filter(Boolean)
+        .filter((candidate) => sourceAssignmentOrder === null || candidate.assignmentOrder <= sourceAssignmentOrder)
         .filter((candidate) => {
           const nextDays = new Set(temporaryState.studentDays.get(student.id) || [])
           nextDays.add(candidate.slotId.split('-')[0])
@@ -3507,9 +3533,13 @@ function compactPairedSlots(data, inputSchedule) {
           const state = buildSchedulingState(temp, data)
           const ca = candidateRecord(data, temp, state, new Map(), a, trainer, slotId)
           if (!ca) continue
+          const leftAssignmentOrder = entryTrainerAssignmentOrder(data, left.entries[0])
+          if (leftAssignmentOrder !== null && ca.assignmentOrder > leftAssignmentOrder) continue
           const withA = scheduleWithEntry(temp, slotId, autoEntryForCandidate(data, a, ca))
           const cb = candidateRecord(data, withA, buildSchedulingState(withA, data), new Map(), b, trainer, slotId)
           if (!cb) continue
+          const rightAssignmentOrder = entryTrainerAssignmentOrder(data, right.entries[0])
+          if (rightAssignmentOrder !== null && cb.assignmentOrder > rightAssignmentOrder) continue
           const oldState = buildSchedulingState(schedule, data)
           if ([a, b].some((student) => !hasThreeConsecutiveTrainingDays(oldState.studentDays.get(student.id))
             && hasThreeConsecutiveTrainingDays(new Set([...(state.studentDays.get(student.id) || []), slotId.split('-')[0]])))) continue
@@ -3524,6 +3554,34 @@ function compactPairedSlots(data, inputSchedule) {
     }
   }
   return { schedule, moves }
+}
+
+function improveAssignedTrainerPlacements(data, schedule) {
+  const students = new Map(data.students.map((student) => [student.id, student]))
+  let moves = 0
+  // A single bounded pass also upgrades mutable rows retained by "continue".
+  // No learner loses a session, and manual/locked/published rows stay intact.
+  const entries = Object.entries(schedule).flatMap(([slotId, values]) => values.map((entry) => ({ slotId, entry })))
+  for (const { slotId, entry } of entries) {
+    if (protectedFromOptimizer(entry)) continue
+    const order = entryTrainerAssignmentOrder(data, entry)
+    if (order === null || order === 0) continue
+    const student = students.get(entry.studentId)
+    if (!student) continue
+    const temporary = scheduleWithoutEntry(schedule, slotId, entry)
+    const state = buildSchedulingState(temporary, data)
+    const beforeDays = buildSchedulingState(schedule, data).studentDays.get(student.id)
+    const candidate = feasibleCandidatesForStudent(data, temporary, state, new Map(), student)
+      .find((candidate) => candidate.assignmentOrder < order
+        && (hasThreeConsecutiveTrainingDays(beforeDays)
+          || !hasThreeConsecutiveTrainingDays(new Set([...(state.studentDays.get(student.id) || []), candidate.slotId.split('-')[0]]))))
+    if (!candidate) continue
+    schedule[slotId] = temporary[slotId] || []
+    if (!schedule[slotId].length) delete schedule[slotId]
+    schedule[candidate.slotId] = [...(temporary[candidate.slotId] || []), autoEntryForCandidate(data, student, candidate, entry)]
+    moves += 1
+  }
+  return moves
 }
 
 function blockersForStudent(data, student, schedule, schedulingState, contractCache, capacityReached, capacityReason = 'DRAFT_CAPACITY_REACHED') {
@@ -4155,6 +4213,7 @@ function generateScheduleAttempt(data) {
     optimizationPasses += 1
     if (compacted.moves === 0 && refilled === 0 && repaired.assignments === 0) break
   }
+  const trainerAssignmentMoves = mode === 'supplement' ? 0 : improveAssignedTrainerPlacements(data, schedule)
   const schedulingState = buildSchedulingState(schedule, data)
   const contractCache = new Map()
 
@@ -4232,8 +4291,8 @@ function generateScheduleAttempt(data) {
   ), 0)
   const consecutiveDayAudit = threeConsecutiveDayAudit(data, schedule, students)
   const objectiveOrder = completionFirst
-    ? ['fully_scheduled_learners', 'weekly_target_fulfilment', 'learner_coverage', 'pairing', 'trainer_assignment', 'trainer_consecutive_blocks', 'soft_load_balance', 'learner_spacing']
-    : ['learner_coverage', 'fully_scheduled_learners', 'weekly_target_fulfilment', 'pairing', 'trainer_assignment', 'trainer_consecutive_blocks', 'soft_load_balance', 'learner_spacing']
+    ? ['fully_scheduled_learners', 'weekly_target_fulfilment', 'learner_coverage', 'trainer_assignment', 'pairing', 'trainer_consecutive_blocks', 'soft_load_balance', 'learner_spacing']
+    : ['learner_coverage', 'fully_scheduled_learners', 'weekly_target_fulfilment', 'trainer_assignment', 'pairing', 'trainer_consecutive_blocks', 'soft_load_balance', 'learner_spacing']
   const optimizationSummary = {
     objectiveOrder,
     loadPolicyVersion: 'soft-consecutive-blocks-v2',
@@ -4243,6 +4302,7 @@ function generateScheduleAttempt(data) {
     trainerLoads: trainerLoadsForSchedule(data, schedule, schedulingState),
     slotUtilization: slotUtilizationForSchedule(data, schedule),
     pairingMoves,
+    trainerAssignmentMoves,
     refillAssignments,
     rescueAssignments,
     rescueRelocations,
@@ -4279,9 +4339,10 @@ function scheduleOutcome(data, schedule, prioritizeCompletion = false) {
   const covered = students.filter((s) => (counts.get(s.id) || 0) > 0).length
   const complete = students.filter((s) => (counts.get(s.id) || 0) >= s.sessionsPerWeek).length
   const sessions = students.reduce((sum, s) => sum + Math.min(s.sessionsPerWeek, counts.get(s.id) || 0), 0)
+  const assignment = trainerAssignmentScore(data, schedule)
   return prioritizeCompletion
-    ? [complete, covered, sessions, utilization.pairedSlots, -utilization.singleSlots]
-    : [covered, complete, sessions, utilization.pairedSlots, -utilization.singleSlots]
+    ? [complete, covered, sessions, ...assignment, utilization.pairedSlots, -utilization.singleSlots]
+    : [covered, complete, sessions, ...assignment, utilization.pairedSlots, -utilization.singleSlots]
 }
 
 function scheduleDataWithIndexes(data) {
@@ -4314,8 +4375,8 @@ function generateSchedule(data) {
   const oldLocations = new Map(Object.entries(baseline).flatMap(([slotId, entries]) => entries.filter((e) => e.type !== 'off').map((e) => [`${e.studentId}|${slotId}|${e.trainerId}`, e])))
   const changedEntries = Object.entries(result.schedule).reduce((sum, [slotId, entries]) => sum + entries.filter((e) => e.type !== 'off' && !oldLocations.has(`${e.studentId}|${slotId}|${e.trainerId}`)).length, 0)
   result.optimizationSummary.comparison = {
-    before: { covered: before[0], sessions: before[2], complete: before[1], paired: before[3], singles: -before[4] },
-    after: { covered: after[0], sessions: after[2], complete: after[1], paired: after[3], singles: -after[4] },
+    before: { covered: before[0], sessions: before[2], complete: before[1], paired: before.at(-2), singles: -before.at(-1) },
+    after: { covered: after[0], sessions: after[2], complete: after[1], paired: after.at(-2), singles: -after.at(-1) },
     addedSessions: after[2] - before[2],
     changedEntries,
   }

@@ -16,7 +16,7 @@ export function optimizationNotice(result: Awaited<ReturnType<typeof generatePtS
     ? ' Bộ tìm kiếm đã chạm giới hạn an toàn cho các hồ sơ còn thiếu; hãy bấm Tối ưu tiếp hoặc xử lý ở tab Cảnh báo.' : ''
   return unresolved
     ? `Đã tối ưu draft r${result.draftRevision}; còn ${unresolved} hồ sơ cần xử lý.${deepRun}${searchNote}`
-    : `Đã tối ưu draft r${result.draftRevision}; đã ưu tiên đủ học viên, ca đôi và PT chính/phụ.${deepRun}${searchNote}`
+    : `Đã tối ưu draft r${result.draftRevision}; đã ưu tiên đủ buổi học viên, PT chính/phụ rồi ghép ca.${deepRun}${searchNote}`
 }
 
 interface Props {

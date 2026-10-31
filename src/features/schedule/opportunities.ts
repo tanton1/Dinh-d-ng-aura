@@ -21,6 +21,21 @@ export interface ScheduleOpportunityInput {
 }
 const confirmed = new Set(['submitted', 'locked', 'inherited', 'recurring'])
 
+export function scheduleStudentTrainerAssignment(student: PtScheduleV2Student, contracts: PtScheduleWorkspaceV2Result['contracts']) {
+  const eligible = new Set(student.eligibleContractIds || [])
+  const ordered = contracts.filter((contract) => contract.studentId === student.id)
+    .sort((a, b) => String(b.endDate || '').localeCompare(String(a.endDate || '')))
+  const contract = ordered.find((item) => eligible.has(item.id) && (item.trainerId || item.trainerIds?.length))
+    || ordered.find((item) => item.trainerId || item.trainerIds?.length)
+  return {
+    primary: contract?.trainerId || contract?.trainerIds?.[0] || null,
+    assigned: new Set([contract?.trainerId, ...(contract?.trainerIds || [])].filter((id): id is string => Boolean(id))),
+    // Legacy assignment labels may fall back to an old contract. That fallback
+    // must not opt an otherwise unassigned learner into the new PT-first flow.
+    prioritizeAssignedTrainer: Boolean(contract && (eligible.size ? eligible.has(contract.id) : contract.status === 'active')),
+  }
+}
+
 /** Display suggestions only. The existing callable still validates every mutation. */
 export function calculateScheduleOpportunities({ workspace, studentRows, studentId, dates, days, hours }: ScheduleOpportunityInput): ScheduleOpportunity[] {
   const selected = studentId ? studentRows.find((row) => row.student.id === studentId) : null
@@ -34,18 +49,11 @@ export function calculateScheduleOpportunities({ workspace, studentRows, student
     list.push(contract)
     contractsByStudent.set(contract.studentId, list)
   }
-  const assignments = new Map<string, { primary: string | null; assigned: Set<string> }>()
+  const assignments = new Map<string, ReturnType<typeof scheduleStudentTrainerAssignment>>()
   const rowsBySlot = new Map<string, OpportunityStudentRow[]>()
   for (const row of rows) {
     const student = row.student
-    const eligible = new Set(student.eligibleContractIds || [])
-    const contracts = (contractsByStudent.get(student.id) || []).sort((a, b) => String(b.endDate || '').localeCompare(String(a.endDate || '')))
-    const contract = contracts.find((item) => eligible.has(item.id) && (item.trainerId || item.trainerIds?.length))
-      || contracts.find((item) => item.trainerId || item.trainerIds?.length)
-    assignments.set(student.id, {
-      primary: contract?.trainerId || contract?.trainerIds?.[0] || null,
-      assigned: new Set([contract?.trainerId, ...(contract?.trainerIds || [])].filter((id): id is string => Boolean(id))),
-    })
+    assignments.set(student.id, scheduleStudentTrainerAssignment(student, contractsByStudent.get(student.id) || []))
     for (const slotId of new Set(student.availableSlots)) {
       const list = rowsBySlot.get(slotId) || []
       list.push(row)
@@ -108,7 +116,12 @@ export function calculateScheduleOpportunities({ workspace, studentRows, student
       }
     }
   }
-  return result.sort((a, b) => a.priorityTier - b.priorityTier
+  // A selected learner keeps their primary/secondary PT ahead of pairing gains.
+  // The branch pool and learners without assigned PT retain the existing tiers.
+  const prioritizeAssignedTrainer = Boolean(selected && assignments.get(selected.student.id)?.prioritizeAssignedTrainer)
+  const assignmentPriority = (item: ScheduleOpportunity) => item.isPrimaryTrainer ? 0 : item.isAssignedTrainer ? 1 : 2
+  return result.sort((a, b) => (prioritizeAssignedTrainer ? assignmentPriority(a) - assignmentPriority(b) : 0)
+    || a.priorityTier - b.priorityTier
     || Number(b.isAssignedTrainer) - Number(a.isAssignedTrainer)
     || b.assignedMatchCount - a.assignedMatchCount || b.primaryMatchCount - a.primaryMatchCount
     || Number(b.matchesStudentAvailability) - Number(a.matchesStudentAvailability)

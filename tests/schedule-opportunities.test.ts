@@ -67,8 +67,75 @@ test('stale selected student does not fall back to the whole branch pool', () =>
   assert.deepEqual(result, [])
 })
 
-test('500 learners / 10 PT: indexed selector matches the original pool and selected-learner results', (t) => {
+test('selected learner prefers an empty primary PT slot before paired secondary and support slots', () => {
+  const data = workspace(1)
+  data.trainers = data.trainers.slice(0, 3)
+  data.schedule['T2-6'] = [
+    { studentId: 'other-secondary', trainerId: 't-1', type: 'training' },
+    { studentId: 'other-support', trainerId: 't-2', type: 'training' },
+  ]
+  const result = calculateScheduleOpportunities({ workspace: data, studentRows: [{ student: data.students[0], missing: 2 }], studentId: 's-0',
+    dates: { T2: { full: '2026-09-07' } }, days: ['T2'], hours: [6] })
+
+  assert.deepEqual(result.map((item) => item.trainerId), ['t-0', 't-1', 't-2'])
+  assert.deepEqual(result.map((item) => item.priorityTier), [2, 1, 1])
+  assert.deepEqual(result.map((item) => [item.isPrimaryTrainer, item.isAssignedTrainer]), [[true, true], [false, true], [false, false]])
+})
+
+test('selected learner falls back to secondary before a paired support PT when primary is off', () => {
+  const data = workspace(1)
+  data.trainers = data.trainers.slice(0, 3)
+  data.schedule['T2-6'] = [
+    { studentId: '', trainerId: 't-0', type: 'off' },
+    { studentId: 'other-support', trainerId: 't-2', type: 'training' },
+  ]
+  const result = calculateScheduleOpportunities({ workspace: data, studentRows: [{ student: data.students[0], missing: 2 }], studentId: 's-0',
+    dates: { T2: { full: '2026-09-07' } }, days: ['T2'], hours: [6] })
+
+  assert.deepEqual(result.map((item) => item.trainerId), ['t-1', 't-2'])
+  assert.deepEqual(result.map((item) => item.priorityTier), [2, 1])
+})
+
+test('selected learner uses eligible contract PT and preserves pairing within the same PT', () => {
+  const data = workspace(1)
+  data.trainers = data.trainers.slice(0, 3)
+  data.contracts.push({ ...data.contracts[0], id: 'future-contract', trainerId: 't-2', trainerIds: [], endDate: '2027-12-31' })
+  data.schedule['T3-6'] = [{ studentId: 'other-primary', trainerId: 't-0', type: 'training' }]
+  const result = calculateScheduleOpportunities({ workspace: data, studentRows: [{ student: data.students[0], missing: 2 }], studentId: 's-0',
+    dates: { T2: { full: '2026-09-07' }, T3: { full: '2026-09-08' } }, days: ['T2', 'T3'], hours: [6] })
+
+  assert.deepEqual(result.slice(0, 2).map((item) => [item.trainerId, item.slotId]), [['t-0', 'T3-6'], ['t-0', 'T2-6']])
+  assert.deepEqual(result.map((item) => item.trainerId), ['t-0', 't-0', 't-1', 't-1', 't-2', 't-2'])
+})
+
+for (const eligibleContractIds of [['c-0'], []]) {
+  test(`unassigned current contract does not inherit PT-first ordering from an expired contract (${eligibleContractIds.length ? 'eligible ID present' : 'no eligible IDs'})`, () => {
+    const data = workspace(1)
+    delete data.scheduleConfig.scheduleLoadPolicy
+    data.students[0].eligibleContractIds = eligibleContractIds
+    data.trainers = data.trainers.slice(0, 3)
+    data.contracts.push({ ...data.contracts[0], id: 'expired-contract', status: 'expired', endDate: '2025-12-31' })
+    data.contracts[0].trainerId = null
+    data.contracts[0].trainerIds = []
+    data.schedule['T2-6'] = [{ studentId: 'other-support', trainerId: 't-2', type: 'training' }]
+    const studentRows = [{ student: data.students[0], missing: 2 }]
+    const dates = { T2: { full: '2026-09-07' } }
+    const result = calculateScheduleOpportunities({ workspace: data, studentRows, studentId: 's-0', dates, days: ['T2'], hours: [6] })
+
+    assert.equal(result[0].trainerId, 't-2')
+    assert.deepEqual(result, legacyOpportunities(data, studentRows, 's-0', dates, ['T2'], [6]))
+  })
+}
+
+test('500 learners / 10 PT: indexed selector matches original pool and unassigned-learner results', (t) => {
   const data = workspace(500)
+  const unassignedStudentIds = ['s-0', 's-7', 's-15', 's-499']
+  data.contracts.forEach((contract: any) => {
+    if (unassignedStudentIds.includes(contract.studentId)) {
+      contract.trainerId = null
+      contract.trainerIds = []
+    }
+  })
   // Legacy defaults are eight for every type; explicit targets remain unchanged.
   delete data.scheduleConfig.scheduleLoadPolicy
   const days = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
@@ -89,7 +156,7 @@ test('500 learners / 10 PT: indexed selector matches the original pool and selec
   })) })
   const rows = data.students.map((student: any, i: number) => ({ student, missing: i % 4 }))
   let oldMs = 0, newMs = 0
-  for (const studentId of ['', 's-0', 's-7', 's-15', 's-499']) {
+  for (const studentId of ['', ...unassignedStudentIds]) {
     const start = performance.now()
     const oldResult = legacyOpportunities(data, rows, studentId, dates, days, hours)
     const middle = performance.now()

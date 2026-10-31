@@ -61,6 +61,7 @@ import {
 import '../../styles-branch-schedule.css'
 import { trainerDailyLoadTarget } from '../../config/scheduleLoadPolicy'
 import { useScheduleOpportunities } from '../../features/schedule/useScheduleOpportunities'
+import { scheduleStudentTrainerAssignment } from '../../features/schedule/opportunities'
 import { measureScheduleTask } from '../../features/schedule/performance'
 import { hasActionableSearchLimit } from '../../features/schedule/searchLimit'
 import { loadWorkspaceRequest } from '../../features/schedule/workspaceCache'
@@ -1450,6 +1451,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const { items: scheduleOpportunities, bySlot: scheduleOpportunitiesBySlot } = useScheduleOpportunities(
     workspace, tab === 'opportunities', operationalStudentRows, opportunityStudentId, weekDates, workingDays, workingHours,
   )
+  const opportunityHasAssignedTrainer = useMemo(() => {
+    const student = workspace?.students.find((item) => item.id === opportunityStudentId)
+    return Boolean(student && workspace && scheduleStudentTrainerAssignment(student, workspace.contracts).prioritizeAssignedTrainer)
+  }, [workspace, opportunityStudentId])
 
   const openScheduleOpportunity = (opportunity: (typeof scheduleOpportunities)[number]) => {
     if (!workspace || workspaceHydrating) return
@@ -2570,13 +2575,13 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
 
       {workspace && tab === 'opportunities' && (
         <main id="schedule-panel-opportunities" role="tabpanel" aria-labelledby="schedule-tab-opportunities" className="branch-schedule__opportunities-page">
-          <header><div><p>KHO CA KHẢ DỤNG</p><h2>Điều phối ca trống</h2><span>Chọn học viên để lọc đúng lịch rảnh; ưu tiên ghép ca 1/2, ca trống của PT chính thức cùng chi nhánh đang dưới mốc cân tải riêng, rồi các PT cùng chi nhánh còn lại. Mốc tải là tham chiếu, không phải trần.</span></div><div className="schedule-opportunities__stats"><strong>{scheduleOpportunities.filter((item) => item.priorityTier === 1).length}</strong><span>ghế ghép</span><strong>{scheduleOpportunities.filter((item) => item.priorityTier === 2).length}</strong><span>PT dưới mốc</span><strong>{scheduleOpportunities.filter((item) => item.priorityTier === 3).length}</strong><span>PT còn lại</span></div></header>
+          <header><div><p>KHO CA KHẢ DỤNG</p><h2>Điều phối ca trống</h2><span>{opportunityHasAssignedTrainer ? 'Ưu tiên PT chính, rồi PT phụ, sau đó PT hỗ trợ. Trong cùng nhóm PT mới ưu tiên ghép ca. Xếp PT hỗ trợ sẽ có cảnh báo.' : 'Chọn học viên để lọc đúng lịch rảnh; ưu tiên ghép ca 1/2, ca trống của PT chính thức cùng chi nhánh đang dưới mốc cân tải riêng, rồi các PT cùng chi nhánh còn lại. Mốc tải là tham chiếu, không phải trần.'}</span></div><div className="schedule-opportunities__stats"><strong>{scheduleOpportunities.filter((item) => item.priorityTier === 1).length}</strong><span>ghế ghép</span><strong>{scheduleOpportunities.filter((item) => item.priorityTier === 2).length}</strong><span>PT dưới mốc</span><strong>{scheduleOpportunities.filter((item) => item.priorityTier === 3).length}</strong><span>PT còn lại</span></div></header>
           <div className="schedule-opportunities__toolbar">
             <label><span>Học viên cần xếp / đổi</span><select value={opportunityStudentId} onChange={(event) => setOpportunityStudentId(event.target.value)}><option value="">Tất cả học viên · xem toàn chi nhánh</option>{workspace.students.filter((student) => student.eligibleForWeek !== false).sort((left, right) => left.name.localeCompare(right.name, 'vi')).map((student) => <option key={student.id} value={student.id}>{student.name} · {student.availableSlots.length} slot rảnh</option>)}</select></label>
-            <div className="schedule-opportunities__legend"><span>1 · Ghép ca 1/2</span><span>2 · PT chính thức dưới mốc</span><span>3 · PT cùng CN còn lại</span><span>PT chính/phụ được xếp đầu</span></div>
+            <div className="schedule-opportunities__legend">{opportunityHasAssignedTrainer ? <><span>1 · PT chính</span><span>2 · PT phụ</span><span>3 · PT hỗ trợ · có cảnh báo</span></> : <><span>1 · Ghép ca 1/2</span><span>2 · PT chính thức dưới mốc</span><span>3 · PT cùng CN còn lại</span><span>PT chính/phụ được xếp đầu</span></>}</div>
           </div>
           <section className="schedule-opportunity-matrix" aria-label="Ma trận tải ca còn trống">
-            <header><div><strong>Ma trận tải ca còn trống</strong><small>Mỗi ô hiển thị tổng chỗ còn nhận và số PT. Màu ưu tiên chỉ dùng trong kho ca; lịch cá nhân của PT giữ nguyên kiểu hiển thị riêng.</small></div><div className="schedule-opportunity-matrix__legend"><span data-priority="1">1 · Ghép</span><span data-priority="2">2 · Dưới mốc</span><span data-priority="3">3 · Còn slot</span><span data-priority="0">0 · Hết ca</span></div></header>
+            <header><div><strong>Ma trận tải ca còn trống</strong><small>{opportunityHasAssignedTrainer ? 'Màu thể hiện trạng thái ca. Chọn một ô để mở PT chính, PT phụ rồi PT hỗ trợ theo thứ tự còn khả dụng.' : 'Mỗi ô hiển thị tổng chỗ còn nhận và số PT. Màu ưu tiên chỉ dùng trong kho ca; lịch cá nhân của PT giữ nguyên kiểu hiển thị riêng.'}</small></div><div className="schedule-opportunity-matrix__legend"><span data-priority="1">1 · Ghép</span><span data-priority="2">2 · Dưới mốc</span><span data-priority="3">3 · Còn slot</span><span data-priority="0">0 · Hết ca</span></div></header>
             <div className="schedule-opportunity-matrix__mobile-days">
               <button type="button" aria-label="Xem nhóm ngày trước" disabled={mobilePage === 0} onClick={() => setMobilePage((value) => Math.max(0, value - 1))}><ChevronLeft /></button>
               <strong>{selectedDays.map((day) => DAY_LABELS[day] || day).join(' · ')}</strong>
@@ -2590,19 +2595,21 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
               const trainerCount = new Set(opportunities.map((item) => item.trainerId)).size
               const tierCounts = ([1, 2, 3] as const).map((tier) => ({ tier, count: opportunities.filter((item) => item.priorityTier === tier).length }))
               const bestOpportunity = opportunities[0]
-              const label = `${scheduleSlotLabel(slotId, weekDates)} · ${availableSeats} chỗ trống · ${trainerCount} PT khả dụng${priority ? ` · ưu tiên ${priority}` : ''}`
+              const label = `${scheduleSlotLabel(slotId, weekDates)} · ${availableSeats} chỗ trống · ${trainerCount} PT khả dụng${priority ? ` · ${opportunityHasAssignedTrainer ? 'nhóm ca' : 'ưu tiên'} ${priority}` : ''}`
               return <td key={slotId} className={selectedDays.includes(day) ? 'is-mobile-visible' : ''}><button type="button" className={bestOpportunity ? 'is-available' : 'is-empty'} data-priority={priority || undefined} disabled={!bestOpportunity} aria-label={label} onClick={() => bestOpportunity && openScheduleOpportunity(bestOpportunity)}><strong>{availableSeats}</strong><small>{availableSeats ? `${trainerCount} PT` : 'Hết ca'}</small><span>{tierCounts.filter((item) => item.count > 0).map((item) => <i key={item.tier}>{item.tier}:{item.count}</i>)}</span></button></td>
             })}</tr>)}</tbody></table></div>
           </section>
           <div className="schedule-opportunities__groups">
             {([1, 2, 3] as const).map((tier) => {
-              const items = scheduleOpportunities.filter((item) => item.priorityTier === tier).slice(0, 120)
-              const label = tier === 1 ? 'Ưu tiên 1 · Ghép vào ca 1/2' : tier === 2 ? 'Ưu tiên 2 · PT chính thức cùng chi nhánh dưới mốc cân tải' : 'Ưu tiên 3 · Các PT cùng chi nhánh còn lại'
+              const items = scheduleOpportunities.filter((item) => (opportunityHasAssignedTrainer ? item.isPrimaryTrainer ? 1 : item.isAssignedTrainer ? 2 : 3 : item.priorityTier) === tier).slice(0, 120)
+              const label = opportunityHasAssignedTrainer
+                ? tier === 1 ? 'Ưu tiên 1 · PT chính' : tier === 2 ? 'Ưu tiên 2 · PT phụ' : 'Ưu tiên 3 · PT hỗ trợ · có cảnh báo'
+                : tier === 1 ? 'Ưu tiên 1 · Ghép vào ca 1/2' : tier === 2 ? 'Ưu tiên 2 · PT chính thức cùng chi nhánh dưới mốc cân tải' : 'Ưu tiên 3 · Các PT cùng chi nhánh còn lại'
               return <section key={tier} className="schedule-opportunities__group" data-priority={tier}><header><strong>{label}</strong><span>{items.length} cơ hội{items.length === 120 ? ' · đang hiển thị 120 đầu tiên' : ''}</span></header><div>{items.length ? items.map((item) => {
                 const assignedLabel = opportunityStudentId
-                  ? item.isPrimaryTrainer ? 'Khớp PT chính' : item.secondaryMatchCount > 0 ? 'Khớp PT phụ' : ''
+                  ? item.isPrimaryTrainer ? 'Khớp PT chính' : item.secondaryMatchCount > 0 ? 'Khớp PT phụ' : opportunityHasAssignedTrainer ? 'PT hỗ trợ ngoài danh sách chính/phụ' : ''
                   : item.assignedMatchCount > 0 ? `Khớp PT chính/phụ của ${item.assignedMatchCount} học viên` : ''
-                return <button type="button" key={`${item.trainerId}|${item.slotId}`} onClick={() => openScheduleOpportunity(item)}><span><strong>{scheduleSlotLabel(item.slotId, weekDates)}</strong><small>{item.trainerName}{item.priorityTier === 2 ? ` · PT chính thức · dưới mốc ${item.dailyTarget}` : ' · cùng chi nhánh'}</small>{assignedLabel && <small className="schedule-opportunity-assignment">{assignedLabel} · xếp trước</small>}</span><em>{item.occupancy}/{item.capacity} · {item.occupancy === 1 ? 'còn 1 ghế' : `${item.dailyLoad}/${item.dailyTarget} mốc tải`}</em><ChevronRight size={16} /></button>
+                return <button type="button" key={`${item.trainerId}|${item.slotId}`} onClick={() => openScheduleOpportunity(item)}><span><strong>{scheduleSlotLabel(item.slotId, weekDates)}</strong><small>{item.trainerName}{item.priorityTier === 2 ? ` · PT chính thức · dưới mốc ${item.dailyTarget}` : ' · cùng chi nhánh'}</small>{assignedLabel && <small className="schedule-opportunity-assignment">{assignedLabel}{item.isAssignedTrainer ? ' · xếp trước' : ''}</small>}</span><em>{item.occupancy}/{item.capacity} · {item.occupancy === 1 ? 'còn 1 ghế' : `${item.dailyLoad}/${item.dailyTarget} mốc tải`}</em><ChevronRight size={16} /></button>
               }) : <p className="schedule-opportunities__empty">Chưa có cơ hội ở tầng này cho bộ lọc hiện tại.</p>}</div></section>
             })}
           </div>
