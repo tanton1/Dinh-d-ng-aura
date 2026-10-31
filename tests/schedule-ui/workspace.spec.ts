@@ -104,11 +104,60 @@ test('manager opportunity pool shows strict tiers and filters against learner av
   await expect(officialPtSlots.getByText(/Khớp PT chính\/phụ/).first()).toBeVisible()
   await expect(officialPtSlots.locator('button.is-assigned-match')).toHaveCount(0)
   await page.getByLabel('Học viên cần xếp / đổi').selectOption('a')
-  await expect(page.getByText('Ưu tiên 2 · PT chính thức cùng chi nhánh dưới mốc cân tải')).toBeVisible()
-  await expect(officialPtSlots.getByText(/Khớp PT chính/).first()).toBeVisible()
-  await expect(officialPtSlots.getByText(/Khớp PT phụ/).first()).toBeVisible()
+  await expect(page.getByText('Ưu tiên 1 · PT chính', { exact: true })).toBeVisible()
+  await expect(page.locator('.schedule-opportunities__group[data-priority="1"]').getByText(/Khớp PT chính/).first()).toBeVisible()
+  await expect(page.locator('.schedule-opportunities__group[data-priority="2"]').getByText(/Khớp PT phụ/).first()).toBeVisible()
+  await page.getByLabel('Học viên cần xếp / đổi').selectOption('')
+  await expect(page.getByText('Ưu tiên 1 · Ghép vào ca 1/2')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1)
 })
+
+for (const assigned of [true, false]) {
+  test(`selected ${assigned ? 'assigned' : 'unassigned'} learner opportunity cards and matrix keep the correct PT order`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.clock.setFixedTime(new Date('2026-09-07T00:00:00+07:00'))
+    await page.addInitScript((hasAssignment) => {
+      const trainer = { status: 'active', branchId: 'b', slotCapacity: 2, availabilityMode: 'configured', availabilityRevision: 1,
+        availableSlots: ['T2-6', 'T3-6', 'T4-6'], employmentType: 'full_time', dailySessionTarget: 8 }
+      ;(window as any).__weeklyViewOverride = {
+        trainers: [{ ...trainer, id: 't', name: 'Mai' }, { ...trainer, id: 't-secondary', name: 'Vy' }, { ...trainer, id: 't-support', name: 'An' }],
+        schedule: { 'T2-6': [
+          { studentId: 'b', trainerId: 't-secondary', contractId: 'c-b', type: 'training', branchId: 'b' },
+          { studentId: 'c', trainerId: 't-support', contractId: 'c-c', type: 'training', branchId: 'b' },
+        ] },
+        contracts: ['a', 'b', 'c'].map((id) => ({ id: 'c-' + id, studentId: id, status: 'active',
+          trainerId: hasAssignment ? 't' : null, trainerIds: hasAssignment && id === 'a' ? ['t-secondary'] : [],
+          branchId: 'b', packageName: 'Gói 24', startDate: '2020-01-01', endDate: '2099-12-31', totalSessions: 24, usedSessions: 0 })),
+      }
+      if (!hasAssignment) (window as any).__weeklyViewOverride.contracts.push({
+        id: 'c-old-a', studentId: 'a', status: 'expired', trainerId: 't', trainerIds: [], branchId: 'b',
+        packageName: 'Gói cũ', startDate: '2019-01-01', endDate: '2019-12-31', totalSessions: 24, usedSessions: 24,
+      })
+    }, assigned)
+    await page.goto('/tests/schedule-ui/index.html')
+    await page.getByRole('tab', { name: /Kho ca/ }).click()
+    await page.getByLabel('Học viên cần xếp / đổi').selectOption('a')
+
+    const groups = page.locator('.schedule-opportunities__group')
+    const firstCard = groups.getByRole('button').first()
+    if (assigned) {
+      await expect(groups.nth(0)).toContainText('Ưu tiên 1 · PT chính')
+      await expect(firstCard).toContainText('Mai')
+      await expect(firstCard).toContainText('0/2')
+      await expect(groups.nth(1).getByRole('button').first()).toContainText('Vy')
+      await expect(groups.nth(2).getByRole('button').first()).toContainText('PT hỗ trợ ngoài danh sách chính/phụ')
+    } else {
+      await expect(groups.nth(0)).toContainText('Ưu tiên 1 · Ghép vào ca 1/2')
+      await expect(firstCard).toContainText('An')
+      await expect(firstCard).toContainText('1/2')
+      await expect(groups.nth(1).getByRole('button').first()).toContainText('Mai')
+    }
+    await page.getByRole('region', { name: 'Ma trận tải ca còn trống' }).locator('button.is-available').first().click()
+    await expect(page.getByRole('combobox', { name: 'Huấn luyện viên' })).toHaveValue(assigned ? 't' : 't-support')
+    await expect(page.getByRole('dialog', { name: 'Chỉnh ô lịch' })).toBeVisible()
+    expect(await page.evaluate(() => (window as any).__scheduleCalls.filter((call: any) => call.operation === 'command' || call.operation === 'admin-command').length)).toBe(0)
+  })
+}
 
 test('warning center separates learner input from real PT capacity', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })

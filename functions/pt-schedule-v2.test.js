@@ -854,7 +854,7 @@ test('pairing an existing class is preferred over opening another trainer slot',
   assert.equal(entry.trainerId, 'trainer-a')
 })
 
-test('existing secondary PT pair is preferred over opening a new primary PT class', () => {
+test('available primary PT is preferred over an existing secondary PT pair', () => {
   const data = fixture()
   data.contracts[0].trainerId = 'trainer-primary'
   data.contracts[0].trainerIds = ['trainer-secondary']
@@ -866,8 +866,8 @@ test('existing secondary PT pair is preferred over opening a new primary PT clas
     { ...data.trainers[0], id: 'trainer-secondary', schedulingPriority: 100 },
   ]
   const generated = generateSchedule(data)
-  const entry = generated.schedule['T2-6'].find((item) => item.studentId === 'student-a')
-  assert.equal(entry.trainerId, 'trainer-secondary')
+  const entry = Object.values(generated.schedule).flat().find((item) => item.studentId === 'student-a')
+  assert.equal(entry.trainerId, 'trainer-primary')
 })
 
 test('an adjacent PT slot is preferred over an isolated slot when higher priorities tie', () => {
@@ -1066,7 +1066,7 @@ test('pairing remains ahead of PT load balancing after every learner receives co
   assert.equal(generated.optimizationSummary.slotUtilization.pairedSlots, 1)
 })
 
-test('live round occupancy pairs learners before reopening their separate primary PT classes', () => {
+test('live round occupancy keeps learners with their separate primary PTs before pairing', () => {
   const data = fixture()
   data.trainers = [
     { ...data.trainers[0], id: 'trainer-a', slotCapacity: 2, availableSlots: ['T2-6'] },
@@ -1082,10 +1082,10 @@ test('live round occupancy pairs learners before reopening their separate primar
   ]
 
   const generated = generateSchedule(data)
-  assert.equal(generated.optimizationSummary.slotUtilization.teachingSlots, 1)
-  assert.equal(generated.optimizationSummary.slotUtilization.pairedSlots, 1)
+  assert.equal(generated.optimizationSummary.slotUtilization.teachingSlots, 2)
+  assert.equal(generated.optimizationSummary.slotUtilization.pairedSlots, 0)
   assert.equal(generated.optimizationSummary.studentCoverage.missingSessions, 0)
-  assert.ok(Object.values(generated.schedule).flat().some((entry) => entry.trainerAssignmentWarning === true))
+  assert.equal(Object.values(generated.schedule).flat().some((entry) => entry.trainerAssignmentWarning === true), false)
 })
 
 test('deep optimization repeats coverage and pairing until the weekly target is fulfilled', () => {
