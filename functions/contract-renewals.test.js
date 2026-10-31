@@ -280,6 +280,13 @@ test('installment schedule must exactly match remaining contract balance', () =>
   assert.throws(() => normalizeInstallments([{ date: '2026-09-01', amount: 900_000 }], 1_000_000, '2026-08-25', '2026-11-25'), /không khớp/)
 })
 
+test('custom renewal installments cannot reuse the same payment identity', () => {
+  assert.throws(() => normalizeInstallments([
+    { id: 'same', date: '2026-09-01', amount: 500_000 },
+    { id: 'same', date: '2026-10-01', amount: 500_000 },
+  ], 1_000_000, '2026-08-25', '2026-11-25'), /trùng/)
+})
+
 test('pipeline keeps only the latest non-cancelled contract per student', () => {
   const latest = latestContractsByStudent([
     { id: 'old', studentId: 's1', endDate: '2026-08-01', status: 'expired' },

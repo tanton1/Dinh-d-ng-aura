@@ -16,6 +16,8 @@ import {
 import { firebaseAuth } from '../../../lib/firebase'
 import { clearRenewalCommand, readRenewalCommand, reconcileRenewalCommand, rememberRenewalCommand, renewalOutcomeUnknown, type PendingRenewalCommand } from '../../../features/contracts/renewalRecovery'
 import type { Student, StudentContract } from '../../../types'
+import ContractPaymentPlanEditor from '../../contracts/ContractPaymentPlanEditor'
+import { dividePaymentPlan, paymentPlanError, type PaymentPlanInstallment } from '../../../domain/contracts/paymentPlan'
 import './ContractRenewals.css'
 
 interface ModernProps {
@@ -85,8 +87,7 @@ function RenewContractWizard({ row, options, scope, onClose, onSuccess }: Modern
   const [initialPayment, setInitialPayment] = useState(0)
   const [paymentMethod, setPaymentMethod] = useState('transfer')
   const [cashAccountId, setCashAccountId] = useState('')
-  const [installmentCount, setInstallmentCount] = useState(1)
-  const [installmentDates, setInstallmentDates] = useState<string[]>([])
+  const [customInstallments, setCustomInstallments] = useState<PaymentPlanInstallment[] | null>(null)
   const [note, setNote] = useState('')
   const [approvalReason, setApprovalReason] = useState('Ưu đãi hỗ trợ tái ký theo nhu cầu thực tế của học viên.')
   const [quoteId, setQuoteId] = useState<string | null>(row.quoteId)
@@ -126,11 +127,6 @@ function RenewContractWizard({ row, options, scope, onClose, onSuccess }: Modern
   }, [cashAccountId, cashAccounts])
 
   useEffect(() => {
-    if (!debt) { setInstallmentDates([]); return }
-    setInstallmentDates((current) => Array.from({ length: installmentCount }, (_, index) => current[index] || addMonths(startDate, index + 1)))
-  }, [debt, installmentCount, startDate])
-
-  useEffect(() => {
     if (!row.quoteId && !row.approvalId) return
     let active = true
     void getContractRenewalCaseDetail(row.caseId).then((detail) => {
@@ -145,10 +141,8 @@ function RenewContractWizard({ row, options, scope, onClose, onSuccess }: Modern
 
   const installments = useMemo(() => {
     if (!debt) return []
-    const base = Math.floor(debt / installmentCount)
-    const remainder = debt % installmentCount
-    return Array.from({ length: installmentCount }, (_, index) => ({ id: `installment-${index + 1}`, date: installmentDates[index] || '', amount: base + (index === 0 ? remainder : 0) }))
-  }, [debt, installmentCount, installmentDates])
+    return customInstallments ?? dividePaymentPlan(debt, 1, startDate, endDate)
+  }, [debt, customInstallments, startDate, endDate])
 
   const resetCommercialApproval = () => {
     setQuoteId(null)
@@ -163,7 +157,10 @@ function RenewContractWizard({ row, options, scope, onClose, onSuccess }: Modern
     if (discount < 0 || discount > selectedPackage.price) return setError('Giảm giá không hợp lệ.'), false
     if (targetStep >= 3 && initialPayment > finalPrice) return setError('Thanh toán đầu kỳ vượt thành tiền.'), false
     if (targetStep >= 3 && initialPayment > 0 && !cashAccountId) return setError('Vui lòng chọn tài khoản quỹ nhận tiền.'), false
-    if (targetStep >= 4 && installments.some((item) => !item.date || item.date < startDate || item.date > endDate)) return setError('Ngày trả góp phải nằm trong thời hạn hợp đồng.'), false
+    if (targetStep >= 4) {
+      const issue = paymentPlanError(installments, debt, { minDate: startDate, maxDate: endDate, maxInstallments: 12 })
+      if (issue) return setError(issue), false
+    }
     return true
   }
 
@@ -296,12 +293,12 @@ function RenewContractWizard({ row, options, scope, onClose, onSuccess }: Modern
           {requiresApproval && quoteId && <div className="renewal-approval-box"><label>Lý do xin duyệt<textarea value={approvalReason} disabled={submitting} onChange={(event) => setApprovalReason(event.target.value)} maxLength={500} /></label><button type="button" disabled={submitting || Boolean(approvalId)} onClick={() => void requestApproval()}>{approvalStatus === 'approved' ? 'Đã duyệt' : approvalStatus === 'pending' ? 'Đang chờ duyệt' : 'Gửi quản lý duyệt'}</button>{approvalStatus === 'pending' && <small>Cần một Quản lý chi nhánh hoặc Admin khác phê duyệt. Sau khi được duyệt, bấm Tiếp tục để kiểm tra lại.</small>}</div>}
         </section>}
 
-        {step === 3 && <section className="renewal-form-section renewal-step-panel"><div className="renewal-section-title"><span>03</span><div><h3>Thu tiền & công nợ</h3><p>Khoản thu đầu kỳ được ghi đồng thời vào ledger và sổ quỹ.</p></div></div><div className="renewal-form-grid">
-          <label>Thu ngay<input type="number" min="0" max={finalPrice} value={initialPayment} onChange={(event) => setInitialPayment(Math.max(0, Number(event.target.value) || 0))} /></label>
+        {step === 3 && <section className="renewal-form-section renewal-step-panel"><div className="renewal-section-title"><span>03</span><div><h3>Thu tiền & công nợ</h3><p>Phiếu thu được tạo khi xác nhận hợp đồng.</p></div></div><div className="renewal-form-grid">
+          <label>Số tiền trả trước<input type="number" inputMode="numeric" min="0" step="1" max={finalPrice} value={initialPayment || ''} placeholder="0" onChange={(event) => setInitialPayment(Math.max(0, Number(event.target.value) || 0))} /></label>
           <label>Phương thức<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} disabled={!initialPayment}><option value="transfer">Chuyển khoản</option><option value="cash">Tiền mặt</option><option value="card">Thẻ</option></select></label>
           {initialPayment > 0 && <label className="is-wide">Tài khoản quỹ<select required value={cashAccountId} onChange={(event) => setCashAccountId(event.target.value)}><option value="">Chọn quỹ nhận tiền</option>{cashAccounts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
-        </div><div className="renewal-money-summary"><div><span>Đã thu đầu kỳ</span><strong>{money(initialPayment)}</strong></div><div><span>Còn phải thu</span><strong>{money(debt)}</strong></div></div>
-          {debt > 0 && <><label className="renewal-count">Số kỳ trả góp<select value={installmentCount} onChange={(event) => setInstallmentCount(Number(event.target.value))}>{[1, 2, 3, 4, 5, 6].map((value) => <option key={value} value={value}>{value} kỳ</option>)}</select></label><div className="renewal-installments">{installments.map((item, index) => <label key={item.id}><span>Kỳ {index + 1} · {money(item.amount)}</span><input type="date" required min={startDate} max={endDate} value={item.date} onChange={(event) => setInstallmentDates((current) => current.map((date, itemIndex) => itemIndex === index ? event.target.value : date))} /></label>)}</div></>}
+        </div><div className="renewal-money-summary"><div><span>Trả trước</span><strong>{money(initialPayment)}</strong></div><div><span>Còn phải thu</span><strong>{money(debt)}</strong></div></div>
+          <ContractPaymentPlanEditor installments={installments} remainingAmount={debt} startDate={startDate} endDate={endDate} minDate={startDate} maxDate={endDate} maxInstallments={12} onChange={setCustomInstallments} />
         </section>}
 
         {step === 4 && pendingCommand && <section className="renewal-recovery-panel" role="status"><ShieldCheck /><div><h3>Đang đối chiếu giao dịch đã gửi</h3><p>Aura chưa có kết quả xác nhận. Thông tin giao dịch được giữ nguyên trong tab này khi bạn tải lại trang.</p><dl><div><dt>Mã giao dịch</dt><dd>{pendingCommand.input.idempotencyKey}</dd></div><div><dt>Ngày bắt đầu đã gửi</dt><dd>{formatDate(pendingCommand.input.startDate)}</dd></div><div><dt>Khoản thu đã gửi</dt><dd>{money(pendingCommand.input.initialPayment)}</dd></div><div><dt>Còn phải thu theo giao dịch</dt><dd>{money(pendingCommand.input.installments.reduce((sum, item) => sum + item.amount, 0))}</dd></div></dl><p>Bấm Kiểm tra & tiếp tục: Aura đọc kết quả trước. Nếu chưa có hợp đồng mới, hệ thống tiếp tục đúng giao dịch đã gửi, với cùng mã và khoản thu.</p></div></section>}

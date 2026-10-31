@@ -12,6 +12,10 @@
 }
 
 .student360-contract-form fieldset.student360-contract-create-fields{border:0;padding:0;margin:0;min-width:0}
+.student360-payment-actions{display:flex;flex-wrap:wrap;gap:8px}
+.student360-contract-upfront-note{margin:0;color:#775d68;font-size:12px;line-height:1.6}
+.student360-contract-form .contract-payment-plan label{font-size:12px}
+.student360-contract-form .contract-payment-plan :is(input,select){font-size:14px}
 
 .student360-contract-assignment-issues > strong {
   color: #522b0b;

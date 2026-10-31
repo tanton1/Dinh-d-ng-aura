@@ -27,7 +27,7 @@ export const state = {
   intentCalls: [] as Array<any>, intentFailure: '', intentDefer: false,
   intentPending: [] as Array<{ resolve: () => void }>,
   studentInstallmentStatus: 'pending', workspaceLoads: 0, projectionRefreshes: 0,
-  contractCreateFailure: '', contractCreateCalls: [] as any[], createdContracts: [] as any[],
+  contractCreateFailure: '', contractCreateCalls: [] as any[], createdContracts: JSON.parse(sessionStorage.getItem('synthetic-created-contracts') || '[]') as any[], contractPlanEdits: [] as any[],
   bookCalls: [] as Array<{ name: string; owner: string; input: any }>, bookDefer: [] as string[], bookFailures: {} as Record<string, string>,
   bookPages: {} as Record<string, any[]>,
   bookPending: [] as Array<{ name: string; resolve: () => void; reject: (code: string, reason?: string) => void }>, bookMutations: [] as Array<{ name: string; input: any }>,
@@ -229,20 +229,22 @@ export async function getStudent360ContractWorkspace() {
   }
   return {
     schemaVersion: 1, activeContractId: new URLSearchParams(window.location.search).has('multipleContracts') ? 'contract-b' : 'contract-a', student: { id: 'student-a', name: 'Test learner A', phone: '', email: '' },
-    permissions: { canManageContract: false, canCreateContract: new URLSearchParams(window.location.search).has('create'), canEditFinancialTerms: new URLSearchParams(window.location.search).has('create'), canCollectPayments: true, canViewFinancialAmounts: true },
-    contracts: (new URLSearchParams(window.location.search).has('multipleContracts') ? contracts : [contracts[0]]).map(contract => ({ ...contract, studentId: 'student-a', trainerIds: [], nutritionPTIds: [], startDate: '2026-10-01', endDate: '2026-12-31', totalSessions: 12, usedSessions: 0, revision: 1, extensions: [], pausePeriods: [], installments: [{ id: 'installment-a', date: '2026-10-25', amount: 100_000, status: state.studentInstallmentStatus }] })),
+    permissions: { canManageContract: new URLSearchParams(window.location.search).has('editPlan'), canCreateContract: new URLSearchParams(window.location.search).has('create'), canEditFinancialTerms: new URLSearchParams(window.location.search).has('create') || new URLSearchParams(window.location.search).has('editPlan'), canCollectPayments: true, canViewFinancialAmounts: true },
+    contracts: (new URLSearchParams(window.location.search).has('multipleContracts') ? contracts : [contracts[0]]).map(contract => ({ ...contract, ...(new URLSearchParams(window.location.search).has('editPlan') ? { totalPrice: 1200000, paidAmount: 300000, discount: 0 } : {}), studentId: 'student-a', trainerIds: [], nutritionPTIds: [], startDate: '2026-10-01', endDate: '2026-12-31', totalSessions: 12, usedSessions: 0, revision: 1, extensions: [], pausePeriods: [], installments: new URLSearchParams(window.location.search).has('editPlan') ? (state.contractPlanEdits.at(-1)?.installments || [{ id: 'paid-history', date: '2026-10-01', amount: 300000, status: 'paid' }, { id: 'installment-a', date: '2026-12-01', amount: 900000, status: 'pending' }]) : [{ id: 'installment-a', date: '2026-10-25', amount: 100_000, status: state.studentInstallmentStatus }] })),
     trainers: [], packages: [{ id: 'package-a', name: 'New synthetic package', totalSessions: 12, price: 1200000, durationMonths: 3 }], branches: database.branches,
   }
 }
 export async function mutateStudent360Contract(input: any) {
+  if (input.action === 'edit_payment_plan') { state.contractPlanEdits.push(structuredClone(input)); return { contractId: input.contractId, action: input.action, revision: 2 } }
   if (input.action !== 'create') throw Error('Unexpected contract mutation in finance fixture')
   state.contractCreateCalls.push(structuredClone(input))
   if (!input.contractId) throw Error('Missing stable create ID')
   const existing = state.createdContracts.find(item => item.contractId === input.contractId)
   if (existing && JSON.stringify(existing) !== JSON.stringify(input)) throw Object.assign(Error('Mismatched create replay'), { code: 'functions/already-exists' })
   if (!existing) state.createdContracts.push(structuredClone(input))
+  sessionStorage.setItem('synthetic-created-contracts', JSON.stringify(state.createdContracts))
   if (state.contractCreateFailure === 'commit-lost') { state.contractCreateFailure = ''; throw Object.assign(Error('Mất phản hồi tạo hợp đồng thử nghiệm'), { code: 'functions/unavailable' }) }
-  return { contractId: input.contractId, revision: 1, action: 'create' }
+  return { contractId: input.contractId, revision: 1, action: 'create', ...(input.initialPayment ? { receiptVoucherId: 'receipt-' + input.contractId, receiptVoucherNumber: 'PT-TEST-001' } : {}) }
 }
 export async function refreshStudent360Projection() {
   state.projectionRefreshes++

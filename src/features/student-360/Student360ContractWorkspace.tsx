@@ -28,6 +28,9 @@ import type { ViewId } from '../../types'
 import { prepareContractRenewal, type PreparedContractRenewal } from '../../services/contractRenewalService'
 import { listCashAccounts, type CashAccount } from '../../services/cashbookService'
 import { useAuth } from '../../contexts/AuthContext'
+import ContractPaymentPlanEditor from '../../components/contracts/ContractPaymentPlanEditor'
+import { dividePaymentPlan, paymentPlanError, type PaymentPlanInstallment } from '../../domain/contracts/paymentPlan'
+import { clearContractCreate, readContractCreate, rememberContractCreate } from '../contracts/contractCreateRecovery'
 import FinanceIntentBoundary, { FinancePendingOperations } from '../../components/admin/pt/FinanceIntentBoundary'
 import type { FinanceIntentOutcome, FinanceOperationDraft } from '../../services/financeOperationIntent'
 import { getStudent360ContractWorkspace, mutateStudent360Contract, refreshStudent360Projection } from './student360Service'
@@ -62,7 +65,11 @@ interface ContractForm {
   nutritionPTIds: string[]
   totalPrice: number
   discount: number
-  installments: Student360ContractInstallment[]
+  installments: PaymentPlanInstallment[]
+  installmentsCustomized: boolean
+  initialPayment: number
+  initialPaymentMethod: 'cash' | 'transfer' | 'card'
+  initialCashAccountId: string
   note: string
 }
 
@@ -205,7 +212,11 @@ function formFor(workspace: Workspace, contract?: Student360ContractRecord): Con
     nutritionPTIds: contract?.nutritionPTIds || [],
     totalPrice: contract?.totalPrice ?? selectedPackage?.price ?? 0,
     discount: contract?.discount || 0,
-    installments: contract?.installments || [],
+    installments: (contract?.installments || []).map(item => ({ ...item, amount: item.amount || 0 })),
+    installmentsCustomized: Boolean(contract),
+    initialPayment: 0,
+    initialPaymentMethod: 'transfer',
+    initialCashAccountId: '',
     note: contract?.note || '',
   }
 }
@@ -213,10 +224,10 @@ function formFor(workspace: Workspace, contract?: Student360ContractRecord): Con
 export default function Student360ContractWorkspace(props: Props) {
   const { user, profile, authzReady } = useAuth()
   const authority = JSON.stringify([props.studentId, user?.uid, profile?.uid, profile?.role, profile?.accessRole, profile?.authzVersion, profile?.disabled, profile?.branchId, [...(profile?.positions || [])].sort(), authzReady])
-  return <ContractWorkspaceSession key={authority} {...props} />
+  return <ContractWorkspaceSession key={authority} {...props} ownerUid={user?.uid || profile?.uid || ''} />
 }
 
-function ContractWorkspaceSession({ studentId, overview, source, isDemo, onNavigate, onChanged, onNotice }: Props) {
+function ContractWorkspaceSession({ studentId, overview, source, isDemo, onNavigate, onChanged, onNotice, ownerUid }: Props & { ownerUid: string }) {
   const mounted = useRef(true)
   const cashRequest = useRef(0)
   const workspaceRequest = useRef(0)
@@ -230,10 +241,16 @@ function ContractWorkspaceSession({ studentId, overview, source, isDemo, onNavig
   const [preparingRenewal, setPreparingRenewal] = useState(false)
   const [preparedRenewal, setPreparedRenewal] = useState<PreparedContractRenewal | null>(null)
   const [formMode, setFormMode] = useState<FormMode | null>(null)
+  const [paymentPlanOnly, setPaymentPlanOnly] = useState(false)
   const [form, setForm] = useState<ContractForm | null>(null)
   const createId = useRef('')
   const createDraft = useRef<ContractForm | null>(null)
-  const [pendingCreate, setPendingCreate] = useState<Extract<Student360ContractMutation, { action: 'create' }> | null>(null)
+  const [pendingCreate, setPendingCreate] = useState<Extract<Student360ContractMutation, { action: 'create' }> | null>(() => readContractCreate(ownerUid, studentId)?.input || null)
+  const mutationInFlight = useRef(false)
+  const [initialCashAccounts, setInitialCashAccounts] = useState<CashAccount[]>([])
+  const [initialCashLoading, setInitialCashLoading] = useState(false)
+  const [initialCashError, setInitialCashError] = useState('')
+  const [initialCashAttempt, setInitialCashAttempt] = useState(0)
   const [extendOpen, setExtendOpen] = useState(false)
   const [addSessionsForm, setAddSessionsForm] = useState<AddSessionsForm | null>(null)
   const [newEndDate, setNewEndDate] = useState('')
@@ -303,33 +320,75 @@ function ContractWorkspaceSession({ studentId, overview, source, isDemo, onNavig
     ? Math.max(0, selected.totalPrice - (selected.discount || 0) - (selected.paidAmount || 0))
     : null
 
+  const formRemaining = form ? form.totalPrice - form.discount - (formMode === 'create' ? form.initialPayment : selected?.paidAmount || 0) : 0
+  const formInstallments = useMemo(() => {
+    if (!form) return []
+    if (formRemaining === 0) return form.installments.filter(item => item.status !== 'pending')
+    return formMode === 'create' && !form.installmentsCustomized
+      ? dividePaymentPlan(formRemaining, 1, form.startDate, form.endDate) : form.installments
+  }, [form, formMode, formRemaining])
+
+  // Load funds only when the creator actually enters a payment. The selected
+  // existing contract must not determine the new contract's cash-account scope.
+  const needsInitialCash = formMode === 'create' && Boolean(form?.initialPayment) && !pendingCreate && Boolean(workspace?.permissions.canCollectPayments)
+  const initialBranch = form?.branchId || ''
+  useEffect(() => {
+    if (!needsInitialCash) return
+    let active = true
+    setInitialCashAccounts([]); setInitialCashError(''); setInitialCashLoading(true)
+    void listCashAccounts().then(result => {
+      if (!active) return
+      const accounts = result.accounts.filter(item => item.status === 'active' && (!item.branchId || item.branchId === initialBranch))
+      setInitialCashAccounts(accounts)
+      setForm(current => current ? { ...current, initialCashAccountId: accounts.some(item => item.id === current.initialCashAccountId) ? current.initialCashAccountId : accounts[0]?.id || '' } : current)
+    }).catch(cause => { if (active) setInitialCashError(cause instanceof Error ? cause.message : 'Không thể tải quỹ nhận tiền.') })
+      .finally(() => { if (active) setInitialCashLoading(false) })
+    return () => { active = false }
+  }, [needsInitialCash, initialBranch, initialCashAttempt])
+
   const mutate = async (input: Student360ContractMutation, success: string) => {
+    if (mutationInFlight.current) return
+    mutationInFlight.current = true
     setSaving(true)
     try {
-      if (!isDemo) await mutateStudent360Contract(input)
-      await load()
-      await onChanged()
+      if (input.action === 'create' && !isDemo) rememberContractCreate({ ownerUid, input })
+      const result = !isDemo ? await mutateStudent360Contract(input) : null
+      if (input.action === 'create') { clearContractCreate(ownerUid, studentId, input.contractId); setPendingCreate(null); createId.current = ''; createDraft.current = null }
+      if (!mounted.current) return
+      if (input.action === 'create' && result?.contractId) setSelectedId(result.contractId)
       setFormMode(null)
       setExtendOpen(false)
       setAddSessionsForm(null)
       setConfirmation(null)
       setReason('')
-      if (input.action === 'create') { setPendingCreate(null); createId.current = ''; createDraft.current = null }
-      onNotice(success)
+      onNotice(result?.receiptVoucherNumber ? `${success} Đã tạo phiếu thu ${result.receiptVoucherNumber}.` : success)
+      await load()
+      try { await onChanged() } catch { if (mounted.current) onNotice(`${success} Vui lòng tải lại hồ sơ để xem dữ liệu mới.`) }
     } catch (cause) {
       if (input.action === 'create') {
         const code = cause && typeof cause === 'object' && 'code' in cause ? String(cause.code) : ''
-        if (/invalid-argument|failed-precondition|aborted|permission-denied|not-found/.test(code)) setPendingCreate(null)
+        if (/invalid-argument|failed-precondition|aborted|permission-denied|not-found/.test(code)) { clearContractCreate(ownerUid, studentId, input.contractId); setPendingCreate(null) }
       }
       onNotice(cause instanceof Error ? cause.message : 'Không thể cập nhật hợp đồng.')
     } finally {
+      mutationInFlight.current = false
       setSaving(false)
     }
   }
 
   const openForm = (mode: FormMode, independent = false) => {
     if (!workspace) return
-    if (mode === 'create' && pendingCreate) { setCreateChoiceOpen(false); setFormMode('create'); if (createDraft.current) setForm(structuredClone(createDraft.current)); return }
+    setPaymentPlanOnly(false)
+    if (mode === 'create' && pendingCreate) {
+      setCreateChoiceOpen(false); setFormMode('create')
+      setForm(createDraft.current ? structuredClone(createDraft.current) : {
+        ...formFor(workspace), ...pendingCreate.contract, installmentsCustomized: true,
+        initialPayment: pendingCreate.initialPayment?.amount || 0,
+        initialPaymentMethod: pendingCreate.initialPayment?.paymentMethod || 'transfer',
+        initialCashAccountId: pendingCreate.initialPayment?.cashAccountId || '',
+      } as ContractForm)
+      return
+    }
     if (mode === 'create' && !independent && (renewalSource || waitingContract)) { setCreateChoiceOpen(true); return }
     setCreateChoiceOpen(false)
     setFormMode(mode)
@@ -391,18 +450,24 @@ function ContractWorkspaceSession({ studentId, overview, source, isDemo, onNavig
       note: form.note,
     }
     if (workspace.permissions.canEditFinancialTerms) {
+      const issue = paymentPlanError(formInstallments, formRemaining, formMode === 'create' ? { minDate: form.startDate, maxDate: form.endDate } : {})
+      if (issue) { onNotice(issue); return }
       payload.totalPrice = form.totalPrice
       payload.discount = form.discount
-      payload.installments = form.installments
+      payload.installments = formInstallments
     }
     if (formMode === 'create') {
+      if (!Number.isSafeInteger(form.initialPayment) || form.initialPayment < 0) { onNotice('Số tiền trả trước không hợp lệ.'); return }
+      if (form.initialPayment > 0 && (!workspace.permissions.canCollectPayments || initialCashLoading || !initialCashAccounts.some(item => item.id === form.initialCashAccountId && (!item.branchId || item.branchId === form.branchId)))) { onNotice('Vui lòng chọn quỹ nhận tiền trả trước hợp lệ.'); return }
       if (!createId.current) createId.current = crypto.randomUUID()
-      const command = { studentId, contractId: createId.current, action: 'create' as const, contract: structuredClone(payload) }
-      createDraft.current = structuredClone(form)
+      const command = { studentId, contractId: createId.current, action: 'create' as const, contract: structuredClone(payload), ...(form.initialPayment > 0 ? { initialPayment: { amount: form.initialPayment, paymentMethod: form.initialPaymentMethod, cashAccountId: form.initialCashAccountId } } : {}) }
+      createDraft.current = structuredClone({ ...form, installments: formInstallments, installmentsCustomized: true })
       setPendingCreate(command)
       await mutate(command, 'Đã tạo hợp đồng mới trong Học viên 360.')
     } else if (selected) {
-      await mutate({ studentId, contractId: selected.id, expectedRevision: selected.revision, action: 'edit', contract: payload }, 'Đã cập nhật hợp đồng và lưu audit.')
+      await mutate(paymentPlanOnly
+        ? { studentId, contractId: selected.id, expectedRevision: selected.revision, action: 'edit_payment_plan', installments: formInstallments }
+        : { studentId, contractId: selected.id, expectedRevision: selected.revision, action: 'edit', contract: payload }, paymentPlanOnly ? 'Đã cập nhật lịch thanh toán.' : 'Đã cập nhật hợp đồng và lưu audit.')
     }
   }
 
@@ -502,6 +567,7 @@ function ContractWorkspaceSession({ studentId, overview, source, isDemo, onNavig
 
   return <div className="student360-contract-workspace">
     {loading && <p role="status">Đang cập nhật hồ sơ hợp đồng…</p>}
+    {pendingCreate && !formMode && workspace.permissions.canCreateContract && <div className="student360-contract-reconciliation" role="status"><span>Có yêu cầu tạo hợp đồng đang chờ xác nhận kết quả.</span><button type="button" onClick={() => openForm('create')}>Kiểm tra hợp đồng đã gửi</button></div>}
     {error && <div role="alert" className="student360-contract-reconciliation"><AlertTriangle /><span>{error}</span><button type="button" onClick={() => void load()}>Thử lại</button></div>}
     <section className="student360-contract-commandbar">
       <div><small>Thao tác hợp đồng</small><strong>{selected ? selected.packageName : 'Quản lý quyền lợi học viên'}</strong><span>Thay đổi được lưu vào nhật ký để đối soát.</span></div>
@@ -548,7 +614,7 @@ function ContractWorkspaceSession({ studentId, overview, source, isDemo, onNavig
       {selected.status === 'cancelled' && workspace.permissions.canViewFinancialAmounts && !isDemo && <Suspense fallback={<p role="status">Đang mở quyết toán…</p>}><ContractSettlementPanel contractId={selected.id} branchId={selected.branchId} onChanged={refreshSettlementSummary} /></Suspense>}
 
       {workspace.permissions.canViewFinancialAmounts && selected.status !== 'cancelled' && <section className="student360-contract-payment-board">
-        <header><div><WalletCards /><span><strong>Thanh toán & trả góp</strong><small>Thu tiền sinh phiếu thu; hoàn tiền sinh bút toán đối ứng.</small></span></div>{workspace.permissions.canCollectPayments && <button type="button" onClick={() => void openFinance()}><CircleDollarSign /> {financeOpen ? 'Đóng quản lý' : 'Quản lý thu tiền'}</button>}</header>
+        <header><div><WalletCards /><span><strong>Thanh toán & trả góp</strong><small>Thu tiền sinh phiếu thu; hoàn tiền sinh bút toán đối ứng.</small></span></div><div className="student360-payment-actions">{workspace.permissions.canManageContract && workspace.permissions.canEditFinancialTerms && <button type="button" onClick={() => { openForm('edit'); setPaymentPlanOnly(true) }}><FilePenLine /> Chỉnh lịch thanh toán</button>}{workspace.permissions.canCollectPayments && <button type="button" onClick={() => void openFinance()}><CircleDollarSign /> {financeOpen ? 'Đóng quản lý' : 'Quản lý thu tiền'}</button>}</div></header>
         <div className="student360-contract-money"><span>Giá trị <b>{money.format(selected.totalPrice || 0)}đ</b></span><span>Đã thu <b>{money.format(selected.paidAmount || 0)}đ</b></span><span>Còn nợ <b>{money.format(outstanding || 0)}đ</b></span></div>
         {financeOpen && workspace.permissions.canCollectPayments && <div className="student360-contract-cash-controls"><label>Quỹ nhận/chi<select value={cashAccountId} onChange={(event) => setCashAccountId(event.target.value)}><option value="">Chọn quỹ bắt buộc</option>{cashAccounts.map((item) => <option key={item.id} value={item.id}>{item.name} · {money.format(item.balance)}đ</option>)}</select></label><label>Phương thức<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}><option value="transfer">Chuyển khoản</option><option value="cash">Tiền mặt</option><option value="wallet">Ví điện tử</option></select></label></div>}
         <div className="student360-contract-installments">{selected.installments.map((item, index) => <article key={item.id} className={`is-${item.status}`}><span>{index + 1}</span><div><strong>{item.amount === undefined ? 'Đã ẩn số tiền' : `${money.format(item.amount)}đ`}</strong><small>Hạn {dateLabel(item.date)}</small></div><b>{installmentLabel(item.status)}</b>{financeOpen && item.status === 'pending' && <button type="button" onClick={() => setConfirmation({ action: 'payment', title: 'Xác nhận thu tiền', message: `Aura sẽ thu ${money.format(item.amount || 0)}đ vào quỹ đã chọn và tự tạo phiếu thu.`, installment: item })}>Thu tiền</button>}{financeOpen && item.status === 'paid' && <button type="button" onClick={() => { setReason(''); setConfirmation({ action: 'refund', title: 'Xác nhận hoàn tiền', message: `Aura sẽ tạo bút toán hoàn ${money.format(item.amount || 0)}đ; chứng từ thu cũ không bị xóa.`, installment: item }) }}><RotateCcw /> Hoàn tác</button>}</article>)}{selected.installments.length === 0 && <p>Hợp đồng chưa có lịch trả góp.</p>}</div>
@@ -560,7 +626,7 @@ function ContractWorkspaceSession({ studentId, overview, source, isDemo, onNavig
       </section>}
     </>}
 
-    {formMode && form && <div className="student360-dialog-layer"><button type="button" className="student360-dialog-backdrop" aria-label="Đóng" onClick={() => setFormMode(null)} /><form className="student360-dialog student360-contract-form" onSubmit={(event) => { event.preventDefault(); void saveForm() }}><header><div><small>HỢP ĐỒNG 360</small><h2>{formMode === 'create' ? 'Tạo hợp đồng mới' : 'Chỉnh sửa hợp đồng'}</h2></div><button type="button" onClick={() => setFormMode(null)}><X /></button></header>{pendingCreate && formMode === 'create' && !saving && <p role="alert">Yêu cầu tạo hợp đồng chưa rõ kết quả. Thông tin gốc được giữ nguyên khi kiểm tra lại.</p>}<fieldset className="student360-contract-create-fields" disabled={saving || (formMode === 'create' && Boolean(pendingCreate))}><div className="student360-contract-form-grid">
+    {formMode && form && <div className="student360-dialog-layer"><button type="button" className="student360-dialog-backdrop" aria-label="Đóng" onClick={() => setFormMode(null)} /><form className="student360-dialog student360-contract-form" onSubmit={(event) => { event.preventDefault(); void saveForm() }}><header><div><small>HỢP ĐỒNG 360</small><h2>{formMode === 'create' ? 'Tạo hợp đồng mới' : paymentPlanOnly ? 'Chỉnh lịch thanh toán' : 'Chỉnh sửa hợp đồng'}</h2></div><button type="button" onClick={() => setFormMode(null)}><X /></button></header>{pendingCreate && formMode === 'create' && !saving && <p role="alert">Yêu cầu tạo hợp đồng chưa rõ kết quả. Thông tin gốc được giữ nguyên khi kiểm tra lại.</p>}<fieldset className="student360-contract-create-fields" disabled={saving || (formMode === 'create' && Boolean(pendingCreate))}>{!paymentPlanOnly && <><div className="student360-contract-form-grid">
       <label>Gói tập<select required value={form.packageId} onChange={(event) => updatePackage(event.target.value)}><option value="">Chọn gói</option>{workspace.packages.filter((item) => !item.branchId || item.branchId === form.branchId).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <label>Chi nhánh<select required value={form.branchId} onChange={(event) => setForm({ ...form, branchId: event.target.value })}>{workspace.branches.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <label>Ngày bắt đầu<input required type="date" readOnly={formMode === 'edit' && selected?.handoverStatus === 'pending' && selected.activationMode === 'automatic'} value={form.startDate} onChange={(event) => setForm({ ...form, startDate: event.target.value })} /></label>
@@ -575,8 +641,19 @@ function ContractWorkspaceSession({ studentId, overview, source, isDemo, onNavig
       </section>}
       <fieldset><legend>PT chính/phụ</legend><div className="student360-contract-person-picker">{selectableTrainers.map((item) => <label key={item.id}><input type="checkbox" checked={form.trainerIds.includes(item.id)} onChange={() => setForm({ ...form, trainerIds: form.trainerIds.includes(item.id) ? form.trainerIds.filter((id) => id !== item.id) : [...form.trainerIds, item.id] })} />{item.name}</label>)}</div></fieldset>
       <fieldset><legend>Coach dinh dưỡng</legend><div className="student360-contract-person-picker">{selectableTrainers.map((item) => <label key={item.id}><input type="checkbox" checked={form.nutritionPTIds.includes(item.id)} onChange={() => setForm({ ...form, nutritionPTIds: form.nutritionPTIds.includes(item.id) ? form.nutritionPTIds.filter((id) => id !== item.id) : [...form.nutritionPTIds, item.id] })} />{item.name}</label>)}</div></fieldset>
-      {workspace.permissions.canEditFinancialTerms && <fieldset><legend>Kế hoạch trả góp</legend><div className="student360-contract-form-installments">{form.installments.map((item) => <div key={item.id}><input type="date" disabled={item.status !== 'pending'} value={item.date} onChange={(event) => setForm({ ...form, installments: form.installments.map((value) => value.id === item.id ? { ...value, date: event.target.value } : value) })} /><input type="number" min="0" disabled={item.status !== 'pending'} value={item.amount || 0} onChange={(event) => setForm({ ...form, installments: form.installments.map((value) => value.id === item.id ? { ...value, amount: Number(event.target.value) } : value) })} /><span>{installmentLabel(item.status)}</span>{item.status === 'pending' && <button type="button" onClick={() => setForm({ ...form, installments: form.installments.filter((value) => value.id !== item.id) })}><X /></button>}</div>)}<button type="button" onClick={() => setForm({ ...form, installments: [...form.installments, { id: `installment-${crypto.randomUUID()}`, date: form.startDate, amount: 0, status: 'pending' }] })}>+ Thêm kỳ thanh toán</button></div></fieldset>}
-      <label>Ghi chú<textarea rows={3} maxLength={1000} value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} /></label></fieldset><footer><button type="button" onClick={() => setFormMode(null)}>Hủy</button><button type="submit" disabled={saving || assignmentIssues.length > 0}>{saving ? 'Đang lưu…' : pendingCreate && formMode === 'create' ? 'Kiểm tra / tạo lại hợp đồng' : assignmentIssues.length ? `Gỡ ${assignmentIssues.length} liên kết để lưu` : 'Lưu hợp đồng'}</button></footer></form></div>}
+      </>}
+      {formMode === 'create' && workspace.permissions.canCollectPayments && <fieldset className="student360-contract-upfront"><legend>Thanh toán</legend>
+        <div className="student360-contract-form-grid">
+          <label>Số tiền trả trước<input type="number" inputMode="numeric" min="0" step="1" max={Math.max(0, form.totalPrice - form.discount)} value={form.initialPayment || ''} placeholder="0" onChange={event => setForm({ ...form, initialPayment: Number(event.target.value) })} /></label>
+          {form.initialPayment > 0 && <><label>Phương thức thanh toán<select aria-label="Phương thức thanh toán" value={form.initialPaymentMethod} onChange={event => setForm({ ...form, initialPaymentMethod: event.target.value as ContractForm['initialPaymentMethod'] })}><option value="transfer">Chuyển khoản</option><option value="cash">Tiền mặt</option><option value="card">Thẻ</option></select></label>
+          <label>Quỹ nhận tiền<select aria-label="Quỹ nhận tiền" required disabled={initialCashLoading} value={form.initialCashAccountId} onChange={event => setForm({ ...form, initialCashAccountId: event.target.value })}><option value="">{initialCashLoading ? 'Đang tải quỹ…' : 'Chọn quỹ nhận tiền'}</option>{pendingCreate && !initialCashAccounts.some(item => item.id === form.initialCashAccountId) && <option value={form.initialCashAccountId}>Quỹ đã chọn trong yêu cầu</option>}{initialCashAccounts.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></>}
+        </div>
+        {initialCashError && form.initialPayment > 0 && !pendingCreate && <p role="alert">{initialCashError} <button type="button" onClick={() => setInitialCashAttempt(value => value + 1)}>Tải lại quỹ</button></p>}
+        {!initialCashLoading && !initialCashError && form.initialPayment > 0 && !pendingCreate && initialCashAccounts.length === 0 && <p role="alert">Chưa có quỹ nhận tiền đang hoạt động tại chi nhánh này.</p>}
+        {form.initialPayment > 0 && <p className="student360-contract-upfront-note">Khi lưu thành công, tự tạo phiếu thu {money.format(form.initialPayment)}đ.</p>}
+      </fieldset>}
+      {workspace.permissions.canEditFinancialTerms && <ContractPaymentPlanEditor installments={formInstallments} remainingAmount={formRemaining} startDate={form.startDate} endDate={form.endDate} minDate={formMode === 'create' ? form.startDate : undefined} maxDate={formMode === 'create' ? form.endDate : undefined} onChange={items => setForm({ ...form, installments: items, installmentsCustomized: true })} />}
+      {!paymentPlanOnly && <label>Ghi chú<textarea rows={3} maxLength={1000} value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} /></label>}</fieldset><footer><button type="button" onClick={() => setFormMode(null)}>Hủy</button><button type="submit" disabled={saving || (!paymentPlanOnly && assignmentIssues.length > 0)}>{saving ? 'Đang lưu…' : pendingCreate && formMode === 'create' ? 'Kiểm tra / tạo lại hợp đồng' : !paymentPlanOnly && assignmentIssues.length ? `Gỡ ${assignmentIssues.length} liên kết để lưu` : paymentPlanOnly ? 'Lưu lịch thanh toán' : 'Lưu hợp đồng'}</button></footer></form></div>}
 
     {extendOpen && selected && <div className="student360-dialog-layer"><button type="button" className="student360-dialog-backdrop" aria-label="Đóng" onClick={() => setExtendOpen(false)} /><form className="student360-dialog" onSubmit={(event) => { event.preventDefault(); void mutate({ studentId, contractId: selected.id, expectedRevision: selected.revision, action: 'extend', newEndDate, reason }, 'Đã gia hạn ngày và lưu vào CRM Timeline.') }}><header><div><small>GIA HẠN NGÀY</small><h2>Điều chỉnh hạn sử dụng</h2></div><button type="button" onClick={() => setExtendOpen(false)}><X /></button></header><p>Hạn hiện tại: <strong>{dateLabel(selected.endDate)}</strong></p><label>Ngày hết hạn mới<input required type="date" min={selected.endDate} value={newEndDate} onChange={(event) => setNewEndDate(event.target.value)} /></label><label>Lý do<textarea required minLength={2} rows={3} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Ví dụ: bù thời gian gián đoạn đã xác minh…" /></label><footer><button type="button" onClick={() => setExtendOpen(false)}>Hủy</button><button type="submit" disabled={saving}>{saving ? 'Đang lưu…' : 'Xác nhận gia hạn'}</button></footer></form></div>}
 
