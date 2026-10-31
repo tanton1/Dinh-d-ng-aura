@@ -10,13 +10,22 @@ const FinanceManagement = lazy(() => import('./FinanceManagement'))
 const CashbookPanel = lazy(() => import('./CashbookPanel'))
 const BusinessPerformancePanel = lazy(() => import('./BusinessPerformancePanel'))
 
-export default function AdminFinanceHub({ user, profile, initialTab = 'overview' }: { user: User | null; profile: UserProfile | null; initialTab?: FinanceTab | 'frozen' }) {
+type Props = { user: User | null; profile: UserProfile | null; initialTab?: FinanceTab | 'frozen' }
+
+export default function AdminFinanceHub(props: Props) {
+  const { user, profile } = props
+  const authority = JSON.stringify([user?.uid, profile?.uid, profile?.role, profile?.accessRole,
+    profile?.authzVersion, profile?.branchId, profile?.disabled, [...(profile?.positions || [])].sort()])
+  return <FinanceHubSession key={authority} {...props} />
+}
+
+function FinanceHubSession({ user, profile, initialTab = 'ledger' }: Props) {
   const [tab, setTab] = useState<FinanceTab>(initialTab === 'frozen' ? 'ledger' : initialTab)
   const { branches } = useDatabase()
   const tabs: Array<{ id: FinanceTab; label: string; icon: typeof BarChart3 }> = [
-    { id: 'overview', label: 'Báo cáo kỳ', icon: BarChart3 },
     { id: 'ledger', label: 'Trả góp', icon: CircleDollarSign },
     { id: 'cashbook', label: 'Sổ quỹ', icon: WalletCards },
+    { id: 'overview', label: 'Báo cáo kỳ', icon: BarChart3 },
   ]
   return <div className="operations-hub finance-hub">
     <nav className="finance-hub__tabs finance-hub__tabs--management" role="tablist" aria-label="Phân hệ tài chính">
@@ -27,7 +36,8 @@ export default function AdminFinanceHub({ user, profile, initialTab = 'overview'
           const nextIndex = event.key === 'ArrowRight' ? (index + 1) % tabs.length : event.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : null
           if (nextIndex === null) return
           event.preventDefault()
-          setTab(tabs[nextIndex].id)
+          // Move focus without starting a financial read. Enter/Space or a
+          // click activates the selected tab, including the expensive report.
           document.getElementById(`finance-tab-${tabs[nextIndex].id}`)?.focus()
         }}><Icon size={18} /><strong>{item.label}</strong></button>
       })}
