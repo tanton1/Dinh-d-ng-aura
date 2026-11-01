@@ -5,6 +5,7 @@ import { createClientCorrelationId } from '../../services/clientTelemetryService
 import { readStudent360WithFailover, STUDENT360_READ_TIMEOUT_MS } from './student360ReadPolicy'
 import type { Student360ContractMutation, Student360ContractWorkspace, Student360DirectoryItem, Student360NutritionActivityDetail, Student360Overview, Student360Photo, Student360TimelineEvent } from './types'
 import type { ProgressCheckInInput } from '../../services/firebaseProgressService'
+import type { ContractAmendmentTerms, ContractAmendmentPreview } from './types'
 
 function functionError(cause: unknown, fallback: string) {
   const outer = cause && typeof cause === 'object' ? cause as { cause?: unknown } : {}
@@ -176,4 +177,14 @@ export async function mutateStudent360Contract(input: Student360ContractMutation
       : functionError(cause, 'Không thể cập nhật hợp đồng.')
     throw Object.assign(error, { code })
   }
+}
+
+export async function previewContractAmendment(input: { studentId: string; contractId: string; expectedRevision: number; contract: ContractAmendmentTerms }) {
+  const functionsClient = firebaseStudent360Functions || firebaseFunctions
+  if (!functionsClient) throw new Error('Firebase Functions chưa được cấu hình.')
+  try {
+    const name = firebaseStudent360Functions ? 'mutateStudent360ContractRegional' : 'mutateStudent360Contract'
+    const callable = httpsCallable<typeof input & { action: 'preview_amendment' }, { preview: ContractAmendmentPreview }>(functionsClient, name, { timeout: 30_000 })
+    return (await callable({ ...input, action: 'preview_amendment' })).data.preview
+  } catch (cause) { throw functionError(cause, 'Không thể kiểm tra điều chỉnh hợp đồng.') }
 }

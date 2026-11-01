@@ -29,7 +29,7 @@ const REBUILD_SOURCE_FIELDS = {
   ledger: ['branchId', 'status', 'type', 'source', 'eventClass', 'effectiveAt', 'cashImpact', 'amount', 'revenueImpact', 'expenseImpact', 'contractSalesImpact'],
   session: ['branchId', 'date', 'status'],
   attendance: ['branchId', 'occurredAt', 'date'],
-  contract: ['branchId', 'status', 'signedAt', 'createdAt', 'contractDate', 'startDate', 'totalPrice', 'discount', 'salesCancellationSnapshot'],
+  contract: ['branchId', 'status', 'signedAt', 'createdAt', 'contractDate', 'startDate', 'totalPrice', 'discount', 'salesCancellationSnapshot', 'salesOriginalSnapshot'],
   student: ['branchId', 'joinDate', 'createdAt'],
 }
 

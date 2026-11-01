@@ -178,7 +178,7 @@ async function readSettlementEvidence(transaction, db, contractId, contract, pro
   const openReviews = [...reviews, ...billingIssues].filter(row => !['resolved', 'closed', 'dismissed'].includes(row.status))
   if (openReviews.length) block('SETTLEMENT_FINANCE_REVIEW_OPEN', 'Còn hồ sơ đối soát buổi/doanh thu chưa xử lý.')
   const sales = contract.salesCancellationSnapshot
-  const salesBaselineVerified = sales?.schemaVersion === 1 && sales.netAmount === originalNetValue && Boolean(normalizedInstant(sales.effectiveAt))
+  const salesBaselineVerified = sales?.schemaVersion === 1 && sales.netAmount === (contract.salesOriginalSnapshot?.netAmount ?? originalNetValue) && Boolean(normalizedInstant(sales.effectiveAt))
   if (!salesBaselineVerified) warnings.push({ code: 'SETTLEMENT_SALES_BASELINE_UNVERIFIED', message: 'Chưa xác minh doanh số ký gốc; quyết toán không tự khôi phục hoặc ghi giảm doanh số lịch sử.' })
   const stableLedger = ledger.filter(row => revenue(row) && !isSettlement(row)).map(row => ({ ...row, effectiveAt: normalizedInstant(row.effectiveAt) }))
   const coreTerms = { studentId: contract.studentId || '', branchId: contract.branchId || '', status: contract.status, totalPrice: contract.totalPrice ?? 0, discount: contract.discount ?? 0, totalSessions: contract.totalSessions ?? 0, startDate: contract.startDate || '', endDate: contract.endDate || '', sourceContractId: contract.sourceContractId || '', renewedByContractId: contract.renewedByContractId || '', renewalSupersededBy: contract.renewalSupersededBy || '', carriedOverSessions: contract.carriedOverSessions || 0, carryOverTransferredSessions: contract.carryOverTransferredSessions || 0, salesCancellationSnapshot: sales || null }

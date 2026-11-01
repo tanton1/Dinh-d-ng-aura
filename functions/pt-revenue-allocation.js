@@ -17,14 +17,15 @@ function revenueSegments(contractId, contract) {
       totalPrice: contract.totalPrice ?? null, discount: contract.discount ?? 0 }]
   }
   const { version, segments } = contract.revenueAllocation
-  if (version !== 1 || !Array.isArray(segments) || !segments.length || segments.length > 100) fail()
+  if (![1, 2].includes(version) || !Array.isArray(segments) || !segments.length || segments.length > (version === 2 ? 5000 : 100)) fail()
   const identities = new Set()
   let total = 0
   for (const row of segments) {
     if (!/^[A-Za-z0-9_-]+$/.test(row.contractId || '')
       || ![row.startOrdinal, row.count, row.totalSessions].every(v => Number.isSafeInteger(v) && v > 0)
       || row.startOrdinal + row.count - 1 > row.totalSessions
-      || row.totalSessions > 5000) fail()
+      || row.totalSessions > 5000
+      || (row.unitAmount !== undefined && (version !== 2 || !Number.isSafeInteger(row.unitAmount) || row.unitAmount < 0))) fail()
     for (let n = row.startOrdinal; n < row.startOrdinal + row.count; n++) {
       const key = `${row.contractId}:${n}`
       if (identities.has(key)) fail()
@@ -46,6 +47,13 @@ function allocationForOrdinal(contractId, contract, ordinal) {
   fail()
 }
 
+function allocationAmount(allocation) {
+  if (allocation.unitAmount !== undefined) return allocation.unitAmount
+  const net = Number(allocation.totalPrice) - Number(allocation.discount || 0)
+  if (!Number.isSafeInteger(net) || net < 0) fail()
+  return Math.floor(net / allocation.totalSessions) + (allocation.serviceOrdinal <= net % allocation.totalSessions ? 1 : 0)
+}
+
 function renewalRevenueAllocation({ sourceId, source, nextId, next, carriedOverSessions }) {
   const segments = []
   const used = Number(source?.usedSessions || 0)
@@ -62,9 +70,12 @@ function renewalRevenueAllocation({ sourceId, source, nextId, next, carriedOverS
       const allocation = allocationForOrdinal(sourceId, source, n)
       const previous = segments.at(-1)
       if (previous && previous.contractId === allocation.contractId
-        && previous.startOrdinal + previous.count === allocation.serviceOrdinal) previous.count++
+        && previous.startOrdinal + previous.count === allocation.serviceOrdinal
+        && previous.unitAmount === allocation.unitAmount && previous.totalSessions === allocation.totalSessions
+        && previous.totalPrice === allocation.totalPrice && previous.discount === allocation.discount) previous.count++
       else segments.push({ contractId: allocation.contractId, startOrdinal: allocation.serviceOrdinal, count: 1,
-        totalSessions: allocation.totalSessions, totalPrice: allocation.totalPrice, discount: allocation.discount })
+        totalSessions: allocation.totalSessions, totalPrice: allocation.totalPrice, discount: allocation.discount,
+        ...(allocation.unitAmount === undefined ? {} : { unitAmount: allocation.unitAmount }) })
     }
     if (segments.reduce((sum, row) => sum + row.count, 0) !== carry) fail()
   }
@@ -72,7 +83,7 @@ function renewalRevenueAllocation({ sourceId, source, nextId, next, carriedOverS
   if (!Number.isSafeInteger(ownCount) || ownCount < 1) fail()
   segments.push({ contractId: nextId, startOrdinal: 1, count: ownCount, totalSessions: ownCount,
     totalPrice: next.totalPrice ?? null, discount: next.discount ?? 0 })
-  return { version: 1, segments }
+  return { version: segments.some(row => row.unitAmount !== undefined) ? 2 : 1, segments }
 }
 
 async function resolveRevenueAllocation({ transaction, db, contractId, contract, serviceOrdinal }) {
@@ -80,14 +91,23 @@ async function resolveRevenueAllocation({ transaction, db, contractId, contract,
   const owner = allocation.contractId === contractId ? contract
     : (await transaction.get(db.doc(`contracts/${allocation.contractId}`))).data()
   if (!owner || owner.studentId !== contract.studentId) fail()
+  const revisedOwner = owner.revenueAllocation?.version === 2
+  if (revisedOwner) {
+    const owned = revenueSegments(allocation.contractId, owner).find(row => row.contractId === allocation.contractId
+      && row.startOrdinal <= allocation.serviceOrdinal && allocation.serviceOrdinal < row.startOrdinal + row.count)
+    if (!owned || allocationAmount({ ...owned, serviceOrdinal: allocation.serviceOrdinal }) !== allocationAmount(allocation)) fail()
+  }
   // Price/quota edits cannot reprice credits that have already been allocated.
   const ownCount = Number(owner.totalSessions) - Number(owner.carriedOverSessions || 0)
-  if (contract.revenueAllocation && (Number(owner.totalPrice) !== Number(allocation.totalPrice)
+  if (!revisedOwner && contract.revenueAllocation && (Number(owner.totalPrice) !== Number(allocation.totalPrice)
     || Number(owner.discount || 0) !== Number(allocation.discount || 0) || ownCount !== allocation.totalSessions)) fail()
+  const explicitAmount = revisedOwner || allocation.unitAmount !== undefined
   return { contractId: allocation.contractId, contract: { ...owner, totalSessions: allocation.totalSessions,
-    totalPrice: allocation.totalPrice, discount: allocation.discount }, serviceOrdinal: allocation.serviceOrdinal,
+    totalPrice: explicitAmount ? owner.totalPrice : allocation.totalPrice, discount: explicitAmount ? owner.discount || 0 : allocation.discount,
+    ...(explicitAmount ? { recognitionUnitAmount: allocationAmount(allocation) } : {}) }, serviceOrdinal: allocation.serviceOrdinal,
     metadata: { entitlementContractId: contractId, entitlementOrdinal: serviceOrdinal,
-      revenueAllocationVersion: 1, revenuePriceSnapshot: { totalPrice: allocation.totalPrice, discount: allocation.discount, totalSessions: allocation.totalSessions } } }
+      revenueAllocationVersion: explicitAmount ? 2 : 1, revenuePriceSnapshot: { totalPrice: allocation.totalPrice, discount: allocation.discount, totalSessions: allocation.totalSessions,
+        ...(explicitAmount ? { unitAmount: allocationAmount(allocation) } : {}) } } }
 }
 
-module.exports = { revenueSegments, allocationForOrdinal, renewalRevenueAllocation, resolveRevenueAllocation }
+module.exports = { revenueSegments, allocationForOrdinal, allocationAmount, renewalRevenueAllocation, resolveRevenueAllocation }

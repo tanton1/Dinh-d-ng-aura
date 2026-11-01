@@ -22,7 +22,7 @@ function recognitionEvidenceIssue({ sessionId, session = {}, attendance = {}, bi
   const price = Number(contract.totalPrice), discount = Number(contract.discount ?? 0)
   if (contract.totalPrice == null || !Number.isSafeInteger(price) || price < 0
     || !Number.isSafeInteger(discount) || discount < 0 || discount > price) return 'RECOGNITION_CONTRACT_VALUE_INVALID'
-  if (price === discount) return 'RECOGNITION_ZERO_VALUE_REQUIRES_REVIEW'
+  if (price === discount || contract.recognitionUnitAmount === 0) return 'RECOGNITION_ZERO_VALUE_REQUIRES_REVIEW'
   return ''
 }
 

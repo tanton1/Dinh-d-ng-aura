@@ -882,6 +882,7 @@ function contractMutationTitle(action) {
     create: 'Đã tạo hợp đồng',
     edit: 'Đã cập nhật hợp đồng',
     edit_payment_plan: 'Đã chỉnh lịch thanh toán',
+    amend: 'Đã điều chỉnh gói tập',
     add_sessions: 'Đã mua thêm buổi',
     extend: 'Đã gia hạn ngày hợp đồng',
     freeze: 'Đã bảo lưu hợp đồng',
@@ -1004,6 +1005,7 @@ function contractWorkspaceRecord(snapshot, canViewFinancialAmounts, canManageCon
     record.totalPrice = Math.max(0, Math.floor(finite(value.totalPrice)))
     record.paidAmount = Math.max(0, Math.floor(finite(value.paidAmount)))
     record.discount = Math.max(0, Math.floor(finite(value.discount)))
+    record.amendmentHistory = Array.isArray(value.amendmentHistory) ? value.amendmentHistory.slice(-10) : []
   }
   return record
 }
@@ -2773,7 +2775,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     const actor = await trustedAccessContext(request, db)
     const studentId = documentId(request.data?.studentId)
     const action = bounded(request.data?.action, 30)
-    if (!['create', 'edit', 'edit_payment_plan', 'add_sessions', 'extend', 'freeze', 'reopen', 'cancel'].includes(action)) {
+    if (!['create', 'edit', 'edit_payment_plan', 'preview_amendment', 'amend', 'add_sessions', 'extend', 'freeze', 'reopen', 'cancel'].includes(action)) {
       throw new HttpsError('invalid-argument', 'Nghiệp vụ hợp đồng không hợp lệ.')
     }
     const { projection, permissions } = await loadAuthorizedProjection(db, actor, studentId, mondayDateKey(), false)
@@ -2793,7 +2795,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     const auditReference = db.collection('contractAuditLogs').doc()
     const now = Date.now()
     const expectedRevision = action === 'create' ? null : nonNegativeInteger(request.data?.expectedRevision, 'Phiên bản hợp đồng', 10_000_000)
-    const commandReference = ['create', 'cancel'].includes(action) ? db.doc(`contractMutationReceipts/${createHash('sha256').update(`${actor.uid}|${contractId}|${action}|${expectedRevision}`).digest('hex')}`) : null
+    const commandReference = ['create', 'cancel', 'amend'].includes(action) ? db.doc(`contractMutationReceipts/${createHash('sha256').update(`${actor.uid}|${contractId}|${action}|${expectedRevision}`).digest('hex')}`) : null
     const payloadHash = createHash('sha256').update(JSON.stringify({ ...request.data, contractId }, (_, value) => value && typeof value === 'object' && !Array.isArray(value)
       ? Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]])) : value)).digest('hex')
     const result = await db.runTransaction(async (transaction) => {
@@ -2811,7 +2813,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         throw new HttpsError('permission-denied', 'Hợp đồng lịch sử thuộc chi nhánh ngoài phạm vi được giao.')
       }
       const revision = current ? Math.max(0, Math.floor(finite(current.revision))) : 0
-      if (current && revision !== expectedRevision) throw new HttpsError('aborted', 'Hợp đồng vừa được người khác cập nhật. Hãy tải lại trước khi lưu.')
+      if (current && revision !== expectedRevision && action !== 'preview_amendment') throw new HttpsError('aborted', 'Hợp đồng vừa được người khác cập nhật. Hãy tải lại trước khi lưu.')
       if (current?.status === 'cancelled') throw new HttpsError('failed-precondition', 'Hợp đồng đã huỷ chỉ được xử lý qua hồ sơ quyết toán.')
       if (action === 'edit' && ((input.status !== undefined && input.status !== current.status) || (input.paidAmount !== undefined && Number(input.paidAmount) !== Number(current.paidAmount || 0)))) {
         throw new HttpsError('failed-precondition', 'Trạng thái hợp đồng và số tiền đã thu phải thay đổi bằng nghiệp vụ riêng.')
@@ -2821,7 +2823,19 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
       let reason = bounded(request.data?.reason, 500)
       let eventDetails = null
       let cancellationPlan = null
-      if (action === 'create' || action === 'edit') {
+      let amendmentPlan = null
+      if (['preview_amendment', 'amend'].includes(action)) {
+        if (!canManageFinancials) throw new HttpsError('permission-denied', 'Bạn không có quyền điều chỉnh gói và giá trị hợp đồng.')
+        if (requestedBranchId !== current.branchId) throw new HttpsError('failed-precondition', 'Điều chỉnh gói không chuyển chi nhánh hợp đồng.')
+        const { readAmendmentPlan } = require('./contract-amendments')
+        amendmentPlan = await readAmendmentPlan({ transaction, db, contractId, contract: current, input, now })
+        if (action === 'preview_amendment') return { contractId, revision, action, preview: amendmentPlan.preview }
+        if (reason.length < 2) throw new HttpsError('invalid-argument', 'Vui lòng nhập lý do điều chỉnh.')
+        if (amendmentPlan.preview.blockers.length) throw new HttpsError('failed-precondition', amendmentPlan.preview.blockers.join('\n'))
+        if (request.data?.snapshotHash !== amendmentPlan.preview.snapshotHash) throw new HttpsError('aborted', 'Hợp đồng, chấm công hoặc thu tiền vừa thay đổi. Hãy kiểm tra lại bảng trước/sau trước khi xác nhận.')
+        if (amendmentPlan.preview.affectedBookings.length && request.data?.cancelAffectedBookings !== true) throw new HttpsError('failed-precondition', 'Cần xác nhận hủy các lịch chưa tính phí nằm ngoài thời hạn mới.')
+        next = { ...next, ...amendmentPlan.patch }
+      } else if (action === 'create' || action === 'edit') {
         const packageId = documentId(input.packageId, 'Gói tập')
         const packageSnapshot = await transaction.get(db.doc(`packages/${packageId}`))
         if (!packageSnapshot.exists) throw new HttpsError('failed-precondition', 'Gói tập đã chọn không còn tồn tại.')
@@ -2871,15 +2885,15 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         const discount = canManageFinancials && input.discount !== undefined ? nonNegativeInteger(input.discount, 'Giảm giá') : currentDiscount
         if (discount > totalPrice) throw new HttpsError('invalid-argument', 'Giảm giá không thể lớn hơn giá trị hợp đồng.')
         const allocated = usedSessions > 0 || Number(current?.carriedOverSessions || 0) > 0 || Number(current?.carryOverTransferredSessions || 0) > 0
-        if (current && allocated && (totalSessions !== Number(current.totalSessions) || totalPrice !== currentTotalPrice || discount !== currentDiscount)) {
-          throw new HttpsError('failed-precondition', 'Hợp đồng đã tính hoặc chuyển buổi nên không thể thay đơn giá gốc. Hãy tạo hợp đồng nối tiếp cho quyền lợi mới.', { issueCode: 'CONTRACT_REVENUE_PRICE_IMMUTABLE' })
+        if (current && (current.status !== 'draft' || allocated || Number(current.paidAmount || 0) > 0 || current.salesOriginalSnapshot) && (totalSessions !== Number(current.totalSessions) || totalPrice !== currentTotalPrice || discount !== currentDiscount || packageId !== current.packageId)) {
+          throw new HttpsError('failed-precondition', 'Hãy dùng Điều chỉnh gói tập để xem quyền lợi và số tiền trước/sau, đồng thời giữ doanh thu các buổi cũ.', { issueCode: 'CONTRACT_REVENUE_PRICE_IMMUTABLE' })
         }
         const paidAmount = action === 'create' ? initialPayment?.amount || 0 : Math.max(0, Math.floor(finite(current?.paidAmount)))
         const outstanding = totalPrice - discount - paidAmount
-        if (outstanding < 0) throw new HttpsError('failed-precondition', action === 'create' ? 'Số tiền trả trước vượt giá trị hợp đồng.' : 'Giá trị mới thấp hơn số tiền đã thu; hãy xử lý hoàn tiền trước.')
+        if (outstanding < 0 && action === 'create') throw new HttpsError('failed-precondition', 'Số tiền trả trước vượt giá trị hợp đồng.')
         let installments = Array.isArray(current?.installments) ? current.installments : []
         if (canManageFinancials && Object.prototype.hasOwnProperty.call(input, 'installments')) {
-          installments = contractInstallments(input.installments, current?.installments || [], action === 'create' && Array.isArray(input.installments) && input.installments.length === 0 ? null : outstanding)
+          installments = contractInstallments(input.installments, current?.installments || [], action === 'create' && Array.isArray(input.installments) && input.installments.length === 0 ? null : Math.max(0, outstanding))
         }
         if (action === 'create' && outstanding > 0 && !installments.some((item) => item.status === 'pending')) {
           installments = [{ id: `${contractId}-installment-1`, amount: outstanding, date: startDate, status: 'pending' }]
@@ -2911,7 +2925,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
           next.packageSessions = Math.max(0, totalSessions - Number(current.carriedOverSessions || 0))
           if (current.activationMode === 'fixed_date') next.plannedActivationDate = startDate
         }
-        if (current?.revenueAllocation && !allocated) next.revenueAllocation = { version: 1,
+        if (current?.revenueAllocation && !allocated && current.revenueAllocation.version !== 2) next.revenueAllocation = { version: 1,
           segments: [{ contractId, startOrdinal: 1, count: totalSessions, totalSessions, totalPrice, discount }] }
         if (action === 'create') {
           const policyConfigSnapshot = await transaction.get(db.doc('settings/scheduleConfig'))
@@ -2930,8 +2944,8 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         next.nextPaymentDate = next.installments.filter(item => item.status === 'pending').sort((a, b) => a.date.localeCompare(b.date))[0]?.date || null
       } else if (action === 'add_sessions') {
         if (!canManageFinancials) throw new HttpsError('permission-denied', 'Chỉ bộ phận tài chính được ghi nhận mua thêm buổi.')
-        if (Number(current.usedSessions || 0) > 0 || Number(current.carriedOverSessions || 0) > 0 || Number(current.carryOverTransferredSessions || 0) > 0) {
-          throw new HttpsError('failed-precondition', 'Hợp đồng đã tính hoặc chuyển buổi. Hãy tạo hợp đồng nối tiếp để buổi mua thêm không đổi đơn giá của buổi cũ.', { issueCode: 'CONTRACT_REVENUE_PRICE_IMMUTABLE' })
+        if (Number(current.usedSessions || 0) > 0 || Number(current.carriedOverSessions || 0) > 0 || Number(current.carryOverTransferredSessions || 0) > 0 || current.revenueAllocation?.version === 2) {
+          throw new HttpsError('failed-precondition', 'Hãy dùng Điều chỉnh gói tập để bổ sung số buổi và kiểm tra phần giá trị còn lại.', { issueCode: 'CONTRACT_REVENUE_PRICE_IMMUTABLE' })
         }
         if (!['active', 'future', 'frozen'].includes(bounded(current.status, 30))) {
           throw new HttpsError('failed-precondition', 'Chỉ hợp đồng đang hiệu lực, sắp hiệu lực hoặc bảo lưu mới được mua thêm buổi.')
@@ -3025,7 +3039,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         next.nextPaymentDate = null
       }
 
-      if (['create', 'edit', 'add_sessions', 'extend', 'reopen'].includes(action)
+      if (['create', 'edit', 'amend', 'add_sessions', 'extend', 'reopen'].includes(action)
         && !['cancelled', 'frozen'].includes(bounded(next.status, 30))) {
         const status = effectiveContractStatus(next, vietnamDateKey(new Date(now)))
         if (['active', 'future', 'expired'].includes(status)) next.status = status
@@ -3050,6 +3064,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
       const initialPaymentPlan = await prepareInitialContractPayment({ transaction, db, payment: initialPayment, contract: { ...next, id: contractId }, effectiveAt: Timestamp.fromMillis(now) })
       if (initialPaymentPlan) next.accountingAdvanceAccountCode = '131'
       if (cancellationPlan) eventDetails = require('./contract-cancellation').applyContractCancellationPlan({ transaction, plan: cancellationPlan, actorUid: actor.uid, reason, contractId })
+      if (amendmentPlan) next = { ...next, ...require('./contract-amendments').applyAmendmentPlan({ transaction, db, plan: amendmentPlan, contractId, contract: current, actorUid: actor.uid, reason, now }) }
       const persisted = {
         ...next,
         revision: nextRevision,
@@ -3106,6 +3121,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
       return response
     })
 
+    if (action === 'preview_amendment') return result
     try {
       await buildStudent360Projection({ db, studentId, weekId: mondayDateKey(), persist: true })
     } catch (error) {
