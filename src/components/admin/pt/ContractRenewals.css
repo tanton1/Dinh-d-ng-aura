@@ -490,6 +490,11 @@
 .renewal-inspector-summary strong.is-overdue { color: #bd2456; }
 .renewal-inspector-summary strong.is-due_today { color: #b65b2c; }
 .renewal-inspector-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+.renewal-inspector-actions:has(.renewal-profile-button) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.renewal-row-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.renewal-table td:last-child .renewal-profile-button,
+.renewal-mobile-card > footer .renewal-profile-button,
+.renewal-inspector-actions .renewal-profile-button { color: #a42a5d; border: 1px solid #efcddc; background: #fff5f9; white-space: nowrap; }
 .renewal-inspector-actions button,
 .renewal-activity-form > button,
 .renewal-pending-approval > button,
@@ -758,7 +763,9 @@
   .renewal-mobile-contract > i { height: 5px; overflow: hidden; border-radius: 999px; background: #e9dfe4; }
   .renewal-mobile-contract > i b { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--rn-pink), var(--rn-orange)); }
   .renewal-mobile-contract > small { color: var(--rn-muted); font-size: .56rem; }
-  .renewal-mobile-card > footer { display: flex; align-items: center; justify-content: space-between; gap: 7px; }
+  .renewal-mobile-card > footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 7px; }
+  .renewal-mobile-card > footer .renewal-row-actions { width: 100%; }
+  .renewal-mobile-card > footer .renewal-row-actions button { flex: 1; justify-content: center; min-height: 40px; }
   .renewal-mobile-card > footer button { display: flex; align-items: center; gap: 4px; min-height: 34px; padding: 0 9px; border: 0; border-radius: 10px; color: #fff; background: linear-gradient(110deg, var(--rn-pink), var(--rn-orange)); font-size: .59rem; font-weight: 850; }
   .renewal-kanban { grid-template-columns: repeat(7, 78vw); scroll-snap-type: x mandatory; }
   .renewal-kanban-column { min-height: 360px; scroll-snap-align: center; }
@@ -788,6 +795,7 @@
   .renewal-inspector-summary > div { flex: 0 0 70%; scroll-snap-align: start; }
   .renewal-inspector-actions { grid-template-columns: 1fr 1fr; }
   .renewal-inspector-actions .is-primary { grid-column: 1 / -1; }
+  .renewal-inspector-actions:has(.renewal-profile-button) .is-primary { grid-column: auto; }
   .renewal-pending-approval { grid-template-columns: 30px minmax(0, 1fr); }
   .renewal-pending-approval > button { min-height: 36px; }
   .renewal-activity-form .renewal-form-grid { grid-template-columns: 1fr 1fr; }

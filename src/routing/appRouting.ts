@@ -127,9 +127,9 @@ const retiredRouteRedirects: Record<string, { view: ViewId; hash: string }> = {
   'admin-roles': { view: 'admin-hr', hash: '#/admin-hr' },
 }
 
-export type Student360Source = 'staff-students' | 'admin-pt-students'
+export type Student360Source = 'staff-students' | 'admin-pt-students' | 'staff-renewals' | 'admin-renewals'
 
-const student360Sources = new Set<Student360Source>(['staff-students', 'admin-pt-students'])
+const student360Sources = new Set<Student360Source>(['staff-students', 'admin-pt-students', 'staff-renewals', 'admin-renewals'])
 
 export function resolveSupportedView(view: ViewId) {
   return retiredRouteRedirects[view]?.view ?? view
