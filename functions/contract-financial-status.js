@@ -8,6 +8,10 @@ function contractSalesContribution(contract) {
     return { amount: snapshot.netAmount, effectiveAt: snapshot.effectiveAt }
   }
   if (['draft', 'inactive', 'archived'].includes(contract.status)) return null
+  const original = contract.salesOriginalSnapshot
+  if (original?.schemaVersion === 1 && Number.isSafeInteger(original.netAmount) && original.netAmount >= 0 && original.effectiveAt) {
+    return { amount: original.netAmount, effectiveAt: original.effectiveAt }
+  }
   return {
     amount: Math.max(0, finite(contract.totalPrice) - finite(contract.discount)),
     effectiveAt: contract.signedAt || contract.createdAt || contract.contractDate || contract.startDate || null,

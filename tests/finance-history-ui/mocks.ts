@@ -246,6 +246,10 @@ export async function mutateStudent360Contract(input: any) {
   if (state.contractCreateFailure === 'commit-lost') { state.contractCreateFailure = ''; throw Object.assign(Error('Mất phản hồi tạo hợp đồng thử nghiệm'), { code: 'functions/unavailable' }) }
   return { contractId: input.contractId, revision: 1, action: 'create', ...(input.initialPayment ? { receiptVoucherId: 'receipt-' + input.contractId, receiptVoucherNumber: 'PT-TEST-001' } : {}) }
 }
+
+export async function previewContractAmendment() {
+  throw new Error('Contract amendment has a dedicated interaction fixture.')
+}
 export async function refreshStudent360Projection() {
   state.projectionRefreshes++
   if (state.projectionFailure) throw Object.assign(new Error('Không cập nhật được tổng hợp thử nghiệm.'), { code: 'functions/' + state.projectionFailure })

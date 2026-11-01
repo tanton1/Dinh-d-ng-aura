@@ -41,3 +41,7 @@
 .student360-contract-form fieldset.student360-contract-upfront{border:0;padding:0;margin:14px 0;min-width:0}
 .student360-contract-upfront .student360-contract-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .student360-contract-upfront .student360-contract-form-grid>label:first-child{grid-column:1 / -1}
+.student360-contract-amendment-history{padding:14px 18px;border:1px solid #eadfe5;border-radius:14px;background:#fff;font-size:14px}
+.student360-contract-amendment-history summary{cursor:pointer;font-weight:650}
+.student360-contract-amendment-history article{padding:12px 0;border-top:1px solid #eee7eb;margin-top:10px}
+.student360-contract-amendment-history p{margin:5px 0;color:#776b73;line-height:1.5}

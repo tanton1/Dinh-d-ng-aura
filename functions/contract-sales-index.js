@@ -6,7 +6,7 @@ const SALES_INDEX_VERSION = 1
 const SALES_INDEX_GATE = 'reportingIndexes/contract-sales-v1'
 const SALES_INDEX_KEY = 'financeSalesIndex.key'
 const SALES_EXCEPTION_KEYS = ['!missing_date', '!cancelled_unverified']
-const SALES_CONTRACT_FIELDS = ['branchId', 'status', 'totalPrice', 'discount', 'signedAt', 'createdAt', 'contractDate', 'startDate', 'salesCancellationSnapshot', 'financeSalesIndex']
+const SALES_CONTRACT_FIELDS = ['branchId', 'status', 'totalPrice', 'discount', 'signedAt', 'createdAt', 'contractDate', 'startDate', 'salesCancellationSnapshot', 'salesOriginalSnapshot', 'financeSalesIndex']
 const formatter = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit',
 })
