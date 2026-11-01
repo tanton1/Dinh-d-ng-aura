@@ -138,6 +138,7 @@ function compactStudent(student = {}, branchId = '', contract = null) {
     eligibilityReasons: Array.isArray(student.eligibilityReasons) ? student.eligibilityReasons.slice(0, 24) : [],
     validScheduleDates: Array.isArray(student.validScheduleDates) ? student.validScheduleDates.slice(0, 14) : [],
     pausedScheduleDates: Array.isArray(student.pausedScheduleDates) ? student.pausedScheduleDates.slice(0, 14) : [],
+    ...(Array.isArray(student.approvedOffScheduleDates) ? { approvedOffScheduleDates: student.approvedOffScheduleDates.slice(0, 7) } : {}),
     isScheduleConfirmed: student.isScheduleConfirmed === true,
     previousWeekScheduledSessions: Number(student.previousWeekScheduledSessions || 0),
     hadSchedulePreviousWeek: student.hadSchedulePreviousWeek === true,
@@ -476,7 +477,7 @@ const DEFERRED_STUDENT_FIELDS = [
   'remainingSessions', 'remainingEntitlementSessions', 'remainingSchedulableSessions',
   'maxWeeklySessions', 'schedulableSessionsThisWeek', 'contractStatus',
   'eligibleContractIds', 'eligibleForWeek', 'eligibilityReasons', 'validScheduleDates',
-  'pausedScheduleDates', 'previousWeekScheduledSessions', 'hadSchedulePreviousWeek', 'contract',
+  'pausedScheduleDates', 'approvedOffScheduleDates', 'previousWeekScheduledSessions', 'hadSchedulePreviousWeek', 'contract',
 ]
 
 function retainedValidationSnapshot(value) {

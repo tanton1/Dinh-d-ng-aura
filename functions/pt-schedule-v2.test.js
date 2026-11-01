@@ -343,6 +343,35 @@ test('weekly eligibility keeps a contract usable on at least one unpaused day', 
   assert.ok(result.validDates.includes('2026-08-26'))
 })
 
+test('partial OFF warnings retain elapsed dates without changing future entitlement or weekly demand', () => {
+  const data = fixture()
+  const contract = { ...data.contracts[0], pausePeriods: [
+    { type: 'off', startDate: '2026-10-26', endDate: '2026-11-06' },
+    { type: 'off', startDate: '2026-11-04', endDate: '2026-11-05' },
+  ] }
+  const dates = ['2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05', '2026-11-06']
+  for (const referenceDate of ['2026-11-01', '2026-11-04', '2026-11-08', '2026-11-09']) {
+    const result = studentWeekEligibility([contract], 'student-a', BRANCH, '2026-11-02', referenceDate, false, data.config)
+    assert.deepEqual(result.approvedOffDates, dates)
+    assert.ok(result.validDates.every(date => date >= referenceDate && !dates.includes(date)))
+    if (referenceDate < '2026-11-09') {
+      assert.equal(result.eligible, true)
+      assert.equal(weeklyTargetForStudent(3, null, result).sessionsPerWeek, 3)
+    }
+  }
+  const following = studentWeekEligibility([contract], 'student-a', BRANCH, '2026-11-09', '2026-11-01', false, data.config)
+  assert.deepEqual(following.approvedOffDates, [])
+})
+
+test('OFF warning dates include closed calendar days but never pending or cancelled contract evidence', () => {
+  const data = fixture()
+  const off = { ...data.contracts[0], pausePeriods: [{ type: 'off', startDate: '2026-11-01', endDate: '2026-11-01' }] }
+  assert.deepEqual(studentWeekEligibility([off], 'student-a', BRANCH, '2026-10-26', '2026-11-01', false, data.config).approvedOffDates, ['2026-11-01'])
+  for (const contract of [{ ...off, pausePeriods: [] }, { ...off, status: 'cancelled' }, { ...off, studentId: 'another' }, { ...off, branchId: 'another' }]) {
+    assert.deepEqual(studentWeekEligibility([contract], 'student-a', BRANCH, '2026-10-26', '2026-11-01', false, data.config).approvedOffDates, [])
+  }
+})
+
 test('approved Monday-Saturday OFF excludes a learner when Sunday is closed, without changing their default target', () => {
   const data = fixture()
   const contract = { ...data.contracts[0], pausePeriods: [{ type: 'off', startDate: '2026-10-26', endDate: '2026-10-31' }] }

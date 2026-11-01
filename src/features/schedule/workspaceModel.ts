@@ -452,7 +452,7 @@ function workspaceFromWeeklyViewSnapshot(
   if (!exact && hadReconciliation && Array.isArray(source.contracts) && source.contracts.length === 0) {
     const priorStudents = new Map(current.students.map((student) => [student.id, student]))
     const evidenceFields = [
-      'eligibleForWeek', 'eligibilityReasons', 'eligibleContractIds', 'validScheduleDates', 'pausedScheduleDates',
+      'eligibleForWeek', 'eligibilityReasons', 'eligibleContractIds', 'validScheduleDates', 'pausedScheduleDates', 'approvedOffScheduleDates',
       'remainingEntitlementSessions', 'remainingSchedulableSessions', 'activeScheduledSessions', 'activeScheduledThisWeek',
       'maxWeeklySessions', 'schedulableSessionsThisWeek', 'contractStatus', 'contractEndDate',
       'previousWeekScheduledSessions', 'hadSchedulePreviousWeek',

@@ -1445,6 +1445,7 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
       eligibleContractIds: eligibility.eligibleContractIds,
       validScheduleDates: eligibility.validDates,
       pausedScheduleDates: eligibility.pausedDates,
+      approvedOffScheduleDates: eligibility.approvedOffDates,
       remainingEntitlementSessions: eligibility.remainingEntitlementSessions,
       activeScheduledSessions: eligibility.activeScheduledSessions,
       activeScheduledThisWeek: eligibility.activeScheduledThisWeek,
@@ -1685,6 +1686,7 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId, 
     eligibleContractIds: eligibility.eligibleContractIds,
     validScheduleDates: eligibility.validDates,
     pausedScheduleDates: eligibility.pausedDates,
+    approvedOffScheduleDates: eligibility.approvedOffDates,
   }
   const schedulingPriority = Math.max(1, Math.min(999, Math.trunc(Number(rawTrainer.schedulingPriority ?? rawTrainer.priority ?? 100) || 100)))
   const dailySessionTarget = trainerDailyLoadTarget(rawTrainer, config.data()?.scheduleLoadPolicy)
@@ -1807,6 +1809,7 @@ function studentWeekEligibility(contracts, studentId, branchId, week, referenceD
   const dates = weekDates.filter((date) => date >= referenceDate)
   const validDates = []
   const pausedDates = []
+  const approvedOffDates = new Set()
   const eligibleContractIds = new Set()
   let overlapsWeek = false
   let hasRemainingSessions = false
@@ -1820,6 +1823,13 @@ function studentWeekEligibility(contracts, studentId, branchId, week, referenceD
     const startDate = storedDate(contract.startDate)
     const endDate = storedDate(contract.endDate)
     if (!startDate || !endDate) continue
+    // Display every approved OFF day in the selected week, even after it has
+    // elapsed. Keep this separate from future entitlement and target logic.
+    if (contract.pausePeriods?.length) for (const date of weekDates) {
+      if (date >= startDate && date <= endDate && contractEffectiveOnDate(contract, date) && contractPaused(contract, date)) {
+        approvedOffDates.add(date)
+      }
+    }
     const schedulingEntitlement = contractSchedulingEntitlement(contract)
     const contractEntitlement = Math.max(0, Math.min(
       schedulingEntitlement,
@@ -1897,6 +1907,7 @@ function studentWeekEligibility(contracts, studentId, branchId, week, referenceD
     eligibleContractIds: [...eligibleContractIds],
     validDates: [...new Set(validDates)].sort(),
     pausedDates: [...new Set(pausedDates)].sort(),
+    approvedOffDates: [...approvedOffDates].sort(),
     remainingSessions: remainingSessionQuota,
     remainingEntitlementSessions,
     activeScheduledSessions,

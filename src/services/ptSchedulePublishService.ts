@@ -82,6 +82,8 @@ export interface PtScheduleV2Student extends Student {
   eligibleContractIds: string[]
   validScheduleDates: string[]
   pausedScheduleDates: string[]
+  /** Approved leave across the whole displayed week; informational, not a target override. */
+  approvedOffScheduleDates?: string[]
   remainingEntitlementSessions?: number
   activeScheduledSessions?: number
   activeScheduledThisWeek?: number

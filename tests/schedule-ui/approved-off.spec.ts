@@ -79,6 +79,10 @@ for (const mode of ['exact', 'stale'] as const) for (const confirmed of [false, 
   await expect(page.locator('.schedule-cell__student').filter({ hasText: 'Phương Thảo' })).toHaveCount(3)
   await page.getByRole('tab', { name: /Cảnh báo/ }).click()
   await expect(page.locator('.schedule-warning-student').filter({ hasText: 'Phương Thảo' })).toContainText(confirmed ? '2/3' : '1/3')
+  const off = page.locator('.schedule-approved-off')
+  await off.locator('summary').click()
+  await expect(off).toContainText('Phương Thảo')
+  await expect(off).toContainText('OFF một phần tuần')
   await page.getByRole('tab', { name: /Trùng \/ xung đột/ }).click()
   const conflicts = page.getByRole('region', { name: 'Danh sách trùng và xung đột lịch' })
   await expect(conflicts).toContainText('CONTRACT_PAUSED')
@@ -100,4 +104,53 @@ test('OFF classification uses operating dates and never treats missing availabil
       approvedOffForWeek(student, { ...workspace, scheduleConfig: { workingDays: [], holidays: [] } })]
   })
   expect(results).toEqual([true, false, false, false, false, false, false])
+})
+
+for (const mode of ['exact', 'stale'] as const) test(`partial OFF is visible even with enough bookings, including elapsed days (${mode})`, async ({ page }) => {
+  await page.setViewportSize({ width: mode === 'exact' ? 1440 : 390, height: 1000 })
+  await page.clock.setFixedTime(new Date('2026-11-08T09:00:00Z'))
+  await page.addInitScript(({ mode }) => {
+    const student = { id: 'a', name: 'Lê Thu Hiền', status: 'active', branchId: 'b', sessionsPerWeek: 1,
+      defaultSessionsPerWeek: 1, maxWeeklySessions: 7, schedulableSessionsThisWeek: 1,
+      availableSlots: ['T7-6'], availabilityStatus: 'submitted', eligibleForWeek: true, eligibilityReasons: [],
+      eligibleContractIds: ['c-a'], validScheduleDates: ['2026-11-08'], pausedScheduleDates: [],
+      approvedOffScheduleDates: ['2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05', '2026-11-06'],
+      remainingSchedulableSessions: 16, contractStatus: 'valid' }
+    Object.assign(window, { __enableScheduleListener: true, __weeklyViewCompact: true, __validationMode: mode,
+      __weeklyCoverageOverride: { totalTargetSessions: 1, scheduledEntries: 1, missingSessions: 0,
+        byStudent: { a: { studentId: 'a', targetSessions: 1, scheduledSessions: 1, draftSessions: 1, missingSessions: 0, otherBranchSessions: 0 } } },
+      __workspaceOverride: { students: [student], contracts: [],
+        schedule: { 'T7-6': [{ studentId: 'a', trainerId: 't', type: 'training', source: 'manual_v2', branchId: 'b' }] } } })
+  }, { mode })
+  await page.goto('/tests/schedule-ui/index.html')
+  await page.getByRole('tab', { name: /Cảnh báo/ }).click()
+  const off = page.locator('.schedule-approved-off')
+  await off.locator('summary').click()
+  await expect(off.locator('li')).toHaveCount(1)
+  await expect(off).toContainText('Lê Thu Hiền')
+  await expect(off).toContainText('02/11, 03/11, 04/11, 05/11, 06/11')
+  await expect(off).toContainText('OFF một phần tuần')
+  await expect(page.locator('.schedule-warning-student')).toHaveCount(0)
+  const calls = await page.evaluate(() => (window as any).__scheduleCalls.length)
+  await off.locator('summary').click()
+  await off.locator('summary').click()
+  expect(await page.evaluate(() => (window as any).__scheduleCalls.length)).toBe(calls)
+  expect(await off.evaluate(element => element.getBoundingClientRect().right)).toBeLessThanOrEqual(mode === 'exact' ? 1440 : 390)
+  await page.getByRole('button', { name: 'Tuần sau', exact: true }).click()
+  await page.getByRole('tab', { name: /Cảnh báo/ }).click()
+  await expect(page.locator('.schedule-approved-off')).toHaveCount(0)
+})
+
+test('OFF visibility is week-scoped, deduplicated, and independent of training entitlement', async ({ page }) => {
+  await page.goto('/tests/schedule-ui/index.html')
+  const dates = await page.evaluate(async () => {
+    const { approvedOffDatesInWeek } = await import('/src/features/schedule/offWarningPresentation.ts')
+    const week = { weekId: '2026-11-02' }
+    const student: any = { pausedScheduleDates: ['2026-11-09', '2026-11-08', '2026-11-02', '2026-11-02', '2026-11-01'],
+      validScheduleDates: ['2026-11-02'] }
+    return [approvedOffDatesInWeek(student, week),
+      approvedOffDatesInWeek({ ...student, approvedOffScheduleDates: [] }, week),
+      approvedOffDatesInWeek({ ...student, pausedScheduleDates: [] }, week)]
+  })
+  expect(dates).toEqual([['2026-11-02', '2026-11-08'], [], []])
 })
