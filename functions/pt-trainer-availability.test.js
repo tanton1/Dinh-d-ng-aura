@@ -21,11 +21,30 @@ function harness(t) {
     'sessions/published': { trainerId: 'trainer', date: WEEK, hour: 6, status: 'scheduled' },
   }))
   let id = 0
+  const queries = []
   const snapshot = (ref) => ({ ref, id: ref.id, exists: values.has(ref.path), data: () => values.get(ref.path) })
   const db = {
     doc(path) { return { path, id: path.split('/').at(-1), get: async () => snapshot(db.doc(path)) } },
     getAll(...refs) { return Promise.all(refs.map((ref) => ref.get())) },
-    collection(path) { return { doc: () => db.doc(`${path}/audit-${++id}`) } },
+    collection(path) {
+      const filters = []
+      let order = null
+      let count = Infinity
+      const query = {
+        doc: () => db.doc(`${path}/audit-${++id}`),
+        where(field, op, value) { filters.push([field, op, value]); return query },
+        orderBy(field, direction) { order = [field, direction]; return query },
+        limit(value) { count = value; return query },
+        async get() {
+          queries.push({ path, filters, order, count })
+          let rows = [...values].filter(([key]) => key.startsWith(`${path}/`))
+            .filter(([, data]) => filters.every(([field, op, value]) => op === '==' ? data[field] === value : op === 'in' ? value.includes(data[field]) : data[field] < value))
+          if (order) rows.sort((a, b) => String(a[1][order[0]]).localeCompare(String(b[1][order[0]])) * (order[1] === 'desc' ? -1 : 1))
+          return { docs: rows.slice(0, count).map(([key]) => snapshot(db.doc(key))) }
+        },
+      }
+      return query
+    },
     async runTransaction(handler) {
       const writes = []
       const result = await handler({
@@ -41,10 +60,10 @@ function harness(t) {
   const api = createPtOperationsV2Functions({ db, onCall: (...args) => args.at(-1), availabilityAccessResolver: async (request) => request.actor })
   const read = (actor, weekId) => (actor === pt ? api.getMyTrainerAvailability : api.getPtTrainerAvailability)({ actor, data: { trainerUid: 'pt', weekId } })
   const save = (actor, weekId, availableSlots, expectedRevision, offDates = []) => (actor === pt ? api.saveMyTrainerAvailability : api.savePtTrainerAvailability)({ actor, data: { trainerUid: 'pt', weekId, availableSlots, expectedRevision, offDates } })
-  return { values, api, read, save }
+  return { values, api, read, save, queries }
 }
 
-test('PT and admin edit the same exact weekly record after cutoff; next week and recurring stay independent', async (t) => {
+test('PT and admin share exact weekly edits; next week inherits until explicitly registered', async (t) => {
   const h = harness(t)
   assert.equal((await h.read(pt, WEEK)).locked, false)
   assert.equal((await h.read(admin, WEEK)).source, 'recurring')
@@ -54,7 +73,7 @@ test('PT and admin edit the same exact weekly record after cutoff; next week and
   assert.equal(managed.availabilityRevision, 1)
   await h.save(admin, WEEK, ['T3-7'], managed.availabilityRevision)
   assert.deepEqual((await h.read(pt, WEEK)).availableSlots, ['T3-7'])
-  assert.deepEqual((await h.read(pt, NEXT)).availableSlots, BASE)
+  assert.deepEqual((await h.read(pt, NEXT)).availableSlots, ['T3-7'])
   await h.save(pt, NEXT, ['T6-18'], 0)
   assert.deepEqual((await h.read(admin, NEXT)).availableSlots, ['T6-18'])
   assert.deepEqual((await h.read(pt, WEEK)).availableSlots, ['T3-7'])
@@ -88,7 +107,7 @@ test('recurring edits do not change submitted weekly overrides and use their own
   await h.save(pt, WEEK, ['T2-6'], 0)
   await h.save(admin, undefined, ['T7-8'], 8)
   assert.deepEqual((await h.read(pt, undefined)).availableSlots, ['T7-8'])
-  assert.deepEqual((await h.read(pt, NEXT)).availableSlots, ['T7-8'])
+  assert.deepEqual((await h.read(pt, NEXT)).availableSlots, ['T2-6'])
   assert.deepEqual((await h.read(pt, WEEK)).availableSlots, ['T2-6'])
   assert.deepEqual(h.values.get('staff/trainer').availableSlots, ['T7-8'])
 })
@@ -107,7 +126,7 @@ test('admin can clear recurring availability without erasing a separately submit
   await h.save(pt, WEEK, ['T2-6'], 0)
   const result = await h.save(admin, undefined, [], 8)
   assert.equal(result.availabilityMode, 'unconfigured')
-  assert.equal((await h.read(pt, NEXT)).availabilityMode, 'unconfigured')
+  assert.equal((await h.read(pt, NEXT)).availabilityMode, 'configured')
   assert.deepEqual((await h.read(pt, WEEK)).availableSlots, ['T2-6'])
 })
 
@@ -126,13 +145,70 @@ test('Vietnam week boundaries permit current and next week including Sunday afte
   assert.equal(trainerWeekIsEditable('2026-11-02', new Date('2026-10-25T17:00:00Z')), true)
 })
 
+test('nearest prior submission wins by week, ignoring drafts, future weeks and other PTs', async (t) => {
+  const h = harness(t)
+  for (const [id, weekId, status, slots, updatedAt] of [
+    ['trainer', '2026-09-28', 'submitted', ['T2-6'], '2026-10-25T00:00:00Z'],
+    ['trainer', '2026-10-05', 'locked', ['T3-7'], '2026-10-06T00:00:00Z'],
+    ['trainer', '2026-10-12', 'draft', ['T4-7'], '2026-10-13T00:00:00Z'],
+    ['trainer', '2026-11-02', 'submitted', ['T5-18'], '2026-10-24T00:00:00Z'],
+    ['other', WEEK, 'submitted', ['T6-18'], '2026-10-23T00:00:00Z'],
+  ]) h.values.set(`trainerAvailability/${id}_${weekId}`, { trainerId: id, weekId, status, slots, updatedAt, revision: 7 })
+  h.values.set(`trainerAvailability/trainer_${NEXT}`, { trainerId: 'trainer', weekId: NEXT, status: 'draft', revision: 2 })
+  const result = await h.read(pt, NEXT)
+  assert.deepEqual(result.availableSlots, ['T3-7'])
+  assert.equal(result.source, 'inherited_weekly')
+  assert.equal(result.sourceWeekId, '2026-10-05')
+  assert.equal(result.updatedAt, '2026-10-06T00:00:00Z')
+  assert.equal(result.weeklyOverride, false)
+  assert.equal(result.availabilityRevision, 2, 'saving uses the target revision, not source revision 7')
+  assert.equal(h.queries.length, 1)
+  assert.equal(h.queries[0].count, 1, 'history lookup returns one indexed record')
+  await h.save(pt, NEXT, result.availableSlots, result.availabilityRevision)
+  const saved = await h.read(admin, NEXT)
+  assert.equal(saved.source, 'weekly')
+  assert.equal(saved.sourceWeekId, NEXT)
+  assert.equal(saved.availabilityRevision, 3)
+  assert.equal(h.values.get('trainerAvailability/trainer_2026-10-05').revision, 7)
+})
+
+test('inherited weeks remain unregistered, refresh prior edits, and never copy dated OFF markers', async (t) => {
+  const h = harness(t)
+  await h.save(pt, WEEK, ['T2-6', 'T3-7'], 0, [WEEK])
+  const first = await h.read(pt, NEXT)
+  assert.deepEqual(first.availableSlots, ['T3-7'])
+  assert.deepEqual(first.offDates, [])
+  assert.equal(first.availabilityRevision, 0)
+  assert.equal(first.sourceWeekId, WEEK)
+  assert.equal(h.values.has(`trainerAvailability/trainer_${NEXT}`), false)
+  await h.save(admin, WEEK, [], 1, [WEEK])
+  const empty = await h.read(pt, NEXT)
+  assert.deepEqual(empty.availableSlots, [])
+  assert.deepEqual(empty.offDates, [])
+  assert.equal(empty.source, 'inherited_weekly', 'empty saved weeks never revert to recurring')
+  await h.save(pt, NEXT, ['T5-18'], 0)
+  const queryCount = h.queries.length
+  assert.deepEqual((await h.read(pt, NEXT)).availableSlots, ['T5-18'])
+  assert.equal(h.queries.length, queryCount, 'an exact submission skips history reads')
+})
+
+test('no prior submission uses recurring without claiming registration', async (t) => {
+  const h = harness(t)
+  const value = await h.read(pt, NEXT)
+  assert.deepEqual(value.availableSlots, BASE)
+  assert.equal(value.source, 'recurring')
+  assert.equal(value.sourceWeekId, null)
+  assert.equal(value.weeklyOverride, false)
+  assert.equal(value.availabilityRevision, 0)
+})
+
 test('weekly matrix projection retains all 78 trainer slots, source and OFF dates', () => {
   const slots = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'].flatMap((day) => [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20].map((hour) => `${day}-${hour}`))
   const view = buildPtScheduleWeeklyView({ branchId: 'b', weekId: WEEK, data: {
     readMode: 'display', partial: true, branch: { id: 'b' }, draft: {}, schedule: {}, students: [],
     trainers: [{ id: 'trainer', availableSlots: slots, availabilityMode: 'configured', availabilitySource: 'weekly', availabilityWeekId: WEEK, offDates: [] }],
   } })
-  assert.equal(view.schemaVersion, 3)
+  assert.equal(view.schemaVersion, 4)
   assert.deepEqual(view.trainers[0].availableSlots, slots)
   assert.equal(view.trainers[0].availabilitySource, 'weekly')
   assert.equal(view.trainers[0].availabilityWeekId, WEEK)

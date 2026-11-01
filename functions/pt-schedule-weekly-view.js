@@ -16,7 +16,7 @@ const {
 // A weekly view is deliberately a projection, not a second source of truth.
 // It contains enough information to paint the schedule and warning center but
 // never contains raw attendance, billing, or contract history rows.
-const WEEKLY_VIEW_SCHEMA_VERSION = 3
+const WEEKLY_VIEW_SCHEMA_VERSION = 4
 const MAX_VIEW_SCHEDULE_ENTRIES = 700
 const MAX_VIEW_STUDENTS = 600
 const MAX_VIEW_TRAINERS = 120
@@ -164,7 +164,8 @@ function compactTrainer(trainer = {}, branchId = '') {
     availabilityMode: stringValue(trainer.availabilityMode, 40) || 'unconfigured',
     availabilityRevision: Number(trainer.availabilityRevision || 0),
     availableSlots: Array.isArray(trainer.availableSlots) ? trainer.availableSlots.slice(0, 100) : [],
-    availabilitySource: trainer.availabilitySource === 'weekly' ? 'weekly' : 'recurring',
+    availabilitySource: ['weekly', 'inherited_weekly'].includes(trainer.availabilitySource) ? trainer.availabilitySource : 'recurring',
+    availabilitySourceWeekId: stringValue(trainer.availabilitySourceWeekId, 10),
     availabilityWeekId: stringValue(trainer.availabilityWeekId, 10),
     offDates: Array.isArray(trainer.offDates) ? trainer.offDates.slice(0, 7) : [],
     slotCapacity: Number(trainer.slotCapacity || 2),
@@ -818,7 +819,7 @@ async function sourceEventTargets({ db, event, source } = {}) {
     // just startDate. Profile changes likewise affect all rendered weeks.
     const allWeeks = ['student', 'trainer', 'contract', 'contractUsage'].includes(source) || !weekId
     const endWeek = source === 'leave' ? weekIdFromDate(data.endDate || data.startDate) : weekId
-    const inherited = source === 'availability'
+    const inherited = source === 'availability' || source === 'trainerAvailability'
     const acceptsWeek = (value) => allWeeks || (value >= weekId && (inherited || value <= (endWeek || weekId)))
     scopes.push(acceptsWeek)
     if (!allWeeks && ['session', 'draft'].includes(source)) exactWeeks.add(weekId)

@@ -24,7 +24,7 @@ const { normalizedScheduleConfig } = require('./pt-schedule-publish')
 const { canonicalSessionRows, studentVisibleSessionRows } = require('./session-schedule-normalization')
 const { cacheScope, createProcessCache } = require('./process-cache')
 const { readWorkspaceChangeState } = require('./workspace-change-signals')
-const { trainerProfileForWeek, trainerWeekIsEditable } = require('./trainer-availability')
+const { trainerProfileForWeek, trainerWeekIsEditable, loadTrainerAvailability } = require('./trainer-availability')
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
 const DEFAULT_WORKING_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
@@ -1340,7 +1340,9 @@ function createPtOperationsV2Functions({
     const config = scheduleConfig(configSnapshot.data())
     const baseSlots = normalizedAvailabilitySlots(profile.value.availableSlots || [], config, false)
     const weeklyValue = weeklySnapshot?.exists ? weeklySnapshot.data() : null
-    const effective = trainerProfileForWeek(profile.value, weeklyValue, requestedWeekId || '')
+    const sourceSnapshot = requestedWeekId ? await loadTrainerAvailability(db, profile.id, requestedWeekId, null, weeklySnapshot) : null
+    const sourceValue = sourceSnapshot?.exists ? sourceSnapshot.data() : null
+    const effective = trainerProfileForWeek(profile.value, sourceValue, requestedWeekId || '')
     const weeklyOverride = effective.availabilitySource === 'weekly'
     const offDates = weeklyOverride ? normalizedTrainerOffDates(effective.offDates, requestedWeekId) : []
     const slots = normalizedAvailabilitySlots(effective.availableSlots || [], config, false)
@@ -1361,7 +1363,8 @@ function createPtOperationsV2Functions({
       canManage: managed,
       reopenedUntil: reopenedUntil?.toISOString() || null,
       cutoffAt: cutoff?.toISOString() || null,
-      source: weeklyOverride ? 'weekly' : 'recurring',
+      source: effective.availabilitySource || 'recurring',
+      sourceWeekId: effective.availabilitySourceWeekId || null,
       availabilityMode: effective.availabilityMode === 'unrestricted'
         ? 'unrestricted'
         : slots.length ? 'configured' : 'unconfigured',
@@ -1371,7 +1374,9 @@ function createPtOperationsV2Functions({
       availabilityRevision: requestedWeekId
         ? Number(weeklyValue?.revision || 0)
         : Number(profile.value.availabilityRevision || 0),
-      updatedAt: weeklyValue?.updatedAt || profile.value.availabilityUpdatedAt || null,
+      updatedAt: effective.availabilitySourceWeekId
+        ? sourceValue?.updatedAt || sourceValue?.submittedAt || null
+        : profile.value.availabilityUpdatedAt || null,
       scheduleConfig: config,
     })
   }
@@ -1446,6 +1451,7 @@ function createPtOperationsV2Functions({
         baseAvailableSlots: normalizedAvailabilitySlots(profile.value.availableSlots || [], config, false),
         offDates,
         source: 'weekly',
+        sourceWeekId: requestedWeekId,
         weeklyOverride: true,
         locked: false,
         canManage: managed,
@@ -1501,7 +1507,7 @@ function createPtOperationsV2Functions({
       return revision + 1
     })
     invalidateTrainerReadCaches(db, actor)
-    return { schemaVersion: 2, weekId: null, availableSlots: slots, baseAvailableSlots: slots, offDates: [], source: 'recurring', weeklyOverride: false, locked: false, canManage: managed, cutoffAt: null, availabilityMode: slots.length ? 'configured' : 'unconfigured', availabilityRevision: nextRevision, updatedAt: new Date().toISOString() }
+    return { schemaVersion: 2, weekId: null, availableSlots: slots, baseAvailableSlots: slots, offDates: [], source: 'recurring', sourceWeekId: null, weeklyOverride: false, locked: false, canManage: managed, cutoffAt: null, availabilityMode: slots.length ? 'configured' : 'unconfigured', availabilityRevision: nextRevision, updatedAt: new Date().toISOString() }
   }
   const saveMyTrainerAvailability = staffCall((request) => writeTrainerAvailability(request))
   const savePtTrainerAvailability = staffCall((request) => writeTrainerAvailability(request, true))

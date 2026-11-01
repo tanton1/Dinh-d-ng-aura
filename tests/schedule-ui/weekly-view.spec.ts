@@ -20,7 +20,7 @@ test('clean server week boots with zero callable reads; explicit reload still fo
   await expect.poll(() => page.evaluate(() => (window as any).__scheduleCalls.filter((item: any) => item.operation === 'load').length)).toBe(1)
 })
 
-for (const initial of ['missing', 'denied', 'dirty', 'incomplete', 'legacy', 'trainer-legacy', 'unverified', 'missing-verification', 'partial', 'malformed-exact']) {
+for (const initial of ['missing', 'denied', 'dirty', 'incomplete', 'legacy', 'trainer-legacy', 'trainer-inheritance-legacy', 'unverified', 'missing-verification', 'partial', 'malformed-exact']) {
   test(`server ${initial} view falls back immediately without waiting for the bootstrap timeout`, async ({ page }) => {
     await page.clock.install()
     await page.clock.pauseAt(new Date())
@@ -32,6 +32,7 @@ for (const initial of ['missing', 'denied', 'dirty', 'incomplete', 'legacy', 'tr
       if (mode === 'incomplete') (window as any).__weeklyViewOverride = { students: undefined }
       if (mode === 'legacy') (window as any).__weeklyViewOverride = { schemaVersion: 1 }
       if (mode === 'trainer-legacy') (window as any).__weeklyViewOverride = { schemaVersion: 2 }
+      if (mode === 'trainer-inheritance-legacy') (window as any).__weeklyViewOverride = { schemaVersion: 3 }
       if (mode === 'unverified') (window as any).__weeklyViewOverride = { verification: 'draft_only' }
       if (mode === 'missing-verification') (window as any).__weeklyViewOverride = { verification: undefined }
       if (mode === 'partial') (window as any).__weeklyViewOverride = { partial: true }
@@ -373,7 +374,7 @@ test('real compact schema2 listener reads nested draft revision and leaves stale
     const call = (window as any).__scheduleCalls.find((item: any) => item.operation === 'weekly-view')
     const current = await getPtScheduleWeeklyView(call.input)
     ;(window as any).__compactWeeklyFixture = {
-      schemaVersion: 3, branchId: current.branch.id, weekId: current.weekId,
+      schemaVersion: 4, branchId: current.branch.id, weekId: current.weekId,
       sourceRevision: 'semantic-hash-v2', viewRevision: 2, dirtyGeneration: 1, dirty: false, freshness: 'verified', verification: 'exact',
       draft: { revision: current.draftRevision + 1, status: 'draft', publishedVersion: current.publishedVersion, publishedRevision: -1 },
       schedule: current.schedule, students: current.students.map((student: any) => student.id === 'a' ? { ...student, name: 'Lan compact mới', phone: '0900000010' } : student),

@@ -113,7 +113,8 @@ export interface PtScheduleV2Student extends Student {
 export interface PtScheduleV2Trainer extends Trainer {
   availabilityMode: 'configured' | 'unrestricted' | 'unconfigured'
   availabilityRevision: number
-  availabilitySource?: 'recurring' | 'weekly'
+  availabilitySource?: 'recurring' | 'weekly' | 'inherited_weekly'
+  availabilitySourceWeekId?: string | null
   availabilityWeekId?: string
   offDates?: string[]
   slotCapacity: number

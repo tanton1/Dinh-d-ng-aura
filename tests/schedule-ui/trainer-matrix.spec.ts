@@ -21,3 +21,17 @@ for (const off of [false, true]) {
     await expect(page.locator('.schedule-cell.is-off')).toHaveCount(off ? 11 : 0)
   })
 }
+
+test('matrix labels inherited trainer hours with their source week', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-10-21T04:00:00Z'))
+  await page.addInitScript(() => {
+    ;(window as any).__weeklyViewOverride = {
+      trainers: [{ id: 't', name: 'Mai', status: 'active', branchId: 'b', slotCapacity: 2, availabilityMode: 'configured', availabilityRevision: 3,
+        availabilitySource: 'inherited_weekly', availabilitySourceWeekId: '2026-10-12', availabilityWeekId: '2026-10-19', offDates: [], availableSlots: ['T3-6'] }],
+    }
+  })
+  await page.goto('/tests/schedule-ui/index.html')
+  await expect(page.locator('.trainer-availability-chip')).toContainText('Kế thừa tuần 2026-10-12')
+  await expect(page.locator('.schedule-cell.is-trainer-available')).toHaveCount(1)
+  await expect(page.locator('.schedule-cell').filter({ hasText: 'Lan' })).toHaveCount(1)
+})

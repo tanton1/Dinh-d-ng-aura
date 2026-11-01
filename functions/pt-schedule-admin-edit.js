@@ -1,5 +1,7 @@
 'use strict'
 
+const { loadTrainerAvailability } = require('./trainer-availability')
+
 const { createHash } = require('node:crypto')
 const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
@@ -673,7 +675,7 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
       transaction.get(receipt), transaction.get(draftRef), transaction.get(legacyRef),
       transaction.get(db.doc(`students/${studentId}`)),
       transaction.get(db.collection('trainers').where('branchId', '==', branchId).limit(101)),
-      transaction.get(db.doc(`trainerAvailability/${trainerId}_${week}`)),
+      loadTrainerAvailability(db, trainerId, week, transaction),
       transaction.get(db.doc(`ptAvailability/${studentId}_${week}`)),
       transaction.get(db.doc('settings/scheduleConfig')),
       transaction.get(db.collection('sessions').where('studentId', '==', studentId).limit(1001)),
