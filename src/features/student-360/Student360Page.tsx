@@ -712,7 +712,7 @@ function Student360Workspace({ studentId, source, isDemo = false, onBack, onNavi
     if (item.action === 'renewal') return overview.permissions.canViewRenewal
     if (item.action === 'schedule') return overview.permissions.canViewOperations
     if (item.action === 'contract') return overview.permissions.canManageContract
-    if (item.action === 'finance') return source === 'admin-pt-students' && overview.permissions.canViewFinancialAmounts
+    if (item.action === 'finance') return source.startsWith('admin-') && overview.permissions.canViewFinancialAmounts
     return false
   }
 
@@ -745,20 +745,23 @@ function Student360Workspace({ studentId, source, isDemo = false, onBack, onNavi
     return { total: demoTrainingHistorySessions.length, attended, chargedNoShow, exempt: 0 }
   }, [demoTrainingHistorySessions])
 
-  if (loading) return <OverviewLoading />
-  if (error || !overview) return <main className="student360-page"><State type="error"><AlertTriangle /><h1>Chưa thể mở Học viên 360</h1><p>{error || 'Hồ sơ không có dữ liệu.'}</p><div><button type="button" onClick={onBack}>Quay lại</button><button type="button" onClick={() => void loadOverview(false)}>Thử lại</button></div></State></main>
+  const fromRenewals = source === 'admin-renewals' || source === 'staff-renewals'
+  const renewalBack = <button type="button" className="student360-renewal-back" onClick={onBack}><ArrowLeft size={17} /> Về Tái ký</button>
+  if (loading) return <>{fromRenewals && renewalBack}<OverviewLoading /></>
+  if (error || !overview) return <main className="student360-page"><State type="error"><AlertTriangle /><h1>Chưa thể mở Học viên 360</h1><p>{error || 'Hồ sơ không có dữ liệu.'}</p><div><button type="button" onClick={onBack}>{fromRenewals ? 'Về Tái ký' : 'Quay lại'}</button><button type="button" onClick={() => void loadOverview(false)}>Thử lại</button></div></State></main>
 
   const { identity, assignments, contract, schedule, attendance, training, nutrition, progress, renewal, health, permissions } = overview
-  const isAdminView = source === 'admin-pt-students'
+  const isAdminView = source.startsWith('admin-')
   const daysLabel = contract?.daysRemaining === null || contract?.daysRemaining === undefined ? '—' : Math.max(0, contract.daysRemaining)
   const weeklyPercent = Math.min(100, schedule.requiredSessions ? schedule.bookedSessions / schedule.requiredSessions * 100 : 0)
   const paymentPresentation = student360PaymentPresentation(contract, permissions.canViewFinancialAmounts)
   const scheduleView = source.startsWith('staff') ? 'staff-schedule' : 'admin-pt-schedule'
 
   return <main className="student360-page aura-ui-v4-surface aura-ui-v4-operations student360-page--v4" data-tab={activeTab}>
+    {fromRenewals && renewalBack}
     <header className="student360-header">
       <div className="student360-header__bar">
-        <button type="button" className="student360-icon-button" aria-label="Quay lại danh sách học viên" onClick={onBack}><ArrowLeft /></button>
+        {!fromRenewals && <button type="button" className="student360-icon-button" aria-label="Quay lại danh sách học viên" onClick={onBack}><ArrowLeft /></button>}
         <div className="student360-identity">
           <span className="student360-avatar">{identity.avatarUrl ? <img src={identity.avatarUrl} alt="" /> : identity.name.charAt(0).toUpperCase()}</span>
           <div><small>Hồ sơ học viên</small><h1>{identity.name}</h1><p>{assignments.branchName || 'Chưa xác định chi nhánh'} · {assignments.trainerNames[0] || assignments.nutritionCoachNames[0] || 'Chưa phân người phụ trách'}</p></div>

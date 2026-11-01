@@ -32,10 +32,17 @@ import {
   type RenewalStage,
 } from '../../../services/contractRenewalService'
 import RenewContractModal from './RenewContractModal'
+import { readRenewalReturnState, saveRenewalReturnState, type RenewalSource, type RenewalTab } from '../../../features/contracts/renewalNavigation'
 import './ContractRenewals.css'
 
-interface Props { onNavigate?: (screen: string) => void }
-type WorkspaceTab = 'queue' | 'pipeline' | 'calendar' | 'report'
+interface Props {
+  onNavigate?: (screen: string) => void
+  onOpenStudent360?: (studentId: string, studentName: string) => void
+  source?: RenewalSource
+  actorId?: string
+}
+type WorkspaceTab = RenewalTab
+type OpenStudentProfile = (row: RenewalPipelineRow) => void
 type RenewalPermissions = RenewalPipelineResponse['permissions']
 
 const pendingPermissions: RenewalPermissions = {
@@ -88,8 +95,9 @@ function openZalo(row: RenewalPipelineRow, message = messageFor(row)) {
   window.open(`https://zalo.me/${phone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer')
 }
 
-export default function ContractRenewals({ onNavigate }: Props) {
-  const [tab, setTab] = useState<WorkspaceTab>('queue')
+export default function ContractRenewals({ onNavigate, onOpenStudent360, source = 'admin-renewals', actorId = 'demo' }: Props) {
+  const [returnState] = useState(() => readRenewalReturnState(source, actorId))
+  const [tab, setTab] = useState<WorkspaceTab>(returnState.tab ?? 'queue')
   const [data, setData] = useState<RenewalPipelineResponse | null>(null)
   const [rows, setRows] = useState<RenewalPipelineRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -97,16 +105,16 @@ export default function ContractRenewals({ onNavigate }: Props) {
   const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const [search, setSearch] = useState('')
-  const [risk, setRisk] = useState<'all' | RenewalRiskCategory>('all')
-  const [stage, setStage] = useState<'all' | RenewalStage>('all')
-  const [sla, setSla] = useState<'all' | RenewalSlaStatus>(initialRenewalSla)
-  const [approval, setApproval] = useState<'all' | 'pending' | 'approved' | 'rejected' | 'consumed' | 'none'>('all')
-  const [branchId, setBranchId] = useState('all')
-  const [assigneeId, setAssigneeId] = useState('all')
-  const [sort, setSort] = useState<'priority' | 'value' | 'follow_up'>('priority')
-  const [segment, setSegment] = useState<'all' | RenewalSegment>('all')
-  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [search, setSearch] = useState(returnState.search ?? '')
+  const [risk, setRisk] = useState<'all' | RenewalRiskCategory>(returnState.risk ?? 'all')
+  const [stage, setStage] = useState<'all' | RenewalStage>(returnState.stage ?? 'all')
+  const [sla, setSla] = useState<'all' | RenewalSlaStatus>(() => returnState.sla ?? initialRenewalSla())
+  const [approval, setApproval] = useState<'all' | 'pending' | 'approved' | 'rejected' | 'consumed' | 'none'>(returnState.approval ?? 'all')
+  const [branchId, setBranchId] = useState(returnState.branchId ?? 'all')
+  const [assigneeId, setAssigneeId] = useState(returnState.assigneeId ?? 'all')
+  const [sort, setSort] = useState<'priority' | 'value' | 'follow_up'>(returnState.sort ?? 'priority')
+  const [segment, setSegment] = useState<'all' | RenewalSegment>(returnState.segment ?? 'all')
+  const [filtersOpen, setFiltersOpen] = useState(returnState.filtersOpen ?? false)
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null)
   const [detail, setDetail] = useState<RenewalCaseDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
@@ -119,8 +127,9 @@ export default function ContractRenewals({ onNavigate }: Props) {
   const [templateError, setTemplateError] = useState('')
   const [selectedCaseIds, setSelectedCaseIds] = useState<Set<string>>(new Set())
   const [transferOpen, setTransferOpen] = useState(false)
-  const [reportFrom, setReportFrom] = useState(addDays(vietnamToday(), -30))
-  const [reportTo, setReportTo] = useState(vietnamToday())
+  const [reportFrom, setReportFrom] = useState(returnState.reportFrom ?? addDays(vietnamToday(), -30))
+  const [reportTo, setReportTo] = useState(returnState.reportTo ?? vietnamToday())
+  const scopeReady = data !== null
   const mounted = useRef(false)
   const listGeneration = useRef(0)
   const detailGeneration = useRef(0)
@@ -266,14 +275,14 @@ export default function ContractRenewals({ onNavigate }: Props) {
   }, [load, openDetail, selectedCaseId])
 
   useEffect(() => {
-    if (tab !== 'calendar') return
+    if (tab !== 'calendar' || !scopeReady) return
     const generation = ++calendarGeneration.current
     const isCurrent = () => mounted.current && generation === calendarGeneration.current
     const today = vietnamToday()
     setCalendarLoading(true)
     void listRenewalCalendar({ from: today, to: addDays(today, 45) }).then((result) => { if (isCurrent()) setCalendarItems(result.items) }).catch((cause) => { if (isCurrent()) setError(cause instanceof Error ? cause.message : 'Không thể tải lịch chăm sóc.') }).finally(() => { if (isCurrent()) setCalendarLoading(false) })
     return () => { calendarGeneration.current += 1 }
-  }, [data?.optionsScopeKey, tab])
+  }, [data?.optionsScopeKey, scopeReady, tab])
 
   const loadReport = useCallback(async () => {
     if (!mounted.current) return
@@ -289,9 +298,9 @@ export default function ContractRenewals({ onNavigate }: Props) {
   }, [reportFrom, reportTo])
 
   useEffect(() => {
-    if (tab === 'report') void loadReport()
+    if (tab === 'report' && data?.permissions.canViewAnalytics) void loadReport()
     return () => { reportGeneration.current += 1 }
-  }, [loadReport, tab])
+  }, [data?.permissions.canViewAnalytics, loadReport, tab])
 
   const syncQueue = async () => {
     if (data?.scope !== 'system') { await load(false); return }
@@ -342,6 +351,13 @@ export default function ContractRenewals({ onNavigate }: Props) {
   const selectedRows = rows.filter((row) => selectedCaseIds.has(row.caseId))
   const permissions = data?.permissions ?? pendingPermissions
 
+  const openStudentProfile: OpenStudentProfile | undefined = onOpenStudent360 ? (row) => {
+    saveRenewalReturnState(source, actorId, {
+      tab, search, risk, stage, sla, approval, branchId, assigneeId, sort, segment, filtersOpen, reportFrom, reportTo,
+    })
+    onOpenStudent360(row.student.id, row.student.name)
+  } : undefined
+
   useEffect(() => {
     if (data && !data.permissions.canViewAnalytics && tab === 'report') setTab('queue')
   }, [data, tab])
@@ -372,7 +388,7 @@ export default function ContractRenewals({ onNavigate }: Props) {
 
     {tab === 'queue' && <>
       <RenewalFilters data={data} permissions={permissions} search={search} setSearch={setSearch} risk={risk} setRisk={setRisk} stage={stage} setStage={setStage} sla={sla} setSla={setSla} approval={approval} setApproval={setApproval} branchId={branchId} setBranchId={setBranchId} assigneeId={assigneeId} setAssigneeId={setAssigneeId} sort={sort} setSort={setSort} segment={segment} setSegment={setSegment} open={filtersOpen} setOpen={setFiltersOpen} />
-      <QueueView rows={rows} loading={loading} permissions={permissions} selectedCaseIds={selectedCaseIds} onToggleSelection={toggleCaseSelection} onSelectAll={(checked) => setSelectedCaseIds(checked ? new Set(rows.slice(0, 20).map((row) => row.caseId)) : new Set())} onTransfer={() => setTransferOpen(true)} onOpen={openDetail} onRenew={(row) => void openRenewal(row)} />
+      <QueueView rows={rows} loading={loading} permissions={permissions} selectedCaseIds={selectedCaseIds} onToggleSelection={toggleCaseSelection} onSelectAll={(checked) => setSelectedCaseIds(checked ? new Set(rows.slice(0, 20).map((row) => row.caseId)) : new Set())} onTransfer={() => setTransferOpen(true)} onOpen={openDetail} onRenew={(row) => void openRenewal(row)} onOpenStudentProfile={openStudentProfile} />
       {data?.hasMore && <button type="button" className="renewal-load-more" disabled={loading || loadingMore} onClick={() => void load(true)}>{loadingMore ? <LoaderCircle className="is-spinning" /> : <ChevronDown />} Tải thêm hồ sơ</button>}
     </>}
     {tab === 'pipeline' && <PipelineView rows={rows} loading={loading} showFinancials={permissions.canViewFinancials} stageCounts={data?.stats.stageCounts || null} onViewStage={selectPipelineStage} onOpen={openDetail} />}
@@ -381,7 +397,7 @@ export default function ContractRenewals({ onNavigate }: Props) {
 
     {data?.scope !== 'self' && <button type="button" className="renewal-student-shortcut" onClick={() => onNavigate?.('admin-pt-students')}><UsersRound size={17} /> Mở danh sách học viên</button>}
 
-    {selectedCaseId && <CaseInspector detail={detail} loading={detailLoading} options={data?.options || null} permissions={permissions} messageTemplates={messageTemplates} templateError={templateError} onClose={closeDetail} onReload={reloadDetailAndList} onRenew={(row) => void openRenewal(row)} />}
+    {selectedCaseId && <CaseInspector detail={detail} loading={detailLoading} options={data?.options || null} permissions={permissions} messageTemplates={messageTemplates} templateError={templateError} onClose={closeDetail} onReload={reloadDetailAndList} onRenew={(row) => void openRenewal(row)} onOpenStudentProfile={openStudentProfile} />}
     {transferOpen && data && <LeadTransferDialog rows={selectedRows} assignees={data.options.assignees} onClose={() => setTransferOpen(false)} onSuccess={async (count) => { setTransferOpen(false); setSelectedCaseIds(new Set()); setNotice(`Đã bàn giao ${count} hồ sơ và ghi lịch sử vận hành.`); await load(false) }} />}
     {renewing && permissions.canRenewContract && <RenewContractModal key={renewing.row.sourceContractId} row={renewing.row} options={renewing.options} scope={renewing.scope} onClose={closeRenewal} onSuccess={async () => { if (!mounted.current) return; closeRenewal(); closeDetail(); setNotice('Tái ký thành công. Hợp đồng, khoản thu và pipeline đã được cập nhật.'); await load(false) }} />}
   </div>
@@ -436,10 +452,15 @@ function RenewalFilters(props: FilterProps) {
   </section>
 }
 
-function QueueView({ rows, loading, permissions, selectedCaseIds, onToggleSelection, onSelectAll, onTransfer, onOpen, onRenew }: {
+function StudentProfileButton({ row, onOpen }: { row: RenewalPipelineRow; onOpen?: OpenStudentProfile }) {
+  if (!onOpen || !row.student.id) return null
+  return <button type="button" className="renewal-profile-button" aria-label={`Hồ sơ 360° của ${row.student.name}`} onClick={(event) => { event.stopPropagation(); onOpen(row) }}><UserRoundCheck size={16} /> Hồ sơ 360°</button>
+}
+
+function QueueView({ rows, loading, permissions, selectedCaseIds, onToggleSelection, onSelectAll, onTransfer, onOpen, onRenew, onOpenStudentProfile }: {
   rows: RenewalPipelineRow[]; loading: boolean; permissions: RenewalPermissions; selectedCaseIds: Set<string>
   onToggleSelection: (caseId: string) => void; onSelectAll: (checked: boolean) => void; onTransfer: () => void
-  onOpen: (id: string) => void; onRenew: (row: RenewalPipelineRow) => void
+  onOpen: (id: string) => void; onRenew: (row: RenewalPipelineRow) => void; onOpenStudentProfile?: OpenStudentProfile
 }) {
   if (loading) return <LoadingState label="Đang tải hàng đợi tái ký…" />
   if (!rows.length) return <EmptyState />
@@ -448,13 +469,13 @@ function QueueView({ rows, loading, permissions, selectedCaseIds, onToggleSelect
   const selectedCount = selectedCaseIds.size
   return <section className="renewal-queue-panel"><header><div><h2>Hàng đợi ưu tiên</h2><p>{rows.length} hồ sơ đang hiển thị</p><p>Cần xử lý ngay khi còn dưới 3 buổi hoặc dưới 7 ngày để chuẩn bị lịch tuần sau.</p></div><div className="renewal-queue-tools"><span><BadgeCheck size={15} /> Canonical</span>{canTransfer && selectedCount > 0 && <button type="button" onClick={onTransfer}><UserRoundPlus size={16} /> Bàn giao {selectedCount} lead</button>}</div></header>
     {canTransfer && selectedCount > 0 && <div className="renewal-selection-bar"><span><CheckCircle2 size={16} /><strong>{selectedCount} hồ sơ đã chọn</strong><small>Tối đa 20 hồ sơ mỗi lần bàn giao</small></span><button type="button" onClick={() => onSelectAll(false)}>Bỏ chọn</button></div>}
-    <div className="renewal-table-wrap"><table className="renewal-table"><thead><tr>{canTransfer && <th className="renewal-select-cell"><input type="checkbox" aria-label="Chọn các hồ sơ đang hiển thị" checked={rows.length > 0 && rows.slice(0, 20).every((row) => selectedCaseIds.has(row.caseId))} onChange={(event) => onSelectAll(event.target.checked)} /></th>}<th>Học viên</th><th>Hợp đồng</th><th>Cảnh báo</th><th>Phụ trách</th><th>Giai đoạn</th><th>SLA / hẹn</th>{permissions.canViewFinancials && <th>Giá trị</th>}<th /></tr></thead><tbody>{rows.map((row) => <tr key={row.caseId} className={selectedCaseIds.has(row.caseId) ? 'is-selected' : ''} onClick={() => onOpen(row.caseId)}>{canTransfer && <td className="renewal-select-cell"><input type="checkbox" aria-label={`Chọn ${row.student.name}`} checked={selectedCaseIds.has(row.caseId)} onClick={(event) => event.stopPropagation()} onChange={() => onToggleSelection(row.caseId)} /></td>}<td><div className="renewal-member-cell"><i>{row.student.name.trim().charAt(0).toUpperCase() || 'A'}</i><span><strong>{row.student.name}</strong><small>{row.student.phone || row.student.email || 'Chưa có liên hệ'}</small></span></div></td><td><strong>{row.contract.packageName}</strong><small>{row.contract.usedSessions}/{row.contract.totalSessions} buổi · đến {formatDate(row.contract.endDate)}</small></td><td><span className={`renewal-risk renewal-risk--${row.risk.category}`}>{riskLabels[row.risk.category]}</span><small>{riskSummary(row)}</small></td><td><strong>{row.assignedSalesName}</strong><small>{row.branchName}</small></td><td><span className={`renewal-stage renewal-stage--${row.stage}`}>{stageLabels[row.stage]}</span></td><td><span className={`renewal-sla renewal-sla--${row.slaStatus}`}>{slaLabels[row.slaStatus]}</span><small>{formatDate(row.nextActionAt || row.slaDueAt)}</small></td>{permissions.canViewFinancials && <td><strong>{money(row.expectedValue)}</strong><small>{Math.round(row.probability * 100)}% xác suất</small></td>}<td><button type="button" onClick={(event) => { event.stopPropagation(); canRenew ? onRenew(row) : onOpen(row.caseId) }}>{canRenew ? 'Tái ký' : 'Chăm sóc'} <ChevronRight size={15} /></button></td></tr>)}</tbody></table></div>
-    <div className="renewal-mobile-list">{rows.map((row) => <RenewalMobileCard key={row.caseId} row={row} selectable={canTransfer} selected={selectedCaseIds.has(row.caseId)} showFinancials={permissions.canViewFinancials} canRenew={canRenew} onToggleSelection={onToggleSelection} onOpen={onOpen} onRenew={onRenew} />)}</div>
+    <div className="renewal-table-wrap"><table className="renewal-table"><thead><tr>{canTransfer && <th className="renewal-select-cell"><input type="checkbox" aria-label="Chọn các hồ sơ đang hiển thị" checked={rows.length > 0 && rows.slice(0, 20).every((row) => selectedCaseIds.has(row.caseId))} onChange={(event) => onSelectAll(event.target.checked)} /></th>}<th>Học viên</th><th>Hợp đồng</th><th>Cảnh báo</th><th>Phụ trách</th><th>Giai đoạn</th><th>SLA / hẹn</th>{permissions.canViewFinancials && <th>Giá trị</th>}<th /></tr></thead><tbody>{rows.map((row) => <tr key={row.caseId} className={selectedCaseIds.has(row.caseId) ? 'is-selected' : ''} onClick={() => onOpen(row.caseId)}>{canTransfer && <td className="renewal-select-cell"><input type="checkbox" aria-label={`Chọn ${row.student.name}`} checked={selectedCaseIds.has(row.caseId)} onClick={(event) => event.stopPropagation()} onChange={() => onToggleSelection(row.caseId)} /></td>}<td><div className="renewal-member-cell"><i>{row.student.name.trim().charAt(0).toUpperCase() || 'A'}</i><span><strong>{row.student.name}</strong><small>{row.student.phone || row.student.email || 'Chưa có liên hệ'}</small></span></div></td><td><strong>{row.contract.packageName}</strong><small>{row.contract.usedSessions}/{row.contract.totalSessions} buổi · đến {formatDate(row.contract.endDate)}</small></td><td><span className={`renewal-risk renewal-risk--${row.risk.category}`}>{riskLabels[row.risk.category]}</span><small>{riskSummary(row)}</small></td><td><strong>{row.assignedSalesName}</strong><small>{row.branchName}</small></td><td><span className={`renewal-stage renewal-stage--${row.stage}`}>{stageLabels[row.stage]}</span></td><td><span className={`renewal-sla renewal-sla--${row.slaStatus}`}>{slaLabels[row.slaStatus]}</span><small>{formatDate(row.nextActionAt || row.slaDueAt)}</small></td>{permissions.canViewFinancials && <td><strong>{money(row.expectedValue)}</strong><small>{Math.round(row.probability * 100)}% xác suất</small></td>}<td><div className="renewal-row-actions"><StudentProfileButton row={row} onOpen={onOpenStudentProfile} /><button type="button" onClick={(event) => { event.stopPropagation(); canRenew ? onRenew(row) : onOpen(row.caseId) }}>{canRenew ? 'Tái ký' : 'Chăm sóc'} <ChevronRight size={15} /></button></div></td></tr>)}</tbody></table></div>
+    <div className="renewal-mobile-list">{rows.map((row) => <RenewalMobileCard key={row.caseId} row={row} selectable={canTransfer} selected={selectedCaseIds.has(row.caseId)} showFinancials={permissions.canViewFinancials} canRenew={canRenew} onToggleSelection={onToggleSelection} onOpen={onOpen} onRenew={onRenew} onOpenStudentProfile={onOpenStudentProfile} />)}</div>
   </section>
 }
 
-function RenewalMobileCard({ row, selectable, selected, showFinancials, canRenew, onToggleSelection, onOpen, onRenew }: { row: RenewalPipelineRow; selectable: boolean; selected: boolean; showFinancials: boolean; canRenew: boolean; onToggleSelection: (id: string) => void; onOpen: (id: string) => void; onRenew: (row: RenewalPipelineRow) => void }) {
-  return <article className={`renewal-mobile-card renewal-mobile-card--${row.slaStatus} ${selectable ? 'is-selectable' : ''} ${selected ? 'is-selected' : ''}`} onClick={() => onOpen(row.caseId)}><header>{selectable && <label className="renewal-mobile-select" onClick={(event) => event.stopPropagation()}><input type="checkbox" aria-label={`Chọn ${row.student.name}`} checked={selected} onChange={() => onToggleSelection(row.caseId)} /></label>}<i>{row.student.name.trim().charAt(0).toUpperCase() || 'A'}</i><div><strong>{row.student.name}</strong><span>{row.student.phone || 'Chưa có SĐT'} · {row.branchName}</span></div><span className={`renewal-risk renewal-risk--${row.risk.category}`}>{riskLabels[row.risk.category]}</span></header><div className="renewal-mobile-contract"><div><span>{row.contract.packageName}</span><strong>{riskSummary(row)}</strong></div><i><b style={{ width: `${Math.min(100, row.contract.totalSessions ? row.contract.usedSessions / row.contract.totalSessions * 100 : 0)}%` }} /></i><small>{row.contract.usedSessions}/{row.contract.totalSessions} buổi{showFinancials ? ` · ${money(row.expectedValue)}` : ''}</small></div><footer><span className={`renewal-sla renewal-sla--${row.slaStatus}`}>{slaLabels[row.slaStatus]} · {formatDate(row.nextActionAt || row.slaDueAt)}</span><button type="button" onClick={(event) => { event.stopPropagation(); canRenew ? onRenew(row) : onOpen(row.caseId) }}>{canRenew ? 'Tái ký' : 'Chăm sóc'} <ArrowRight size={14} /></button></footer></article>
+function RenewalMobileCard({ row, selectable, selected, showFinancials, canRenew, onToggleSelection, onOpen, onRenew, onOpenStudentProfile }: { row: RenewalPipelineRow; selectable: boolean; selected: boolean; showFinancials: boolean; canRenew: boolean; onToggleSelection: (id: string) => void; onOpen: (id: string) => void; onRenew: (row: RenewalPipelineRow) => void; onOpenStudentProfile?: OpenStudentProfile }) {
+  return <article className={`renewal-mobile-card renewal-mobile-card--${row.slaStatus} ${selectable ? 'is-selectable' : ''} ${selected ? 'is-selected' : ''}`} onClick={() => onOpen(row.caseId)}><header>{selectable && <label className="renewal-mobile-select" onClick={(event) => event.stopPropagation()}><input type="checkbox" aria-label={`Chọn ${row.student.name}`} checked={selected} onChange={() => onToggleSelection(row.caseId)} /></label>}<i>{row.student.name.trim().charAt(0).toUpperCase() || 'A'}</i><div><strong>{row.student.name}</strong><span>{row.student.phone || 'Chưa có SĐT'} · {row.branchName}</span></div><span className={`renewal-risk renewal-risk--${row.risk.category}`}>{riskLabels[row.risk.category]}</span></header><div className="renewal-mobile-contract"><div><span>{row.contract.packageName}</span><strong>{riskSummary(row)}</strong></div><i><b style={{ width: `${Math.min(100, row.contract.totalSessions ? row.contract.usedSessions / row.contract.totalSessions * 100 : 0)}%` }} /></i><small>{row.contract.usedSessions}/{row.contract.totalSessions} buổi{showFinancials ? ` · ${money(row.expectedValue)}` : ''}</small></div><footer><span className={`renewal-sla renewal-sla--${row.slaStatus}`}>{slaLabels[row.slaStatus]} · {formatDate(row.nextActionAt || row.slaDueAt)}</span><div className="renewal-row-actions"><StudentProfileButton row={row} onOpen={onOpenStudentProfile} /><button type="button" onClick={(event) => { event.stopPropagation(); canRenew ? onRenew(row) : onOpen(row.caseId) }}>{canRenew ? 'Tái ký' : 'Chăm sóc'} <ArrowRight size={14} /></button></div></footer></article>
 }
 
 function PipelineView({ rows, loading, showFinancials, stageCounts, onViewStage, onOpen }: { rows: RenewalPipelineRow[]; loading: boolean; showFinancials: boolean; stageCounts: Record<RenewalStage, number> | null; onViewStage: (stage: RenewalStage) => void; onOpen: (id: string) => void }) {
@@ -472,7 +493,7 @@ function ReportView({ analytics, loading, from, to, setFrom, setTo, onReload }: 
   return <section className="renewal-report"><header><div><h2>Hiệu quả tái ký</h2><p>Phân biệt giá trị đã thắng, đã thu và pipeline có trọng số.</p></div><div><label>Từ<input type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></label><label>Đến<input type="date" value={to} onChange={(event) => setTo(event.target.value)} /></label><button type="button" onClick={() => void onReload()}><RefreshCw size={16} /></button></div></header>{loading ? <LoadingState label="Đang tổng hợp báo cáo…" /> : analytics && <><div className="renewal-report-kpis"><article><Target /><span>Tỷ lệ chốt</span><strong>{Math.round(analytics.conversionRate * 100)}%</strong><small>{analytics.wonCases} thắng / {analytics.lostCases} mất</small></article><article><CircleDollarSign /><span>Giá trị tái ký</span><strong>{money(analytics.wonValue)}</strong><small>hợp đồng đã thắng</small></article><article><ClipboardCheck /><span>Tiền đã thu</span><strong>{money(analytics.collectedValue)}</strong><small>đối chiếu ledger</small></article><article><BarChart3 /><span>Pipeline trọng số</span><strong>{money(analytics.weightedPipelineValue)}</strong><small>{analytics.overdueCases} hồ sơ quá SLA</small></article></div><div className="renewal-report-grid"><section><h3>Hiệu suất phụ trách</h3>{analytics.assignees.length ? analytics.assignees.map((item) => <div className="renewal-assignee-row" key={item.id}><span><strong>{item.name}</strong><small>{item.won}/{item.total} tái ký</small></span><b>{money(item.value)}</b></div>) : <p>Chưa có dữ liệu trong kỳ.</p>}</section><section><h3>Lý do không tái ký</h3>{Object.keys(analytics.lostReasons).length ? Object.entries(analytics.lostReasons).sort(([, left], [, right]) => right - left).map(([reason, count]) => <div className="renewal-reason-row" key={reason}><span>{reason}</span><b>{count}</b></div>) : <p>Chưa ghi nhận trường hợp thất bại.</p>}</section></div></>}</section>
 }
 
-function CaseInspector({ detail, loading, options, permissions, messageTemplates, templateError, onClose, onReload, onRenew }: { detail: RenewalCaseDetail | null; loading: boolean; options: RenewalPipelineResponse['options'] | null; permissions: RenewalPermissions; messageTemplates: RenewalMessageTemplate[]; templateError: string; onClose: () => void; onReload: () => Promise<void>; onRenew: (row: RenewalPipelineRow) => void }) {
+function CaseInspector({ detail, loading, options, permissions, messageTemplates, templateError, onClose, onReload, onRenew, onOpenStudentProfile }: { detail: RenewalCaseDetail | null; loading: boolean; options: RenewalPipelineResponse['options'] | null; permissions: RenewalPermissions; messageTemplates: RenewalMessageTemplate[]; templateError: string; onClose: () => void; onReload: () => Promise<void>; onRenew: (row: RenewalPipelineRow) => void; onOpenStudentProfile?: OpenStudentProfile }) {
   const [activityType, setActivityType] = useState<RenewalActivityType>('call')
   const [outcome, setOutcome] = useState<RenewalActivityOutcome>('connected')
   const [stage, setStage] = useState<RenewalStage>('contacted')
@@ -521,7 +542,7 @@ function CaseInspector({ detail, loading, options, permissions, messageTemplates
   return <><div className="renewal-inspector-layer" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><aside className="renewal-inspector" role="dialog" aria-modal="true" aria-labelledby="renewal-inspector-title"><div className="renewal-inspector__handle" /><header><div><span>HỒ SƠ TÁI KÝ</span><h2 id="renewal-inspector-title">{row?.student.name || 'Đang tải…'}</h2><p>{row ? `${row.student.phone || 'Chưa có SĐT'} · ${row.branchName}` : 'Đang đối chiếu dữ liệu'}</p></div><button type="button" onClick={onClose}><X /></button></header>{loading || !row ? <LoadingState label="Đang tải lịch sử hồ sơ…" /> : <div className="renewal-inspector-body">
     <section className="renewal-inspector-summary"><div><span>Hợp đồng</span><strong>{row.contract.packageName}</strong><small>{row.contract.usedSessions}/{row.contract.totalSessions} buổi · {riskSummary(row)}</small></div><div><span>Pipeline</span><strong>{stageLabels[row.stage]}</strong><small>{permissions.canViewFinancials ? `${money(row.expectedValue)} · ${Math.round(row.probability * 100)}%` : 'Tiến độ chăm sóc học viên'}</small></div><div><span>SLA</span><strong className={`is-${row.slaStatus}`}>{slaLabels[row.slaStatus]}</strong><small>{formatDate(row.nextActionAt || row.slaDueAt)}</small></div></section>
     {!permissions.canCreateQuote && <section className="renewal-trainer-guidance"><UserRoundCheck /><div><strong>Vai trò HLV chăm sóc</strong><span>Bạn có thể liên hệ, ghi nhận nhu cầu và hẹn chăm sóc. Báo giá, khoản thu và hoàn tất tái ký được chuyển cho Sales.</span></div></section>}
-    <section className="renewal-inspector-actions"><button type="button" disabled={!row.student.phone} onClick={() => setMessageOpen(true)}><BookOpenText size={16} /> Kịch bản chăm sóc</button><button type="button" disabled={!row.student.phone} onClick={() => window.location.href = `tel:${row.student.phone}`}><Phone size={16} /> Gọi điện</button>{permissions.canRenewContract && <button type="button" className="is-primary" onClick={() => onRenew(row)}>Tạo tái ký <ArrowRight size={16} /></button>}</section>
+    <section className="renewal-inspector-actions"><StudentProfileButton row={row} onOpen={onOpenStudentProfile} /><button type="button" disabled={!row.student.phone} onClick={() => setMessageOpen(true)}><BookOpenText size={16} /> Kịch bản chăm sóc</button><button type="button" disabled={!row.student.phone} onClick={() => window.location.href = `tel:${row.student.phone}`}><Phone size={16} /> Gọi điện</button>{permissions.canRenewContract && <button type="button" className="is-primary" onClick={() => onRenew(row)}>Tạo tái ký <ArrowRight size={16} /></button>}</section>
     {permissions.canAssign && options && <label className="renewal-assignment">Nhân viên phụ trách<select disabled={saving} value={row.assignedSalesId} onChange={(event) => void assign(event.target.value)}><option value="">Chưa phân công</option>{options.assignees.filter((item) => item.branchIds.includes(row.branchId)).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
     {detail.approval?.status === 'pending' && permissions.canApprove && <section className="renewal-pending-approval"><BadgeCheck /><div><strong>Chờ duyệt ưu đãi</strong><span>{String(detail.approval.reason || 'Không có lý do')}</span></div><button type="button" disabled={saving} onClick={() => void decide('rejected')}>Từ chối</button><button type="button" className="is-primary" disabled={saving} onClick={() => void decide('approved')}>Duyệt</button></section>}
     <section className="renewal-activity-form"><div className="renewal-section-title"><span><Send size={15} /></span><div><h3>Ghi nhận tương tác</h3><p>Không tự gửi ra ngoài; chỉ lưu hoạt động nội bộ.</p></div></div><div className="renewal-form-grid"><label>Kênh<select value={activityType} onChange={(event) => setActivityType(event.target.value as RenewalActivityType)}><option value="call">Cuộc gọi</option><option value="zalo">Zalo</option><option value="meeting">Gặp trực tiếp</option><option value="note">Ghi chú</option></select></label><label>Kết quả<select value={outcome} onChange={(event) => setOutcome(event.target.value as RenewalActivityOutcome)}><option value="connected">Đã kết nối</option><option value="no_answer">Không nghe máy</option><option value="interested">Quan tâm</option><option value="not_interested">Chưa quan tâm</option><option value="quote_requested">Muốn nhận báo giá</option><option value="other">Khác</option></select></label><label>Giai đoạn<select value={stage} onChange={(event) => setStage(event.target.value as RenewalStage)}>{allowedStages.map((item) => <option key={item} value={item}>{stageLabels[item]}</option>)}</select></label><label>Hành động tiếp theo<input type="date" value={nextActionAt} onChange={(event) => setNextActionAt(event.target.value)} /></label></div>{stage === 'lost' && <label>Lý do không tái ký<input value={lostReason} onChange={(event) => setLostReason(event.target.value)} maxLength={200} /></label>}<label>Ghi chú<textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={500} /></label><button type="button" className="is-primary" disabled={saving || !permissions.canRecordActivity} onClick={() => void saveActivity()}>{saving ? <LoaderCircle className="is-spinning" /> : <Send />} Lưu tương tác</button></section>

@@ -3,6 +3,7 @@ import test from 'node:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { getCurrentRoute, isSameRoute, student360RouteHash } from '../src/routing/appRouting'
+import { readRenewalReturnState, saveRenewalReturnState, type RenewalReturnState } from '../src/features/contracts/renewalNavigation'
 
 function installWindow(hash: string) {
   const location = { hash }
@@ -27,6 +28,41 @@ test('Student 360 rejects an unknown source without losing the student id', () =
   const route = getCurrentRoute()
   assert.equal(route.studentId, 'student_123')
   assert.equal(route.source, null)
+})
+
+for (const source of ['admin-renewals', 'staff-renewals'] as const) {
+  test(`Student 360 preserves ${source} as its return destination`, () => {
+    installWindow(student360RouteHash('student/with spaces', source))
+    assert.equal(getCurrentRoute().source, source)
+    assert.equal(getCurrentRoute().studentId, 'student/with spaces')
+  })
+}
+
+test('renewal return choices are scoped to the actor and entry screen, with explicit focus taking priority', () => {
+  installWindow('#/admin-renewals')
+  const saved = new Map<string, string>()
+  Object.assign(window, { sessionStorage: { getItem: (key: string) => saved.get(key) || null, setItem: (key: string, value: string) => saved.set(key, value) } })
+  const state: RenewalReturnState = {
+    tab: 'pipeline', search: 'Hiền', risk: 'critical', stage: 'contacted', sla: 'all', approval: 'none',
+    branchId: 'branch-1', assigneeId: 'sales-2', sort: 'follow_up', segment: 'expiring_30d', filtersOpen: true,
+    reportFrom: '2026-10-01', reportTo: '2026-11-01',
+  }
+  saveRenewalReturnState('admin-renewals', 'actor-a', state)
+  assert.deepEqual(readRenewalReturnState('admin-renewals', 'actor-a'), state)
+  assert.deepEqual(readRenewalReturnState('admin-renewals', 'actor-b'), {})
+  assert.deepEqual(readRenewalReturnState('staff-renewals', 'actor-a'), {})
+  window.location.hash = '#/admin-renewals?focus=overdue'
+  assert.deepEqual(readRenewalReturnState('admin-renewals', 'actor-a'), {})
+  window.location.hash = '#/admin-renewals'
+  for (const [key, raw] of saved) saved.set(key, JSON.stringify({ ...JSON.parse(raw), savedAt: Date.now() - 31 * 60_000 }))
+  assert.deepEqual(readRenewalReturnState('admin-renewals', 'actor-a'), {})
+})
+
+test('renewal navigation tolerates unavailable or corrupt browser storage', () => {
+  installWindow('#/admin-renewals')
+  Object.assign(window, { sessionStorage: { getItem: () => '{broken', setItem: () => { throw new Error('Blocked') } } })
+  assert.deepEqual(readRenewalReturnState('admin-renewals', 'actor-a'), {})
+  assert.doesNotThrow(() => saveRenewalReturnState('admin-renewals', 'actor-a', {} as RenewalReturnState))
 })
 
 test('Student 360 restores both Staff and Admin directory state and defers Aura Club', () => {

@@ -380,6 +380,7 @@ const queueResponse: RenewalPipelineResponse = {
 async function mockRenewalQueue(page: Page, behavior: { holdLists?: string[]; holdPrepare?: string[]; prepareError?: string; canRenew?: boolean; holdCalendar?: boolean } = {}) {
   // Never allow the local fixture to contact a real backend or third-party app.
   await page.route('**/*', route => new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort())
+  await page.route('**/src/contexts/AuthContext.tsx*', route => route.fulfill({ contentType: 'application/javascript', body: `export const useAuth = () => ({ user: null, profile: null, role: 'admin', accessContext: null, authzReady: true });` }))
   await page.addInitScript(({ response, behavior }) => {
     window.renewalQueueFixture = {
       base: response, behavior, listCalls: [], prepareCalls: [], listPending: {}, preparePending: {},
@@ -420,7 +421,7 @@ async function mockRenewalQueue(page: Page, behavior: { holdLists?: string[]; ho
     export const listRenewalCalendar = async input => {
       const index = state.calendarCalls.push(input) - 1;
       if (state.behavior.holdCalendar) return new Promise(resolve => { state.calendarPending[index] = { resolve }; });
-      return { items: [] };
+      return { items: state.calendarItems || [] };
     };
     export const getRenewalAnalytics = async () => ({ assignees: [], lostReasons: {}, stageCounts: {} });
     export const refreshContractRenewalQueue = async () => ({ contractsScanned: 0, plannedWrites: 0 });
@@ -757,4 +758,57 @@ for (const code of ['functions/permission-denied', 'functions/unauthenticated'])
   await expect(page.locator('.renewal-table tbody tr')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Tải thêm hồ sơ' })).toHaveCount(0)
   await expect(page.getByRole('combobox', { name: 'Chi nhánh', exact: true }).locator('option')).toHaveText(['Tất cả'])
+})
+
+for (const width of [360, 1440]) test(`renewal opens the selected student's 360 and returns with filters at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 900 })
+  await mockRenewalQueue(page)
+  await queueSearch(page).fill('Học viên')
+  await page.getByRole('button', { name: /Bộ lọc/ }).click()
+  await page.getByRole('combobox', { name: 'Giai đoạn', exact: true }).selectOption('contacted')
+  await expect.poll(() => page.evaluate(() => window.renewalQueueFixture.listCalls.at(-1)?.stage)).toBe('contacted')
+  const target = page.locator(width < 768 ? '.renewal-mobile-card' : '.renewal-table tbody tr').nth(1)
+  await page.screenshot({ path: `test-results/renewal-profile-link-${width}.png`, fullPage: true })
+  await target.getByRole('button', { name: 'Hồ sơ 360° của Học viên thứ hai', exact: true }).click()
+  await expect(page).toHaveURL(/student-360\?studentId=student-two&source=admin-renewals/)
+  await expect(page.getByRole('button', { name: 'Về Tái ký', exact: true })).toBeVisible()
+  await page.screenshot({ path: `test-results/renewal-profile-back-${width}.png` })
+  expect(await page.evaluate(() => window.renewalQueueFixture.prepareCalls)).toEqual([])
+  expect(await page.evaluate(() => window.renewalQueueFixture.mutations)).toEqual([])
+  const reads = await page.evaluate(() => window.renewalQueueFixture.listCalls.length)
+  await page.getByRole('button', { name: 'Về Tái ký', exact: true }).click()
+  await expect(page).toHaveURL(/#\/admin-renewals$/)
+  await expect(queueSearch(page)).toHaveValue('Học viên')
+  await expect(page.getByRole('combobox', { name: 'Giai đoạn', exact: true })).toHaveValue('contacted')
+  await expect.poll(() => page.evaluate(() => window.renewalQueueFixture.listCalls.length)).toBe(reads + 1)
+  expect(await page.evaluate(() => window.renewalQueueFixture.listCalls.at(-1))).toMatchObject({ search: 'Học viên', stage: 'contacted', optionsMode: 'filters' })
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true)
+})
+
+test('staff renewal inspector returns from 360 to the same pipeline tab', async ({ page }) => {
+  await mockRenewalQueue(page)
+  await page.goto('/tests/e2e/fixtures/contract-renewal-queue.html?source=staff-renewals')
+  await page.getByRole('button', { name: 'Pipeline', exact: true }).click()
+  await page.locator('.renewal-kanban').getByRole('button', { name: /Học viên thứ hai/ }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Hồ sơ 360° của Học viên thứ hai', exact: true }).click()
+  await expect(page).toHaveURL(/student-360\?studentId=student-two&source=staff-renewals/)
+  await page.getByRole('button', { name: 'Về Tái ký', exact: true }).click()
+  await expect(page).toHaveURL(/#\/staff-renewals$/)
+  await expect(page.getByRole('button', { name: 'Pipeline', exact: true })).toHaveClass('is-active')
+  await expect(page.locator('.renewal-kanban')).toContainText('Học viên thứ hai')
+})
+
+test('renewal calendar returns from 360 with one fresh calendar read after scope resolution', async ({ page }) => {
+  await mockRenewalQueue(page)
+  await page.evaluate(() => { window.renewalQueueFixture.calendarItems = window.renewalQueueFixture.base.rows })
+  await page.getByRole('button', { name: 'Lịch chăm sóc', exact: true }).click()
+  await page.locator('.renewal-agenda').getByRole('button', { name: /Học viên thứ hai/ }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Hồ sơ 360° của Học viên thứ hai', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Về Tái ký', exact: true })).toBeVisible()
+  const reads = await page.evaluate(() => window.renewalQueueFixture.calendarCalls.length)
+  await page.getByRole('button', { name: 'Về Tái ký', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Lịch chăm sóc', exact: true })).toHaveClass('is-active')
+  await expect(page.locator('.renewal-agenda')).toContainText('Học viên thứ hai')
+  expect(await page.evaluate(() => window.renewalQueueFixture.calendarCalls.length)).toBe(reads + 1)
 })

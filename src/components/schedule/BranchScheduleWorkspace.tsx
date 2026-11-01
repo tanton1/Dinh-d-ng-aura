@@ -151,7 +151,7 @@ function normalizeWeeklyViewResult(
   const sourceBranch = source.branch && typeof source.branch === 'object' ? source.branch as Record<string, unknown> : null
   const branchId = typeof source.branchId === 'string' ? source.branchId : typeof sourceBranch?.id === 'string' ? sourceBranch.id : ''
   if (!branchId || typeof source.weekId !== 'string' || !source.schedule || !Array.isArray(source.students) || !Array.isArray(source.trainers)) {
-    throw new Error('Weekly schedule view chưa có snapshot đầy đủ để hiển thị.')
+    throw new Error('Chưa tải được lịch tuần.')
   }
   const freshness = typeof raw.freshness === 'string'
     ? raw.freshness
