@@ -202,7 +202,8 @@ export interface TrainerAvailabilityWorkspace {
   canManage?: boolean
   reopenedUntil?: string | null
   cutoffAt: string | null
-  source: 'recurring' | 'weekly'
+  source: 'recurring' | 'weekly' | 'inherited_weekly'
+  sourceWeekId?: string | null
   updatedAt: string | null
   availabilityMode: 'configured' | 'unrestricted' | 'unconfigured'
   availabilityRevision: number

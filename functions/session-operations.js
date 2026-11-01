@@ -1,3 +1,4 @@
+const { loadTrainerAvailability, loadTrainerAvailabilityWeeks } = require('./trainer-availability')
 const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { effectiveContractStatus, contractPausedOn } = require('./contract-status')
@@ -748,11 +749,10 @@ async function effectiveStudentAvailabilityByWeek({ db, studentId, student, week
   return result
 }
 
-function weeklyTrainerAvailabilityMap(snapshots) {
-  return new Map(snapshots.filter((snapshot) => snapshot?.exists).map((snapshot) => {
-    const value = snapshot.data()
-    return [`${value.trainerId}_${value.weekId}`, value]
-  }))
+async function trainerAvailabilityByWeek(db, requests) {
+  const snapshots = await loadTrainerAvailabilityWeeks(db, requests)
+  return new Map(snapshots.flatMap((snapshot, index) => snapshot.exists
+    ? [[`${requests[index].trainerId}_${requests[index].weekId}`, snapshot.data()]] : []))
 }
 
 function effectiveTrainerForWeek(trainer, weeklyAvailability, targetWeek) {
@@ -838,10 +838,10 @@ async function buildSessionChangeSuggestions({ db, sessionId, expectedRevision, 
     .filter((trainer) => trainer.status !== 'inactive')
     .filter((trainer) => trainer.branchId && branches.has(trainer.branchId))
     .filter((trainer) => assignedTrainerIds.has(trainer.id) || trainerPolicy(trainer).employmentType === 'full_time')
-  const trainerAvailabilityReferences = trainers.flatMap((trainer) => [...weekIds].map((targetWeek) => db.doc(`trainerAvailability/${trainer.id}_${targetWeek}`)))
+  const trainerAvailabilityRequests = trainers.flatMap((trainer) => [...weekIds].map((weekId) => ({ trainerId: trainer.id, weekId })))
   const [studentAvailabilityByWeek, trainerAvailability] = await Promise.all([
     effectiveStudentAvailabilityByWeek({ db, studentId, student, weekIds, exactSnapshots: availabilitySnapshots }),
-    getAllInChunks(db, trainerAvailabilityReferences).then(weeklyTrainerAvailabilityMap),
+    trainerAvailabilityByWeek(db, trainerAvailabilityRequests),
   ])
   const scheduleConfig = normalizedScheduleConfig(configSnapshot?.exists ? configSnapshot.data() : {})
   const studentTrainingDates = new Set(studentSessions.map((item) => storedDateKey(item.date, 'Ngày buổi liên quan')))
@@ -1086,10 +1086,10 @@ async function buildAdditionalSessionSuggestions({ db, studentId, now }) {
     .filter((trainer) => trainer.status !== 'inactive')
     .filter((trainer) => trainer.branchId && branches.has(trainer.branchId))
     .filter((trainer) => assignedTrainerIds.has(trainer.id) || trainerPolicy(trainer).employmentType === 'full_time')
-  const trainerAvailabilityReferences = trainers.flatMap((trainer) => [...weekIds].map((targetWeek) => db.doc(`trainerAvailability/${trainer.id}_${targetWeek}`)))
+  const trainerAvailabilityRequests = trainers.flatMap((trainer) => [...weekIds].map((weekId) => ({ trainerId: trainer.id, weekId })))
   const [studentAvailabilityByWeek, trainerAvailability] = await Promise.all([
     effectiveStudentAvailabilityByWeek({ db, studentId, student, weekIds, exactSnapshots: availabilitySnapshots }),
-    getAllInChunks(db, trainerAvailabilityReferences).then(weeklyTrainerAvailabilityMap),
+    trainerAvailabilityByWeek(db, trainerAvailabilityRequests),
   ])
   const scheduleConfig = normalizedScheduleConfig(configSnapshot?.exists ? configSnapshot.data() : {})
   const studentTrainingDates = new Set(studentSessions.map((item) => storedDateKey(item.date, 'Ngày buổi liên quan')))
@@ -2478,7 +2478,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         transaction.get(dailySessionsQuery(db, 'trainerId', selectedSuggestion.trainerId, selectedSuggestion.date)),
         transaction.get(dailySessionsQuery(db, 'studentId', studentId, selectedSuggestion.date)),
         transaction.get(db.doc(`ptAvailability/${studentId}_${targetWeek}`)),
-        transaction.get(db.doc(`trainerAvailability/${selectedSuggestion.trainerId}_${targetWeek}`)),
+        loadTrainerAvailability(db, selectedSuggestion.trainerId, targetWeek, transaction),
         transaction.get(db.collection('leaveRequests').where('status', '==', 'approved').limit(1001)),
         transaction.get(db.collection('sessions').where('studentId', '==', studentId).limit(SESSION_CHANGE_DATA_LIMIT + 1)),
         transaction.get(db.doc('settings/scheduleConfig')),
@@ -3322,11 +3322,10 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
 
         const targetWeek = mondayForDate(targetDate)
         const configSnapshot = await transaction.get(db.doc('settings/scheduleConfig'))
-        const trainerAvailabilityReference = db.doc(`trainerAvailability/${trainerId}_${targetWeek}`)
         const [trainerDay, studentDay, trainerAvailabilitySnapshot, trainerLeaves, branchDay] = await Promise.all([
           transaction.get(dailySessionsQuery(db, 'trainerId', trainerId, targetDate)),
           transaction.get(dailySessionsQuery(db, 'studentId', source.studentId, targetDate)),
-          transaction.get(trainerAvailabilityReference),
+          loadTrainerAvailability(db, trainerId, targetWeek, transaction),
           transaction.get(db.collection('leaveRequests').where('status', '==', 'approved').limit(1001)),
           transaction.get(dailySessionsQuery(db, 'branchId', source.branchId || trainerSnapshot.data().branchId || contract.branchId || student.branchId || '', targetDate)),
         ])
@@ -3486,7 +3485,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           transaction.get(dailySessionsQuery(db, 'trainerId', trainerId, targetDate)),
           transaction.get(dailySessionsQuery(db, 'studentId', studentId, targetDate)),
           transaction.get(db.doc(`ptAvailability/${studentId}_${targetWeek}`)),
-          transaction.get(db.doc(`trainerAvailability/${trainerId}_${targetWeek}`)),
+          loadTrainerAvailability(db, trainerId, targetWeek, transaction),
           transaction.get(db.collection('leaveRequests').where('status', '==', 'approved').limit(1001)),
           transaction.get(db.collection('sessions').where('contractId', '==', contractId).limit(SESSION_CHANGE_DATA_LIMIT + 1)),
           transaction.get(db.collection('sessions').where('studentId', '==', studentId).limit(SESSION_CHANGE_DATA_LIMIT + 1)),
@@ -3783,7 +3782,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           transaction.get(db.doc(`trainers/${trainerId}`)),
           transaction.get(db.doc(`students/${session.studentId}`)),
           transaction.get(db.doc(`ptAvailability/${session.studentId}_${targetWeek}`)),
-          transaction.get(db.doc(`trainerAvailability/${trainerId}_${targetWeek}`)),
+          loadTrainerAvailability(db, trainerId, targetWeek, transaction),
           transaction.get(db.collection('leaveRequests').where('status', '==', 'approved').limit(1001)),
         ])
         if (!trainerSnapshot.exists || trainerSnapshot.data().status === 'inactive') throw new HttpsError('failed-precondition', 'PT của ca đề xuất không còn hoạt động.')

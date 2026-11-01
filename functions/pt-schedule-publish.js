@@ -3,7 +3,7 @@
 const { createHash } = require('node:crypto')
 const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
-const { trainerProfileForWeek } = require('./trainer-availability')
+const { trainerProfileForWeek, loadTrainerAvailabilityWeeks } = require('./trainer-availability')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const {
   effectiveStudentAvailability,
@@ -205,16 +205,8 @@ async function exactAvailabilitySnapshots(db, studentIds, week) {
   return (await Promise.all(batches)).flat()
 }
 
-function exactTrainerAvailabilityReferences(db, trainerIds, week) {
-  return [...trainerIds].map((trainerId) => db.doc(`trainerAvailability/${trainerId}_${week}`))
-}
-
-async function exactTrainerAvailabilitySnapshots(db, trainerIds, week) {
-  const references = exactTrainerAvailabilityReferences(db, trainerIds, week)
-  if (!references.length) return []
-  const batches = []
-  for (let index = 0; index < references.length; index += 100) batches.push(db.getAll(...references.slice(index, index + 100)))
-  return (await Promise.all(batches)).flat()
+async function effectiveTrainerAvailabilitySnapshots(db, trainerIds, week) {
+  return loadTrainerAvailabilityWeeks(db, [...trainerIds].map((trainerId) => ({ trainerId, weekId: week })))
 }
 
 function trainerAvailabilityMode(value = {}) {
@@ -978,7 +970,7 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
       if (!validateOnly && publishedRevision === draftRevision && !hasReconciliationCandidate && !hasPreliminaryTargetOverrides) {
         return { unchanged: true, draftRevision, version: currentPublishedVersion, diff: { create: 0, update: 0, cancel: 0, unchanged: 0 }, warnings: [] }
       }
-      const trainerAvailabilitySnapshots = await Promise.all(trainersSnapshot.docs.map((item) => transaction.get(db.doc(`trainerAvailability/${item.id}_${week}`))))
+      const trainerAvailabilitySnapshots = await loadTrainerAvailabilityWeeks(db, trainersSnapshot.docs.map((item) => ({ trainerId: item.id, weekId: week })), transaction)
       const weeklyTrainerAvailability = new Map(trainerAvailabilitySnapshots.filter((item) => item.exists).map((item) => [item.data().trainerId, item.data()]))
 
       const contractDocuments = new Map([...contractsSnapshot.docs, ...exactContractSnapshots.filter((item) => item.exists)].map((item) => [item.id, item]))
@@ -1506,7 +1498,7 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
     const trainerIds = new Set(trainersSnapshot.docs.map((item) => item.id))
     const [availabilitySnapshots, trainerAvailabilitySnapshots] = await Promise.all([
       exactAvailabilitySnapshots(db, studentIds, week),
-      exactTrainerAvailabilitySnapshots(db, trainerIds, week),
+      effectiveTrainerAvailabilitySnapshots(db, trainerIds, week),
     ])
     const weeklyAvailability = new Map(availabilitySnapshots
       .filter((item) => item.exists)

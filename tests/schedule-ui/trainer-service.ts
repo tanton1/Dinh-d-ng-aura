@@ -9,11 +9,13 @@ const track = (operation: string, input: unknown) => {
 }
 function read(weekId?: string) {
   const weekly = weekId ? weeks.get(weekId) : undefined
+  const sourceWeekId = weekly ? weekId : weekId ? [...weeks.keys()].filter((key) => key < weekId).sort().at(-1) : undefined
+  const inherited = !weekly && sourceWeekId ? weeks.get(sourceWeekId) : undefined
   return {
     schemaVersion: 2, trainerId: 't', trainerName: 'Mai', branchId: 'b',
-    availableSlots: [...(weekly?.slots ?? recurring)], baseAvailableSlots: [...recurring],
+    availableSlots: [...(weekly?.slots ?? inherited?.slots ?? recurring)], baseAvailableSlots: [...recurring],
     weekId: weekId || null, weeklyOverride: Boolean(weekly), offDates: [...(weekly?.offDates || [])], locked: false,
-    source: weekly ? 'weekly' : 'recurring', availabilityMode: 'configured',
+    source: weekly ? 'weekly' : inherited ? 'inherited_weekly' : 'recurring', sourceWeekId: sourceWeekId || null, availabilityMode: 'configured',
     availabilityRevision: weekId ? weekly?.revision || 0 : recurringRevision,
     updatedAt: null, cutoffAt: null,
     scheduleConfig: { workingDays: (window as any).__trainerDays || DAYS, workingHours: HOURS },

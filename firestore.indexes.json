@@ -1,5 +1,6 @@
 {
   "indexes": [
+    {"collectionGroup":"trainerAvailability","queryScope":"COLLECTION","fields":[{"fieldPath":"trainerId","order":"ASCENDING"},{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"weekId","order":"DESCENDING"}]},
     {"collectionGroup":"sessionFeedback","queryScope":"COLLECTION","fields":[{"fieldPath":"sessionDate","order":"DESCENDING"},{"fieldPath":"__name__","order":"DESCENDING"}]},
     {"collectionGroup":"sessionFeedback","queryScope":"COLLECTION","fields":[{"fieldPath":"trainerId","order":"ASCENDING"},{"fieldPath":"sessionDate","order":"DESCENDING"},{"fieldPath":"__name__","order":"DESCENDING"}]},
     {"collectionGroup":"sessionFeedback","queryScope":"COLLECTION","fields":[{"fieldPath":"branchId","order":"ASCENDING"},{"fieldPath":"sessionDate","order":"DESCENDING"},{"fieldPath":"__name__","order":"DESCENDING"}]},

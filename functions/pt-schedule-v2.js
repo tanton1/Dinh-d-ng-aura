@@ -3,7 +3,7 @@
 const { createHash } = require('node:crypto')
 const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
-const { trainerProfileForWeek } = require('./trainer-availability')
+const { trainerProfileForWeek, loadTrainerAvailability, loadTrainerAvailabilityWeeks } = require('./trainer-availability')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const {
   branchScheduleSnapshot,
@@ -696,13 +696,8 @@ async function exactAvailabilityForStudents(db, studentIds, week) {
   return snapshots.flat().filter((item) => item.exists)
 }
 
-async function exactAvailabilityForTrainers(db, trainerIds, week) {
-  const ids = [...trainerIds]
-  if (!ids.length) return []
-  const snapshots = await Promise.all(splitChunks(ids, 100).map((chunk) => db.getAll(
-    ...chunk.map((trainerId) => db.doc(`trainerAvailability/${trainerId}_${week}`)),
-  )))
-  return snapshots.flat().filter((item) => item.exists)
+async function effectiveAvailabilityForTrainers(db, trainerIds, week) {
+  return (await loadTrainerAvailabilityWeeks(db, [...trainerIds].map((trainerId) => ({ trainerId, weekId: week })))).filter((item) => item.exists)
 }
 
 async function activeSessionsForStudents(db, studentIds, week) {
@@ -1013,6 +1008,7 @@ function initialTrainerProjection(item, branchId, scheduleLoadPolicy, weekly = n
     availabilityMode: trainerAvailabilityMode(data),
     availabilityRevision: Number(data.availabilityRevision || 0),
     availabilitySource: data.availabilitySource || 'recurring',
+    availabilitySourceWeekId: data.availabilitySourceWeekId || null,
     availabilityWeekId: week,
     offDates: data.offDates || [],
     slotCapacity: normalizedCapacity(data.slotCapacity),
@@ -1079,7 +1075,7 @@ async function loadBranchDataInitial(db, branchId, week, options = {}) {
   if (missingReferencedStudents.length > MAX_STUDENTS) throw new HttpsError('resource-exhausted', 'Số hồ sơ bổ sung vượt giới hạn workspace an toàn.')
   const [referencedStudentSnapshots, trainerAvailability] = await Promise.all([
     documentsByIds(db, 'students', missingReferencedStudents),
-    exactAvailabilityForTrainers(db, trainers.docs.map((item) => item.id), week),
+    effectiveAvailabilityForTrainers(db, trainers.docs.map((item) => item.id), week),
   ])
   const weeklyTrainerAvailability = new Map(trainerAvailability.map((item) => [item.data().trainerId, item.data()]))
   referencedStudentSnapshots.forEach((item) => studentMap.set(item.id, item.data()))
@@ -1180,7 +1176,7 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
   const [leaves, contracts, trainerAvailability] = await Promise.all([
     approvedLeavesForTrainers(db, trainers.docs.map((item) => item.id)),
     contractsForStudents(db, studentIds),
-    exactAvailabilityForTrainers(db, trainerIds, week),
+    effectiveAvailabilityForTrainers(db, trainerIds, week),
   ])
   if (leaves.length > 1000) {
     throw new HttpsError('resource-exhausted', 'Dữ liệu chi nhánh vượt giới hạn workspace an toàn.')
@@ -1476,6 +1472,7 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
       availabilityMode: trainerAvailabilityMode(data),
       availabilityRevision: Number(data.availabilityRevision || 0),
       availabilitySource: data.availabilitySource || 'recurring',
+      availabilitySourceWeekId: data.availabilitySourceWeekId || null,
       availabilityWeekId: week,
       offDates: data.offDates || [],
       slotCapacity: normalizedCapacity(data.slotCapacity),
@@ -1564,7 +1561,7 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId, 
     db.doc(`students/${studentId}`).get(),
     db.doc(`trainers/${trainerId}`).get(),
     db.doc(`ptAvailability/${studentId}_${week}`).get(),
-    db.doc(`trainerAvailability/${trainerId}_${week}`).get(),
+    loadTrainerAvailability(db, trainerId, week),
     db.doc('settings/scheduleConfig').get(),
     db.collection('leaveRequests').where('trainerId', '==', trainerId).limit(1001).get(),
     db.collection('contracts').where('studentId', '==', studentId).get(),
@@ -4469,7 +4466,9 @@ async function applyFastAdminDraftCommand({ db, actor, branchId, week, command, 
         ['leaves', db.collection('leaveRequests').where('trainerId', '==', trainerId).limit(1001)],
       )
     }
-    const values = await Promise.all(readRefs.map(([, reference]) => transaction.get(reference)))
+    const values = await Promise.all(readRefs.map(([name, reference]) => name === 'trainerAvailability'
+      ? loadTrainerAvailability(db, trainerId, week, transaction)
+      : transaction.get(reference)))
     const snapshots = Object.fromEntries(values.map((snapshot, index) => [readRefs[index][0], snapshot]))
     if (snapshots.receipt.exists) return snapshots.receipt.data().result
 

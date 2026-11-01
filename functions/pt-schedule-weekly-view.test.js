@@ -468,7 +468,7 @@ test('opening a clean legacy view upgrades lightly once and retains only existin
     })
     const request = { data: { branchId: BRANCH, weekId: WEEK, initialPaint: true } }
     const first = await functions.getPtScheduleWeeklyView(request)
-    assert.equal(first.schemaVersion, 3)
+    assert.equal(first.schemaVersion, 4)
     assert.equal(first.verification, 'draft_only')
     assert.equal(first.validationState, exact ? 'stale' : 'unknown')
     assert.equal(Boolean(first.validationSnapshot), exact)
@@ -496,19 +496,42 @@ test('availability edits invalidate subsequent inherited weeks and the old/new h
   assert.equal(db.values.get(statePath('branch-b', '2026-10-26')).dirty, true)
 })
 
-test('PT weekly edits invalidate only that exact week, including cross-branch views', async () => {
+test('schema 3 cached recurring hours rebuild once to the inherited trainer week', async () => {
+  const db = fakeDb({ [viewPath()]: { ...initialView(), schemaVersion: 3, dirty: false } })
+  let loads = 0
+  const functions = createPtScheduleWeeklyViewFunctions({ db, onCall: (handler) => handler, actorForBranch: async () => {},
+    branchData: async () => {
+      loads += 1
+      return workspace({ partial: true, readMode: 'display', trainers: [{ id: 'trainer-a', availableSlots: ['T4-6'], availabilityMode: 'configured', availabilitySource: 'inherited_weekly', availabilitySourceWeekId: '2026-10-12', availabilityWeekId: WEEK }] })
+    },
+  })
+  const request = { data: { branchId: BRANCH, weekId: WEEK, initialPaint: true } }
+  const current = await functions.getPtScheduleWeeklyView(request)
+  assert.equal(current.schemaVersion, 4)
+  assert.deepEqual(current.trainers[0].availableSlots, ['T4-6'])
+  assert.equal(current.trainers[0].availabilitySource, 'inherited_weekly')
+  assert.equal(current.trainers[0].availabilitySourceWeekId, '2026-10-12')
+  await functions.getPtScheduleWeeklyView(request)
+  assert.equal(loads, 1)
+})
+
+test('PT weekly edits invalidate the exact week and later inherited weeks, including cross-branch views', async () => {
   const db = fakeDb({
     [viewPath()]: initialView(),
     [viewPath('branch-b')]: { ...initialView(), branchId: 'branch-b' },
     [viewPath(BRANCH, '2026-10-26')]: { ...initialView(), weekId: '2026-10-26' },
+    [viewPath('branch-b', '2026-10-26')]: { ...initialView(), branchId: 'branch-b', weekId: '2026-10-26' },
+    [viewPath(BRANCH, '2026-10-12')]: { ...initialView(), weekId: '2026-10-12' },
   })
   const result = await syncPtScheduleWeeklyViewSource({ db, source: 'trainerAvailability', logger: silentLogger, event: sourceEvent(
     null, { branchId: BRANCH, trainerId: 'trainer-a', weekId: WEEK, slots: ['T3-6'] }, { availabilityId: `trainer-a_${WEEK}` },
   ) })
-  assert.equal(result.marked, 2)
+  assert.equal(result.marked, 4)
   assert.equal(db.values.get(statePath()).dirty, true)
   assert.equal(db.values.get(statePath('branch-b')).dirty, true)
-  assert.notEqual(db.values.get(statePath(BRANCH, '2026-10-26'))?.dirty, true)
+  assert.equal(db.values.get(statePath(BRANCH, '2026-10-26'))?.dirty, true)
+  assert.equal(db.values.get(statePath('branch-b', '2026-10-26'))?.dirty, true)
+  assert.notEqual(db.values.get(statePath(BRANCH, '2026-10-12'))?.dirty, true)
 })
 
 test('deleted draft invalidates its week and cross-branch student coverage', async () => {

@@ -129,6 +129,7 @@ test('exact submitted PT week overrides recurring slots, including a full OFF we
     availabilityMode: 'configured',
     availabilityRevision: 2,
     availabilitySource: 'weekly',
+    availabilitySourceWeekId: WEEK,
     availabilityWeekId: WEEK,
     offDates: ['2026-08-24'],
   })
