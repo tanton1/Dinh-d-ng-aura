@@ -226,7 +226,7 @@ function AuraApplication() {
     courses: adminCourseData.courses,
   })
   const mode: AppMode = view === 'student-360'
-    ? route.source?.startsWith('admin') ? 'admin' : 'student'
+    ? route.source?.startsWith('admin-') ? 'admin' : 'student'
     : adminViews.includes(view) ? 'admin' : 'student'
   const effectiveNutritionProfile = resolveCanonicalNutritionProfile(profile, localNutritionProfile)
   const dailyNutrition = useDailyNutritionSummary(

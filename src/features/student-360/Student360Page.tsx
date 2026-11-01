@@ -712,7 +712,7 @@ function Student360Workspace({ studentId, source, isDemo = false, onBack, onNavi
     if (item.action === 'renewal') return overview.permissions.canViewRenewal
     if (item.action === 'schedule') return overview.permissions.canViewOperations
     if (item.action === 'contract') return overview.permissions.canManageContract
-    if (item.action === 'finance') return source.startsWith('admin') && overview.permissions.canViewFinancialAmounts
+    if (item.action === 'finance') return source.startsWith('admin-') && overview.permissions.canViewFinancialAmounts
     return false
   }
 
@@ -751,7 +751,7 @@ function Student360Workspace({ studentId, source, isDemo = false, onBack, onNavi
   if (error || !overview) return <main className="student360-page"><State type="error"><AlertTriangle /><h1>Chưa thể mở Học viên 360</h1><p>{error || 'Hồ sơ không có dữ liệu.'}</p><div><button type="button" onClick={onBack}>{fromRenewals ? 'Về Tái ký' : 'Quay lại'}</button><button type="button" onClick={() => void loadOverview(false)}>Thử lại</button></div></State></main>
 
   const { identity, assignments, contract, schedule, attendance, training, nutrition, progress, renewal, health, permissions } = overview
-  const isAdminView = source.startsWith('admin')
+  const isAdminView = source.startsWith('admin-')
   const daysLabel = contract?.daysRemaining === null || contract?.daysRemaining === undefined ? '—' : Math.max(0, contract.daysRemaining)
   const weeklyPercent = Math.min(100, schedule.requiredSessions ? schedule.bookedSessions / schedule.requiredSessions * 100 : 0)
   const paymentPresentation = student360PaymentPresentation(contract, permissions.canViewFinancialAmounts)
