@@ -37,6 +37,10 @@ function recognitionForNextSession(contract) {
 function recognitionForServiceOrdinal(contract, serviceOrdinal) {
   const ordinal = Math.max(0, Math.floor(Number(serviceOrdinal || 0)))
   if (!ordinal) return 0
+  if (contract.recognitionUnitAmount !== undefined) {
+    return Number.isSafeInteger(contract.recognitionUnitAmount) && contract.recognitionUnitAmount >= 0
+      && ordinal <= contractSessionCount(contract) ? contract.recognitionUnitAmount : 0
+  }
   const before = recognitionThrough(contract, ordinal - 1)
   const after = recognitionThrough(contract, ordinal)
   return Math.max(0, after - before)

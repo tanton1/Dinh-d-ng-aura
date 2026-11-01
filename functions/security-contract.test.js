@@ -242,7 +242,8 @@ test('Firestore rules keep legacy finance readable and deny every browser financ
 })
 
 test('additional sessions and renewal use canonical commands instead of legacy browser writes', () => {
-  assert.match(contractWorkspaceSource, /action: 'add_sessions'/)
+  assert.match(contractWorkspaceSource, /ContractAmendmentDialog/)
+  assert.match(contractWorkspaceSource, /previewContractAmendment\(/)
   assert.match(contractWorkspaceSource, /await mutateStudent360Contract\(/)
   assert.doesNotMatch(contractWorkspaceSource, /\b(?:addPayment|addContract|updateContract|setDoc|updateDoc|deleteDoc)\s*\(/)
   assert.match(renewContractModalSource, /await renewPtContract\(/)

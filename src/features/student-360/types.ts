@@ -279,6 +279,7 @@ export interface Student360ContractInstallment {
 }
 
 export interface Student360ContractRecord {
+  amendmentHistory?: Array<{ id: string; date: string; reason: string; before: { packageName: string; totalSessions: number; netValue: number; endDate: string }; after: { packageName: string; totalSessions: number; netValue: number; endDate: string } }>
   activationMode?: 'automatic' | 'fixed_date'
   earlyHandoverRequested?: boolean
   signedDate?: string
@@ -366,6 +367,7 @@ export interface Student360ContractWorkspace {
 }
 
 export type Student360ContractMutation =
+  | ContractAmendmentCommand
   | { studentId: string; contractId?: string; action: 'create'; contract: Record<string, unknown>; initialPayment?: { amount: number; paymentMethod: 'cash' | 'transfer' | 'card'; cashAccountId: string } }
   | { studentId: string; contractId: string; expectedRevision: number; action: 'edit'; contract: Record<string, unknown> }
   | { studentId: string; contractId: string; expectedRevision: number; action: 'edit_payment_plan'; installments: Student360ContractInstallment[] }
@@ -373,6 +375,37 @@ export type Student360ContractMutation =
   | { studentId: string; contractId: string; expectedRevision: number; action: 'extend'; newEndDate: string; reason: string }
   | { studentId: string; contractId: string; expectedRevision: number; action: 'freeze' | 'reopen'; reason?: string }
   | { studentId: string; contractId: string; expectedRevision: number; action: 'cancel'; reason: string; cancelDebt: boolean }
+
+export interface ContractAmendmentTerms {
+  packageId: string
+  totalSessions: number
+  totalPrice: number
+  discount: number
+  endDate: string
+}
+export interface ContractAmendmentPreview {
+  snapshotHash: string
+  revision: number
+  blockers: string[]
+  used: number
+  recognized: number
+  cash: number
+  remainingValue: number
+  before: { packageId: string; packageName: string; totalSessions: number; netValue: number; endDate: string; remainingSessions: number }
+  after: ContractAmendmentTerms & { packageName: string; netValue: number; remainingSessions: number; receivable: number; refundDue: number }
+  affectedBookings: Array<{ id: string; date: string; hour: number | null }>
+  installments: Student360ContractInstallment[]
+}
+export interface ContractAmendmentCommand {
+  action: 'amend'
+  studentId: string
+  contractId: string
+  expectedRevision: number
+  contract: ContractAmendmentTerms
+  reason: string
+  snapshotHash: string
+  cancelAffectedBookings: boolean
+}
 
 export interface Student360Photo {
   id: string

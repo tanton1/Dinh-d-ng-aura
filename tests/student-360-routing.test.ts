@@ -61,7 +61,8 @@ test('Student 360 contract commands stay inside the 360 workspace instead of reo
   assert.match(workspace, /mutateStudent360Contract/)
   assert.match(workspace, /Quản lý thu tiền/)
   assert.match(workspace, /Tạo hợp đồng/)
-  assert.match(workspace, /Mua thêm buổi/)
+  assert.match(workspace, /Điều chỉnh gói tập/)
+  assert.match(workspace, /Điều chỉnh số buổi/)
 })
 
 test('Student 360 reads prefer East and retain a single transient Singapore fallback', () => {
