@@ -1,4 +1,16 @@
 import { expect, test } from '@playwright/test'
+
+for (const timezoneId of ['Asia/Ho_Chi_Minh', 'UTC', 'America/Los_Angeles']) test.describe(`business dates in ${timezoneId}`, () => {
+  test.use({ timezoneId })
+  test('ledger evidence converts UTC instants and preserves contract calendar dates', async ({ page }) => {
+    await page.goto('/tests/finance-reconciliation-ui/index.html?businessDate=true')
+    await page.getByRole('button', { name: /Cần xử lý/ }).click()
+    await page.getByRole('button', { name: /Học viên giá trị 0đ/ }).click()
+    const dialog = page.getByRole('dialog', { name: 'Bằng chứng đối soát' })
+    await expect(dialog.locator('.finance-review-case__ledger')).toContainText('01/11/2026')
+    await expect(dialog.locator('.finance-review-case__contract')).toContainText('01/10/2026 – 31/12/2026')
+  })
+})
 test('loads only the report at entry, does not poll, and reads bounded pages on demand', async ({ page }) => {
   await page.clock.install()
   await page.goto('/tests/finance-reconciliation-ui/index.html')

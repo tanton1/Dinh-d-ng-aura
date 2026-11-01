@@ -28,6 +28,7 @@ import type { ViewId } from '../../types'
 import { prepareContractRenewal, type PreparedContractRenewal } from '../../services/contractRenewalService'
 import { listCashAccounts, type CashAccount } from '../../services/cashbookService'
 import { useAuth } from '../../contexts/AuthContext'
+import { formatVietnamDate, vietnamToday } from '../../utils/vietnamDate'
 import ContractPaymentPlanEditor from '../../components/contracts/ContractPaymentPlanEditor'
 import { dividePaymentPlan, paymentPlanError, type PaymentPlanInstallment } from '../../domain/contracts/paymentPlan'
 import { clearContractCreate, readContractCreate, rememberContractCreate } from '../contracts/contractCreateRecovery'
@@ -49,7 +50,6 @@ const RenewContractModal = lazy(() => import('../../components/admin/pt/RenewCon
 const StudentOffModal = lazy(() => import('../../components/admin/pt/StudentOffModal'))
 const ContractInvoice = lazy(() => import('../../components/admin/pt/ContractInvoice'))
 const money = new Intl.NumberFormat('vi-VN')
-const date = new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })
 
 type FormMode = 'create' | 'edit'
 type Confirmation =
@@ -86,9 +86,7 @@ interface Props {
 }
 
 function dateLabel(value?: string | null) {
-  if (!value) return 'Chưa cập nhật'
-  const parsed = new Date(`${value.slice(0, 10)}T12:00:00+07:00`)
-  return Number.isNaN(parsed.getTime()) ? value : date.format(parsed)
+  return formatVietnamDate(value) || value || 'Chưa cập nhật'
 }
 
 function addMonths(value: string, months: number) {
@@ -195,7 +193,7 @@ function demoWorkspace(overview: Student360Overview): Workspace {
 
 function formFor(workspace: Workspace, contract?: Student360ContractRecord): ContractForm {
   const selectedPackage = workspace.packages.find((item) => item.id === contract?.packageId) || workspace.packages[0]
-  const startDate = contract?.startDate || new Date().toISOString().slice(0, 10)
+  const startDate = contract?.startDate || vietnamToday()
   return {
     packageId: contract?.packageId || selectedPackage?.id || '',
     branchId: contract?.branchId || workspace.branches[0]?.id || '',

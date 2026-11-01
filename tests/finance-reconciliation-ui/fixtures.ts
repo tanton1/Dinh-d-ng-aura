@@ -26,6 +26,6 @@ export async function getFinanceReconciliationCase(id: string) {
   return { ...row(id), token: 'a'.repeat(64), contract: { id: 'contract', packageName: 'Gói 3 Tháng', totalSessions: 36, usedSessions: 35, totalPrice: 9600000, discount: 9600000, paidAmount: 0, startDate: '2026-10-01', endDate: '2026-12-31' },
     revenueContract: null, actions: [{ id: 'acknowledge', label: 'Lưu xác nhận đã kiểm tra', ...base }, ...(id === 'zero' && !resolved ? [{ id: 'confirm_zero', label: 'Xác nhận giá trị 0đ hợp lệ', ...base }] : [])],
     blockers: [], candidates: [], duplicateOfSessionId: id === 'duplicate' ? 'original' : '', billing: { status: 'charged', ordinal: 35 }, returned: null,
-    ledger: [], history: resolved ? [{ id: 'one', action: 'confirm_zero', reason: 'Đã đối chiếu chứng từ gốc', actorName: 'Quản trị viên', createdAt: '2026-10-31T04:00:00Z', effect: base, currentEvidence: false }] : [] }
+    ledger: new URLSearchParams(window.location.search).has('businessDate') ? [{ id: 'ledger-date', type: 'payment', status: 'posted', date: '2026-10-31T18:00:00Z', revenue: 0, cash: 100000, contractId: 'contract' }] : [], history: resolved ? [{ id: 'one', action: 'confirm_zero', reason: 'Đã đối chiếu chứng từ gốc', actorName: 'Quản trị viên', createdAt: '2026-10-31T04:00:00Z', effect: base, currentEvidence: false }] : [] }
 }
 export async function resolveFinanceReconciliationCase(input: { action: string }) { calls.writes.push(input); if (input.action === 'confirm_zero') resolved = true; return { unchanged: false } }

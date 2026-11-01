@@ -23,6 +23,7 @@ import {
 } from '../../../services/cashbookService'
 import { reverseContractPayment } from '../../../services/financeLedgerService'
 import { useAuth } from '../../../contexts/AuthContext'
+import { formatVietnamDate, formatVietnamDateTime, vietnamDateKey, vietnamToday } from '../../../utils/vietnamDate'
 import S2eCashDetailBook from './S2eCashDetailBook'
 import useCashbookPages from './useCashbookPages'
 import './CashbookPanel.css'
@@ -30,7 +31,7 @@ import './CashbookPanel.css'
 type PanelMode = 'none' | 'account' | 'receipt' | 'voucher' | 'transfer'
 type LedgerTab = 's2e' | 'receipts' | 'vouchers' | 'cash'
 
-const today = () => new Date().toISOString().slice(0, 10)
+const today = vietnamToday
 const monthStart = () => `${today().slice(0, 7)}-01`
 const dayAfter = (value: string) => {
   const date = new Date(`${value}T12:00:00+07:00`)
@@ -197,7 +198,7 @@ function CashbookSession({ branches, onAccessDenied }: Props & { onAccessDenied:
       expectedRevision: voucher.revision,
       accountId: voucher.accountId,
       purposeCode: voucher.purposeCode,
-      effectiveAt: voucher.effectiveAt.slice(0, 10) || today(),
+      effectiveAt: vietnamDateKey(voucher.effectiveAt) || today(),
       payeeName: voucher.payeeName,
       payeeAddress: voucher.payeeAddress,
       description: voucher.description,
@@ -474,7 +475,7 @@ function CashbookSession({ branches, onAccessDenied }: Props & { onAccessDenied:
 
     <div className="cashbook-ledger-tabs" aria-label="Sổ quỹ">{([['receipts', 'Phiếu thu'], ['vouchers', 'Phiếu chi'], ['cash', 'Biến động quỹ'], ['s2e', 'Sổ S2e-HKD']] as const).map(([tab, label]) => <button key={tab} className={activeTab === tab ? 'is-active' : ''} aria-pressed={activeTab === tab} onClick={() => { setSelectedReceipt(null); setActiveTab(tab) }}>{label}</button>)}</div>
     {activeTab !== 's2e' && loading && <p role="status">Đang tải sổ quỹ…</p>}
-    {listRead.data && <div className="cashbook-page-summary" role="status"><p>{listRead.data.kind === 'cash' ? transactions.length : listRead.data.vouchers.length} chứng từ đã tải.</p><small>Cập nhật {new Date(listRead.data.asOf).toLocaleString('vi-VN')}</small></div>}
+    {listRead.data && <div className="cashbook-page-summary" role="status"><p>{listRead.data.kind === 'cash' ? transactions.length : listRead.data.vouchers.length} chứng từ đã tải.</p><small>Cập nhật {formatVietnamDateTime(listRead.data.asOf)}</small></div>}
 
     {activeTab === 's2e' && <S2eCashDetailBook
       book={s2eBook}
@@ -489,16 +490,16 @@ function CashbookSession({ branches, onAccessDenied }: Props & { onAccessDenied:
     />}
 
     {activeTab === 'receipts' && <div className="expense-voucher-list receipt-voucher-list">{receipts.map((receipt) => <article key={receipt.listIdentity || receipt.id}>
-      <div className="expense-voucher-list__main"><div><ReceiptText size={16} /><b>{receipt.voucherNumber}</b><span className={`expense-voucher-status status-${receipt.status}`}>{statusLabels[receipt.status]}</span></div><p>{receipt.payerName} · {accounts.find((item) => item.id === receipt.accountId)?.name || 'Quỹ đã lưu'}</p><small>{receipt.effectiveAt ? new Date(receipt.effectiveAt).toLocaleDateString('vi-VN') : ''} · {receipt.description}</small></div>
+      <div className="expense-voucher-list__main"><div><ReceiptText size={16} /><b>{receipt.voucherNumber}</b><span className={`expense-voucher-status status-${receipt.status}`}>{statusLabels[receipt.status]}</span></div><p>{receipt.payerName} · {accounts.find((item) => item.id === receipt.accountId)?.name || 'Quỹ đã lưu'}</p><small>{formatVietnamDate(receipt.effectiveAt)} · {receipt.description}</small></div>
       <div className="expense-voucher-list__amount"><strong className={receipt.documentType === 'receipt_voucher_reversal' ? 'negative' : 'positive'}>{receipt.documentType === 'receipt_voucher_reversal' ? '−' : '+'}{money(receipt.totalAmount)}</strong><div><button onClick={() => setSelectedReceipt(receipt)}><Eye size={15} /> Xem / In</button>{receipt.status === 'posted' && receipt.documentType === 'receipt_voucher' && <button disabled={busy || !receipt.ledgerEntryId} onClick={() => void reverseReceipt(receipt)}><RotateCcw size={15} /> Đảo phiếu</button>}</div></div>
     </article>)}{!loading && !pageRead.error && !listRead.data?.hasMore && receipts.length === 0 && <p>Chưa có phiếu thu trong quỹ đã chọn.</p>}</div>}
 
     {activeTab === 'vouchers' && <div className="expense-voucher-list">{vouchers.map((voucher) => <article key={voucher.id}>
-      <div className="expense-voucher-list__main"><div><b>{voucher.voucherNumber}</b><span className={`expense-voucher-status status-${voucher.status}`}>{statusLabels[voucher.status]}</span></div><p>{voucher.purposeLabel} · {voucher.payeeName}</p><small>{voucher.effectiveAt ? new Date(voucher.effectiveAt).toLocaleDateString('vi-VN') : ''} · {voucher.description}</small></div>
+      <div className="expense-voucher-list__main"><div><b>{voucher.voucherNumber}</b><span className={`expense-voucher-status status-${voucher.status}`}>{statusLabels[voucher.status]}</span></div><p>{voucher.purposeLabel} · {voucher.payeeName}</p><small>{formatVietnamDate(voucher.effectiveAt)} · {voucher.description}</small></div>
       <div className="expense-voucher-list__amount"><strong>{money(voucher.totalAmount)}</strong><div>{voucher.status === 'draft' && <button onClick={() => openVoucher(voucher)}><FilePenLine size={15} /> Sửa</button>}{voucher.status === 'pending_approval' && <button className="cashbook-primary" disabled={busy} onClick={() => void approveVoucher(voucher)}><CheckCircle2 size={15} /> Duyệt & ghi sổ</button>}{voucher.status === 'posted' && voucher.documentType === 'expense_voucher' && <button disabled={busy} onClick={() => void reverseVoucher(voucher)}><RotateCcw size={15} /> Đảo phiếu</button>}</div></div>
     </article>)}{!loading && !pageRead.error && !listRead.data?.hasMore && vouchers.length === 0 && <p>Chưa có phiếu chi.</p>}</div>}
 
-    {activeTab === 'cash' && <div className="cashbook-list">{transactions.map((item) => <article key={item.id}><div><b>{item.referenceCode}</b><span>{item.category || item.type} · {new Date(item.effectiveAt).toLocaleString('vi-VN')}</span></div><strong className={item.amount >= 0 ? 'positive' : 'negative'}>{money(item.amount)}</strong></article>)}{!loading && !pageRead.error && !listRead.data?.hasMore && transactions.length === 0 && <p>Chưa có giao dịch. Hãy mở quỹ bằng số dư đã kiểm kê tại ngày chuyển đổi.</p>}</div>}
+    {activeTab === 'cash' && <div className="cashbook-list">{transactions.map((item) => <article key={item.id}><div><b>{item.referenceCode}</b><span>{item.category || item.type} · {formatVietnamDateTime(item.effectiveAt)}</span></div><strong className={item.amount >= 0 ? 'positive' : 'negative'}>{money(item.amount)}</strong></article>)}{!loading && !pageRead.error && !listRead.data?.hasMore && transactions.length === 0 && <p>Chưa có giao dịch. Hãy mở quỹ bằng số dư đã kiểm kê tại ngày chuyển đổi.</p>}</div>}
 
     {listRead.data?.hasMore && <div className="cashbook-pagination">
       {receipts.length + vouchers.length + transactions.length === 0 && <p>Chưa có chứng từ phù hợp trong phần đã tải. Tiếp tục tải thêm.</p>}
@@ -510,7 +511,7 @@ function CashbookSession({ branches, onAccessDenied }: Props & { onAccessDenied:
       <article className="receipt-voucher-document" onClick={(event) => event.stopPropagation()}>
         <div className="receipt-voucher-document__toolbar"><span>{selectedReceipt.derived ? 'Phiếu đối soát từ sổ tài chính lịch sử · Chỉ đọc' : 'Chứng từ gốc · Đã liên kết sổ quỹ'}</span><div><button onClick={() => window.print()}><Printer size={16} /> In phiếu</button><button onClick={() => setSelectedReceipt(null)}><X size={16} /> Đóng</button></div></div>
         <header><div><b>AURA FITNESS</b><small>Chứng từ kế toán điện tử</small></div><div><strong>{selectedReceipt.documentType === 'receipt_voucher_reversal' ? 'PHIẾU THU ĐẢO' : 'PHIẾU THU'}</strong><small>Số: {selectedReceipt.voucherNumber}</small></div></header>
-        <div className="receipt-voucher-document__date">Ngày {selectedReceipt.effectiveAt ? new Date(selectedReceipt.effectiveAt).toLocaleDateString('vi-VN') : '—'}</div>
+        <div className="receipt-voucher-document__date">Ngày {formatVietnamDate(selectedReceipt.effectiveAt) || '—'}</div>
         <dl className="receipt-voucher-document__fields">
           <div><dt>Người nộp tiền</dt><dd>{selectedReceipt.payerName}</dd></div>
           <div><dt>Địa chỉ</dt><dd>{selectedReceipt.payerAddress || 'Không ghi nhận'}</dd></div>
