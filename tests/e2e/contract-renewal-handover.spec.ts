@@ -421,7 +421,7 @@ async function mockRenewalQueue(page: Page, behavior: { holdLists?: string[]; ho
     export const listRenewalCalendar = async input => {
       const index = state.calendarCalls.push(input) - 1;
       if (state.behavior.holdCalendar) return new Promise(resolve => { state.calendarPending[index] = { resolve }; });
-      return { items: [] };
+      return { items: state.calendarItems || [] };
     };
     export const getRenewalAnalytics = async () => ({ assignees: [], lostReasons: {}, stageCounts: {} });
     export const refreshContractRenewalQueue = async () => ({ contractsScanned: 0, plannedWrites: 0 });
@@ -797,4 +797,18 @@ test('staff renewal inspector returns from 360 to the same pipeline tab', async 
   await expect(page).toHaveURL(/#\/staff-renewals$/)
   await expect(page.getByRole('button', { name: 'Pipeline', exact: true })).toHaveClass('is-active')
   await expect(page.locator('.renewal-kanban')).toContainText('Học viên thứ hai')
+})
+
+test('renewal calendar returns from 360 with one fresh calendar read after scope resolution', async ({ page }) => {
+  await mockRenewalQueue(page)
+  await page.evaluate(() => { window.renewalQueueFixture.calendarItems = window.renewalQueueFixture.base.rows })
+  await page.getByRole('button', { name: 'Lịch chăm sóc', exact: true }).click()
+  await page.locator('.renewal-agenda').getByRole('button', { name: /Học viên thứ hai/ }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Hồ sơ 360° của Học viên thứ hai', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Về Tái ký', exact: true })).toBeVisible()
+  const reads = await page.evaluate(() => window.renewalQueueFixture.calendarCalls.length)
+  await page.getByRole('button', { name: 'Về Tái ký', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Lịch chăm sóc', exact: true })).toHaveClass('is-active')
+  await expect(page.locator('.renewal-agenda')).toContainText('Học viên thứ hai')
+  expect(await page.evaluate(() => window.renewalQueueFixture.calendarCalls.length)).toBe(reads + 1)
 })

@@ -129,6 +129,7 @@ export default function ContractRenewals({ onNavigate, onOpenStudent360, source 
   const [transferOpen, setTransferOpen] = useState(false)
   const [reportFrom, setReportFrom] = useState(returnState.reportFrom ?? addDays(vietnamToday(), -30))
   const [reportTo, setReportTo] = useState(returnState.reportTo ?? vietnamToday())
+  const scopeReady = data !== null
   const mounted = useRef(false)
   const listGeneration = useRef(0)
   const detailGeneration = useRef(0)
@@ -274,14 +275,14 @@ export default function ContractRenewals({ onNavigate, onOpenStudent360, source 
   }, [load, openDetail, selectedCaseId])
 
   useEffect(() => {
-    if (tab !== 'calendar') return
+    if (tab !== 'calendar' || !scopeReady) return
     const generation = ++calendarGeneration.current
     const isCurrent = () => mounted.current && generation === calendarGeneration.current
     const today = vietnamToday()
     setCalendarLoading(true)
     void listRenewalCalendar({ from: today, to: addDays(today, 45) }).then((result) => { if (isCurrent()) setCalendarItems(result.items) }).catch((cause) => { if (isCurrent()) setError(cause instanceof Error ? cause.message : 'Không thể tải lịch chăm sóc.') }).finally(() => { if (isCurrent()) setCalendarLoading(false) })
     return () => { calendarGeneration.current += 1 }
-  }, [data?.optionsScopeKey, tab])
+  }, [data?.optionsScopeKey, scopeReady, tab])
 
   const loadReport = useCallback(async () => {
     if (!mounted.current) return
@@ -297,9 +298,9 @@ export default function ContractRenewals({ onNavigate, onOpenStudent360, source 
   }, [reportFrom, reportTo])
 
   useEffect(() => {
-    if (tab === 'report') void loadReport()
+    if (tab === 'report' && data?.permissions.canViewAnalytics) void loadReport()
     return () => { reportGeneration.current += 1 }
-  }, [loadReport, tab])
+  }, [data?.permissions.canViewAnalytics, loadReport, tab])
 
   const syncQueue = async () => {
     if (data?.scope !== 'system') { await load(false); return }
