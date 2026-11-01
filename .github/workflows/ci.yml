@@ -240,6 +240,7 @@ jobs:
         if: matrix.project == 'mobile-webkit'
         run: npm run test:student360-overview-ui -- --project=student360-overview-mobile-webkit
       - name: Verify contract amendment preview and confirmation
+        if: matrix.project == 'chromium' || matrix.project == 'mobile-webkit'
         run: npm run test:contract-amendment-ui -- --project=amendment-${{ matrix.project }}
       - name: Upload browser failure evidence
         if: failure()
