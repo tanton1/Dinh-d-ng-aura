@@ -10,6 +10,7 @@ import { currentPtWeekId } from '../../../domain/pt/studentEligibility'
 import type { StudentContractFilter } from '../../../domain/pt/studentDirectoryFilters'
 import { useLocalTimeBoundaries } from '../../../hooks/useLocalTimeBoundaries'
 import { vietnamDateKey } from '../../../utils/workspaceSync'
+import { vietnamToday } from '../../../utils/vietnamDate'
 import './AdminStudentDirectoryV2.css'
 
 interface Props {
@@ -246,7 +247,7 @@ export default function AdminStudentDirectoryV2({
         const studentId = `student_${globalThis.crypto.randomUUID()}`
         const result = await provisionStudentAccount({
           displayName: form.name.trim(), phoneNumber: form.phone.trim(), email: form.email.trim() || undefined, crmProfileId: studentId,
-          legacyStudent: { dob: form.dob || undefined, sessionsPerWeek: form.sessionsPerWeek, availableSlots: [], status: 'active', joinDate: new Date().toISOString().slice(0, 10), branchId: form.branchId || undefined },
+          legacyStudent: { dob: form.dob || undefined, sessionsPerWeek: form.sessionsPerWeek, availableSlots: [], status: 'active', joinDate: vietnamToday(), branchId: form.branchId || undefined },
         })
         setNotice(result.reusedDeletedProfile ? `Đã khôi phục liên kết cho ${form.name.trim()}.` : `Đã tạo hồ sơ Aura cho ${form.name.trim()}.`)
       } else {

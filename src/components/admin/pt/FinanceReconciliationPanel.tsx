@@ -2,11 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronRight, CircleAlert, FileSearch, Search, X } from 'lucide-react'
 import type { BusinessPerformanceReport } from '../../../services/businessReportingService'
 import { businessReportCompleteness } from '../../../utils/businessReportCompleteness'
+import { formatVietnamDate } from '../../../utils/vietnamDate'
 import { getFinanceReconciliationCase, listFinanceReconciliationCases, resolveFinanceReconciliationCase, type ReconciliationCase, type ReconciliationRow, type ReviewContract } from '../../../services/financeReconciliationService'
 import './finance-reconciliation.css'
 
 const money = (value: number) => Math.round(value).toLocaleString('vi-VN') + 'đ'
-const date = (value: string) => value ? value.slice(0, 10).split('-').reverse().join('/') : 'Chưa có ngày'
+const date = (value: string) => formatVietnamDate(value) || 'Chưa có ngày'
 const pendingKeys = ['billingReview', 'recognitionReview', 'pendingConfirmation', 'automaticReview', 'unresolved', 'conflicts', 'missingBranch']
 const labels: Record<string, string> = {
   billingReview: 'Hạn mức hợp đồng', recognitionReview: 'Giá trị doanh thu', pendingConfirmation: 'Chờ khớp bút toán',

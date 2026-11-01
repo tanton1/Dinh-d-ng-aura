@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { FileCog, Printer, Save, ShieldCheck, X } from 'lucide-react'
 import type { S2eCashDetailBook as S2eBook, S2eCashDetailSettings } from '../../../services/cashbookService'
+import { formatVietnamDate } from '../../../utils/vietnamDate'
 
 interface Props {
   book: S2eBook | null
@@ -15,7 +16,7 @@ interface Props {
 }
 
 const amount = (value: number) => value ? Math.round(value).toLocaleString('vi-VN') : ''
-const date = (value: string) => value ? new Date(value).toLocaleDateString('vi-VN') : ''
+const date = formatVietnamDate
 
 const emptySettings: S2eCashDetailSettings = {
   businessName: 'AURA FITNESS',
