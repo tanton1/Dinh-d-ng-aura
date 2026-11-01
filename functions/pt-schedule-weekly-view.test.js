@@ -75,6 +75,29 @@ test('weekly compact coverage excludes old cells on approved OFF without deletin
   assert.equal(view.coverage.byStudent['student-a'].missingSessions, 1)
 })
 
+test('whole-week OFF evidence survives compact and lightweight views without erasing partial-week demand', () => {
+  const data = workspace()
+  data.students[0].approvedOffScheduleDates = [WEEK, '2026-10-20']
+  data.students[0].pausedScheduleDates = []
+  const view = buildPtScheduleWeeklyView({ branchId: BRANCH, weekId: WEEK, data })
+  assert.deepEqual(view.students[0].approvedOffScheduleDates, [WEEK, '2026-10-20'])
+  assert.equal(view.coverage.byStudent['student-a'].missingSessions, 1)
+  const light = buildPtScheduleWeeklyView({ branchId: BRANCH, weekId: WEEK,
+    data: workspace({ partial: true, readMode: 'display', contracts: [] }), previousView: view })
+  assert.deepEqual(light.students[0].approvedOffScheduleDates, view.students[0].approvedOffScheduleDates)
+  const cleared = buildPtScheduleWeeklyView({ branchId: BRANCH, weekId: WEEK,
+    data: { ...data, students: [{ ...data.students[0], approvedOffScheduleDates: [] }] }, previousView: view })
+  assert.deepEqual(cleared.students[0].approvedOffScheduleDates, [])
+  assert.notEqual(cleared.sourceRevision, view.sourceRevision)
+  const legacyData = workspace()
+  legacyData.students[0].pausedScheduleDates = [WEEK]
+  const legacy = buildPtScheduleWeeklyView({ branchId: BRANCH, weekId: WEEK, data: legacyData })
+  const legacyLight = buildPtScheduleWeeklyView({ branchId: BRANCH, weekId: WEEK,
+    data: workspace({ partial: true, readMode: 'display', contracts: [] }), previousView: legacy })
+  assert.equal(legacyLight.students[0].approvedOffScheduleDates, undefined, 'unknown evidence must not become an authoritative empty list')
+  assert.deepEqual(legacyLight.students[0].pausedScheduleDates, [WEEK])
+})
+
 test('display coverage is explicitly estimated, never verified', () => {
   const value = compactCoverage({
     students: [{ id: 's', sessionsPerWeek: 2 }],
