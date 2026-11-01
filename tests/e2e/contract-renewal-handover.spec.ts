@@ -377,7 +377,7 @@ const queueResponse: RenewalPipelineResponse = {
   permissions: { canRecordActivity: true, canCreateQuote: true, canRenewContract: true, canViewFinancials: true, canViewAnalytics: true, canAssign: true, canApprove: false },
 }
 
-async function mockRenewalQueue(page: Page, behavior: { holdLists?: string[]; holdPrepare?: string[]; prepareError?: string; canRenew?: boolean; holdCalendar?: boolean } = {}) {
+async function mockRenewalQueue(page: Page, behavior: { holdLists?: string[]; holdPrepare?: string[]; prepareError?: string; canRenew?: boolean; holdCalendar?: boolean } = {}, response = queueResponse) {
   // Never allow the local fixture to contact a real backend or third-party app.
   await page.route('**/*', route => new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort())
   await page.route('**/src/contexts/AuthContext.tsx*', route => route.fulfill({ contentType: 'application/javascript', body: `export const useAuth = () => ({ user: null, profile: null, role: 'admin', accessContext: null, authzReady: true });` }))
@@ -387,7 +387,7 @@ async function mockRenewalQueue(page: Page, behavior: { holdLists?: string[]; ho
       listResponses: {}, prepareVersion: 1, mutations: [], calendarCalls: [], calendarPending: {},
     }
     if (behavior.canRenew === false) window.renewalQueueFixture.base.permissions.canRenewContract = false
-  }, { response: queueResponse, behavior })
+  }, { response, behavior })
   await page.route('**/src/services/contractRenewalService.ts*', route => route.fulfill({ contentType: 'application/javascript', body: `
     const state = window.renewalQueueFixture;
     export const listContractRenewalCases = async input => {
@@ -437,8 +437,45 @@ async function mockRenewalQueue(page: Page, behavior: { holdLists?: string[]; ho
   })
 }
 
-const queueSearch = (page: Page) => page.getByPlaceholder('Tìm tên, SĐT học viên…')
+const queueSearch = (page: Page) => page.getByPlaceholder('Tìm tên, số điện thoại…')
 const renewQueueRow = (page: Page, index = 0) => page.locator('.renewal-table tbody tr').nth(index).getByRole('button', { name: 'Tái ký', exact: true })
+
+test('mobile renewal cards expose overuse and care dates, with local opt-in selection', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const expiredRow: RenewalPipelineRow = {
+    ...row, student: { ...row.student, name: 'Hồng Ánh' }, branchName: 'CS1 · Thanh Khê, Bến Xe',
+    contract: { ...row.contract, packageName: 'Gói 3 tháng', usedSessions: 39, totalSessions: 36, endDate: addDays(-136) },
+    risk: { category: 'expired', daysLeft: -136, sessionsLeft: 0 }, expectedValue: 9600000,
+    slaStatus: 'overdue', nextActionAt: addDays(-7),
+  }
+  await mockRenewalQueue(page, {}, { ...queueResponse, rows: [expiredRow, secondQueueRow] })
+  const card = page.locator('.renewal-mobile-card').first()
+  await expect(card).toContainText('Đã dùng 39/36 buổi')
+  await expect(card).toContainText('Vượt 3 buổi')
+  await expect(card).toContainText('Quá 136 ngày')
+  await expect(card).toContainText('Quá hẹn chăm sóc')
+  await expect(card).toContainText('9.600.000đ')
+  await expect(card.getByRole('checkbox')).toHaveCount(0)
+  await expect(page.getByLabel('2 hồ sơ đang hiển thị', { exact: true })).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('renewal-reference-card.png'), fullPage: true })
+
+  await page.getByRole('button', { name: 'Chọn', exact: true }).click()
+  await card.getByRole('checkbox', { name: 'Chọn Hồng Ánh', exact: true }).check()
+  await expect(page.getByRole('button', { name: 'Bàn giao 1', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Xong', exact: true }).click()
+  await expect(card.getByRole('checkbox')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Bàn giao 1', exact: true })).toHaveCount(0)
+  expect(await page.evaluate(() => window.renewalQueueFixture.listCalls.length)).toBe(1)
+  expect(await page.evaluate(() => window.renewalQueueFixture.prepareCalls.length)).toBe(0)
+  expect(await page.evaluate(() => window.renewalQueueFixture.mutations.length)).toBe(0)
+
+  await page.getByRole('button', { name: 'Chọn', exact: true }).click()
+  await card.getByRole('checkbox', { name: 'Chọn Hồng Ánh', exact: true }).check()
+  await queueSearch(page).fill('Hồng Ánh')
+  await expect.poll(() => page.evaluate(() => window.renewalQueueFixture.listCalls.length)).toBe(2)
+  await expect(page.getByRole('button', { name: 'Chọn', exact: true })).toHaveAttribute('aria-pressed', 'false')
+  await expect(card.getByRole('checkbox')).toHaveCount(0)
+})
 
 test('queue reuses dictionaries only on load-more and opens fresh full-price/full-account options', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
@@ -599,7 +636,7 @@ test('accepted empty dictionaries preserve filters while totals stay fresh, and 
   })
   await page.getByRole('button', { name: 'Tải thêm hồ sơ' }).click()
   await expect(page.locator('.renewal-table tbody tr')).toHaveCount(3)
-  await expect(page.getByRole('button', { name: 'Danh sách 7', exact: true })).toBeVisible()
+  await expect(page.getByLabel('3 hồ sơ đang hiển thị', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: /Sắp hết hạn/ }).locator('strong')).toHaveText('7')
   await page.getByRole('button', { name: 'Bộ lọc', exact: true }).click()
   await expect(page.getByRole('combobox', { name: 'Chi nhánh', exact: true }).locator('option[value="branch-1"]')).toHaveText('Aura')
@@ -624,6 +661,7 @@ test('accepted empty dictionaries preserve filters while totals stay fresh, and 
 test('authority reset replaces rows and dictionaries, clears selection, and closes detail plus payment wizard', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await mockRenewalQueue(page, { holdLists: ['page-two'] })
+  await page.getByRole('button', { name: 'Chọn', exact: true }).click()
   await page.locator('.renewal-table').getByRole('checkbox', { name: `Chọn ${row.student.name}`, exact: true }).check()
   await page.getByRole('button', { name: 'Tải thêm hồ sơ' }).click()
   await expect.poll(() => page.evaluate(() => Object.keys(window.renewalQueueFixture.listPending).length)).toBe(1)

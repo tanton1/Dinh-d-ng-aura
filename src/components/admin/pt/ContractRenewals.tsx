@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   AlertTriangle, ArrowRight, BadgeCheck, BarChart3, CalendarDays, CheckCircle2,
-  BookOpenText, ChevronDown, ChevronRight, CircleDollarSign, ClipboardCheck, Clock3, Copy, Filter,
-  History, KanbanSquare, ListFilter, LoaderCircle, MessageCircle, Phone, RefreshCw,
+  BookOpenText, ChevronDown, ChevronRight, CircleDollarSign, ClipboardCheck, Clock3, Copy, FileUser, Filter,
+  History, KanbanSquare, LoaderCircle, MessageCircle, Phone, RefreshCw,
   Search, Send, Sparkles, Target, UserRoundCheck, UserRoundPlus, UsersRound, X,
 } from 'lucide-react'
 import {
@@ -32,6 +33,7 @@ import {
   type RenewalStage,
 } from '../../../services/contractRenewalService'
 import RenewContractModal from './RenewContractModal'
+import { AppShellHeaderContext } from '../../../contexts/AppShellHeaderContext'
 import { readRenewalReturnState, saveRenewalReturnState, type RenewalSource, type RenewalTab } from '../../../features/contracts/renewalNavigation'
 import './ContractRenewals.css'
 
@@ -63,6 +65,12 @@ const segmentLabels: Record<RenewalSegment, string> = {
   exhausted_active: 'Hết buổi, còn hạn',
   expired_last_30d: 'Hết hạn · 30 ngày qua',
   in_care: 'Đang chăm sóc',
+}
+const segmentHeadings: Record<RenewalSegment, [string, string]> = {
+  expiring_30d: ['Sắp hết hạn', '30 ngày tới'],
+  exhausted_active: ['Hết buổi', 'Còn hạn'],
+  expired_last_30d: ['Đã hết hạn', '30 ngày qua'],
+  in_care: ['Chăm sóc', 'Đang thực hiện'],
 }
 const stageOrder: RenewalStage[] = ['uncontacted', 'contacted', 'interested', 'quote_sent', 'follow_up', 'won', 'lost']
 const editableStages: RenewalStage[] = ['uncontacted', 'contacted', 'interested', 'quote_sent', 'follow_up', 'lost']
@@ -96,6 +104,7 @@ function openZalo(row: RenewalPipelineRow, message = messageFor(row)) {
 }
 
 export default function ContractRenewals({ onNavigate, onOpenStudent360, source = 'admin-renewals', actorId = 'demo' }: Props) {
+  const headerActionHost = useContext(AppShellHeaderContext)
   const [returnState] = useState(() => readRenewalReturnState(source, actorId))
   const [tab, setTab] = useState<WorkspaceTab>(returnState.tab ?? 'queue')
   const [data, setData] = useState<RenewalPipelineResponse | null>(null)
@@ -126,6 +135,7 @@ export default function ContractRenewals({ onNavigate, onOpenStudent360, source 
   const [messageTemplates, setMessageTemplates] = useState<RenewalMessageTemplate[]>([])
   const [templateError, setTemplateError] = useState('')
   const [selectedCaseIds, setSelectedCaseIds] = useState<Set<string>>(new Set())
+  const [selecting, setSelecting] = useState(false)
   const [transferOpen, setTransferOpen] = useState(false)
   const [reportFrom, setReportFrom] = useState(returnState.reportFrom ?? addDays(vietnamToday(), -30))
   const [reportTo, setReportTo] = useState(returnState.reportTo ?? vietnamToday())
@@ -156,7 +166,7 @@ export default function ContractRenewals({ onNavigate, onOpenStudent360, source 
   const clearScopedViews = useCallback(() => {
     detailGeneration.current += 1; renewalGeneration.current += 1
     reportGeneration.current += 1; calendarGeneration.current += 1
-    setSelectedCaseIds(new Set()); setSelectedCaseId(null); setDetail(null); setDetailLoading(false)
+    setSelectedCaseIds(new Set()); setSelecting(false); setSelectedCaseId(null); setDetail(null); setDetailLoading(false)
     setRenewing(null); setTransferOpen(false); setCalendarItems([]); setAnalytics(null)
     setCalendarLoading(false); setReportLoading(false)
     setBranchId('all'); setAssigneeId('all')
@@ -224,7 +234,7 @@ export default function ContractRenewals({ onNavigate, onOpenStudent360, source 
     return () => { active = false }
   }, [])
 
-  useEffect(() => { setSelectedCaseIds(new Set()) }, [listInput])
+  useEffect(() => { setSelectedCaseIds(new Set()); setSelecting(false) }, [listInput])
 
   const openDetail = useCallback(async (caseId: string) => {
     if (!mounted.current) return
@@ -362,21 +372,23 @@ export default function ContractRenewals({ onNavigate, onOpenStudent360, source 
     if (data && !data.permissions.canViewAnalytics && tab === 'report') setTab('queue')
   }, [data, tab])
 
-  const tabs: Array<{ id: WorkspaceTab; label: string; icon: typeof ListFilter }> = [
-    { id: 'queue', label: 'Danh sách', icon: ListFilter }, { id: 'pipeline', label: 'Tiến độ', icon: KanbanSquare },
-    { id: 'calendar', label: 'Lịch chăm sóc', icon: CalendarDays },
-    ...(permissions.canViewAnalytics ? [{ id: 'report' as const, label: 'Báo cáo', icon: BarChart3 }] : []),
+  const tabs: Array<{ id: WorkspaceTab; label: string }> = [
+    { id: 'queue', label: 'Danh sách' }, { id: 'pipeline', label: 'Tiến độ' },
+    { id: 'calendar', label: 'Lịch chăm sóc' },
+    ...(permissions.canViewAnalytics ? [{ id: 'report' as const, label: 'Báo cáo' }] : []),
   ]
+  const refreshButton = <button type="button" onClick={() => void syncQueue()} disabled={syncing || loading} className="renewal-refresh" aria-label={data?.scope === 'system' ? 'Đồng bộ hợp đồng' : 'Làm mới danh sách'} title={data?.scope === 'system' ? 'Đồng bộ hợp đồng' : 'Làm mới danh sách'}><RefreshCw size={20} className={syncing ? 'is-spinning' : ''} /><span>{data?.scope === 'system' ? 'Đồng bộ' : 'Làm mới'}</span></button>
 
   return <div className="renewal-page">
-    <header className="renewal-hero">
-      <h1>Tái ký</h1>
-      <button type="button" onClick={() => void syncQueue()} disabled={syncing || loading} className="renewal-refresh" aria-label={data?.scope === 'system' ? 'Đồng bộ hợp đồng' : 'Làm mới danh sách'}><RefreshCw size={17} className={syncing ? 'is-spinning' : ''} /><span>{data?.scope === 'system' ? 'Đồng bộ' : 'Làm mới'}</span></button>
+    {headerActionHost && createPortal(refreshButton, headerActionHost)}
+    <header className={`renewal-hero${headerActionHost ? ' renewal-hero--hosted' : ''}`}>
+      <h1>Tái ký & chăm sóc</h1>
+      {refreshButton}
     </header>
     <RenewalSegments data={data} activeSegment={segment} onSelect={selectSegment} />
 
     <nav className="renewal-workspace-tabs" aria-label="Không gian tái ký">
-      {tabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} className={tab === id ? 'is-active' : ''} onClick={() => setTab(id)}><Icon size={17} /><span>{label}</span>{id === 'queue' && <b>{data?.stats.total ?? 0}</b>}</button>)}
+      {tabs.map(({ id, label }) => <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} className={tab === id ? 'is-active' : ''} onClick={() => setTab(id)}>{label}</button>)}
     </nav>
 
     {error && <div className="renewal-error" role="alert"><AlertTriangle size={18} /><span>{error}</span><button onClick={() => setError('')}>Đóng</button></div>}
@@ -384,7 +396,7 @@ export default function ContractRenewals({ onNavigate, onOpenStudent360, source 
 
     {tab === 'queue' && <>
       <RenewalFilters data={data} permissions={permissions} search={search} setSearch={setSearch} risk={risk} setRisk={setRisk} stage={stage} setStage={setStage} sla={sla} setSla={setSla} approval={approval} setApproval={setApproval} branchId={branchId} setBranchId={setBranchId} assigneeId={assigneeId} setAssigneeId={setAssigneeId} sort={sort} setSort={setSort} segment={segment} setSegment={setSegment} open={filtersOpen} setOpen={setFiltersOpen} />
-      <QueueView rows={rows} loading={loading} permissions={permissions} selectedCaseIds={selectedCaseIds} onToggleSelection={toggleCaseSelection} onSelectAll={(checked) => setSelectedCaseIds(checked ? new Set(rows.slice(0, 20).map((row) => row.caseId)) : new Set())} onTransfer={() => setTransferOpen(true)} onOpen={openDetail} onRenew={(row) => void openRenewal(row)} onOpenStudentProfile={openStudentProfile} />
+      <QueueView rows={rows} loading={loading} permissions={permissions} selecting={selecting} onToggleSelecting={() => { setSelecting(!selecting); setSelectedCaseIds(new Set()) }} selectedCaseIds={selectedCaseIds} onToggleSelection={toggleCaseSelection} onSelectAll={(checked) => setSelectedCaseIds(checked ? new Set(rows.slice(0, 20).map((row) => row.caseId)) : new Set())} onTransfer={() => setTransferOpen(true)} onOpen={openDetail} onRenew={(row) => void openRenewal(row)} onOpenStudentProfile={openStudentProfile} />
       {data?.hasMore && <button type="button" className="renewal-load-more" disabled={loading || loadingMore} onClick={() => void load(true)}>{loadingMore ? <LoaderCircle className="is-spinning" /> : <ChevronDown />} Tải thêm hồ sơ</button>}
     </>}
     {tab === 'pipeline' && <PipelineView rows={rows} loading={loading} showFinancials={permissions.canViewFinancials} stageCounts={data?.stats.stageCounts || null} onViewStage={selectPipelineStage} onOpen={openDetail} />}
@@ -394,7 +406,7 @@ export default function ContractRenewals({ onNavigate, onOpenStudent360, source 
     {data?.scope !== 'self' && <button type="button" className="renewal-student-shortcut" onClick={() => onNavigate?.('admin-pt-students')}><UsersRound size={17} /> Mở danh sách học viên</button>}
 
     {selectedCaseId && <CaseInspector detail={detail} loading={detailLoading} options={data?.options || null} permissions={permissions} messageTemplates={messageTemplates} templateError={templateError} onClose={closeDetail} onReload={reloadDetailAndList} onRenew={(row) => void openRenewal(row)} onOpenStudentProfile={openStudentProfile} />}
-    {transferOpen && data && <LeadTransferDialog rows={selectedRows} assignees={data.options.assignees} onClose={() => setTransferOpen(false)} onSuccess={async (count) => { setTransferOpen(false); setSelectedCaseIds(new Set()); setNotice(`Đã bàn giao ${count} hồ sơ và ghi lịch sử vận hành.`); await load(false) }} />}
+    {transferOpen && data && <LeadTransferDialog rows={selectedRows} assignees={data.options.assignees} onClose={() => setTransferOpen(false)} onSuccess={async (count) => { setTransferOpen(false); setSelecting(false); setSelectedCaseIds(new Set()); setNotice(`Đã bàn giao ${count} hồ sơ và ghi lịch sử vận hành.`); await load(false) }} />}
     {renewing && permissions.canRenewContract && <RenewContractModal key={renewing.row.sourceContractId} row={renewing.row} options={renewing.options} scope={renewing.scope} onClose={closeRenewal} onSuccess={async () => { if (!mounted.current) return; closeRenewal(); closeDetail(); setNotice('Tái ký thành công. Hợp đồng, khoản thu và pipeline đã được cập nhật.'); await load(false) }} />}
   </div>
 }
@@ -402,9 +414,10 @@ export default function ContractRenewals({ onNavigate, onOpenStudent360, source 
 function RenewalSegments({ data, activeSegment, onSelect }: { data: RenewalPipelineResponse | null; activeSegment: 'all' | RenewalSegment; onSelect: (segment: RenewalSegment) => void }) {
   return <div className="renewal-kpis" aria-label="Nhóm hợp đồng tái ký">{(Object.keys(segmentLabels) as RenewalSegment[]).map((cardSegment) => {
     const active = activeSegment === cardSegment
-    return <button key={cardSegment} type="button" aria-pressed={active} className={`renewal-focus-card ${active ? 'is-active' : ''}`} onClick={() => onSelect(cardSegment)}>
+    return <button key={cardSegment} type="button" aria-pressed={active} aria-label={`${data?.stats.segmentCounts?.[cardSegment] ?? '—'} ${segmentLabels[cardSegment]}`} className={`renewal-focus-card ${active ? 'is-active' : ''}`} onClick={() => onSelect(cardSegment)}>
       <strong>{data?.stats.segmentCounts?.[cardSegment] ?? '—'}</strong>
-      <span>{segmentLabels[cardSegment]}</span>
+      <span>{segmentHeadings[cardSegment][0]}</span>
+      <small>{segmentHeadings[cardSegment][1]}</small>
     </button>
   })}</div>
 }
@@ -425,7 +438,7 @@ function RenewalFilters(props: FilterProps) {
     ...(props.permissions.canViewFinancials ? [props.approval, props.assigneeId] : []),
   ].filter((value) => value !== 'all').length
   return <section id="renewal-queue-results" className={`renewal-filter-shell ${props.open ? 'is-open' : ''}`}>
-    <div className="renewal-filter-primary"><label className="renewal-search"><Search size={18} /><input aria-label="Tìm học viên" value={props.search} onChange={(event) => props.setSearch(event.target.value)} placeholder="Tìm tên, SĐT học viên…" /></label><button type="button" aria-label={activeCount ? `Bộ lọc, ${activeCount} đang chọn` : 'Bộ lọc'} aria-expanded={props.open} aria-controls="renewal-filter-fields" className={activeCount ? 'has-filter' : ''} onClick={() => props.setOpen(!props.open)}><Filter size={17} /><span>Bộ lọc</span>{activeCount > 0 && <b>{activeCount}</b>}</button></div>
+    <div className="renewal-filter-primary"><label className="renewal-search"><Search size={18} /><input aria-label="Tìm học viên" value={props.search} onChange={(event) => props.setSearch(event.target.value)} placeholder="Tìm tên, số điện thoại…" /></label><button type="button" aria-label={activeCount ? `Bộ lọc, ${activeCount} đang chọn` : 'Bộ lọc'} aria-expanded={props.open} aria-controls="renewal-filter-fields" className={activeCount ? 'has-filter' : ''} onClick={() => props.setOpen(!props.open)}><Filter size={17} /><span>Bộ lọc</span>{activeCount > 0 && <b>{activeCount}</b>}</button></div>
     {props.segment !== 'all' && <div className="renewal-active-segment"><strong>{segmentLabels[props.segment]}</strong><button type="button" onClick={() => props.setSegment('all')}>Xem tất cả <X size={14} /></button></div>}
     <div id="renewal-filter-fields" className="renewal-filter-fields" hidden={!props.open}>
       <label>Cảnh báo<select value={props.risk} onChange={(event) => props.setRisk(event.target.value as typeof props.risk)}><option value="all">Tất cả</option>{Object.entries(riskLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
@@ -442,38 +455,46 @@ function RenewalFilters(props: FilterProps) {
 
 function StudentProfileButton({ row, onOpen }: { row: RenewalPipelineRow; onOpen?: OpenStudentProfile }) {
   if (!onOpen || !row.student.id) return null
-  return <button type="button" className="renewal-profile-button" aria-label={`Hồ sơ 360° của ${row.student.name}`} onClick={(event) => { event.stopPropagation(); onOpen(row) }}><UserRoundCheck size={16} /> Hồ sơ 360°</button>
+  return <button type="button" className="renewal-profile-button" aria-label={`Hồ sơ 360° của ${row.student.name}`} onClick={(event) => { event.stopPropagation(); onOpen(row) }}><FileUser size={18} /> Hồ sơ 360° <ChevronRight size={14} /></button>
 }
 
-function QueueView({ rows, loading, permissions, selectedCaseIds, onToggleSelection, onSelectAll, onTransfer, onOpen, onRenew, onOpenStudentProfile }: {
+function QueueView({ rows, loading, permissions, selecting, onToggleSelecting, selectedCaseIds, onToggleSelection, onSelectAll, onTransfer, onOpen, onRenew, onOpenStudentProfile }: {
   rows: RenewalPipelineRow[]; loading: boolean; permissions: RenewalPermissions; selectedCaseIds: Set<string>
+  selecting: boolean; onToggleSelecting: () => void
   onToggleSelection: (caseId: string) => void; onSelectAll: (checked: boolean) => void; onTransfer: () => void
   onOpen: (id: string) => void; onRenew: (row: RenewalPipelineRow) => void; onOpenStudentProfile?: OpenStudentProfile
 }) {
   if (loading) return <LoadingState label="Đang tải hàng đợi tái ký…" />
   if (!rows.length) return <EmptyState />
   const canTransfer = permissions.canAssign
+  const selectable = canTransfer && selecting
   const canRenew = permissions.canRenewContract
   const selectedCount = selectedCaseIds.size
-  return <section className="renewal-queue-panel"><header><h2>{rows.length} hồ sơ đang hiển thị</h2>{canTransfer && selectedCount > 0 && <div className="renewal-queue-tools"><button type="button" onClick={onTransfer}><UserRoundPlus size={16} /> Bàn giao {selectedCount}</button></div>}</header>
+  return <section className="renewal-queue-panel"><header><h2>Học viên <span className="renewal-list-count" aria-label={`${rows.length} hồ sơ đang hiển thị`}>{rows.length}</span></h2>{canTransfer && <div className="renewal-queue-tools">{selectedCount > 0 && <button type="button" onClick={onTransfer}><UserRoundPlus size={16} /> Bàn giao {selectedCount}</button>}<button type="button" className="renewal-select-toggle" aria-pressed={selecting} onClick={onToggleSelecting}>{selecting ? 'Xong' : 'Chọn'}</button></div>}</header>
     {canTransfer && selectedCount > 0 && <div className="renewal-selection-bar"><span><CheckCircle2 size={16} /><strong>{selectedCount} hồ sơ đã chọn</strong><small>Tối đa 20 hồ sơ mỗi lần bàn giao</small></span><button type="button" onClick={() => onSelectAll(false)}>Bỏ chọn</button></div>}
-    <div className="renewal-table-wrap"><table className="renewal-table"><thead><tr>{canTransfer && <th className="renewal-select-cell"><input type="checkbox" aria-label="Chọn các hồ sơ đang hiển thị" checked={rows.length > 0 && rows.slice(0, 20).every((row) => selectedCaseIds.has(row.caseId))} onChange={(event) => onSelectAll(event.target.checked)} /></th>}<th>Học viên</th><th>Hợp đồng</th><th>Cảnh báo</th><th>Phụ trách</th><th>Giai đoạn</th><th>Hẹn chăm sóc</th>{permissions.canViewFinancials && <th>Giá trị</th>}<th /></tr></thead><tbody>{rows.map((row) => <tr key={row.caseId} className={selectedCaseIds.has(row.caseId) ? 'is-selected' : ''} onClick={() => onOpen(row.caseId)}>{canTransfer && <td className="renewal-select-cell"><input type="checkbox" aria-label={`Chọn ${row.student.name}`} checked={selectedCaseIds.has(row.caseId)} onClick={(event) => event.stopPropagation()} onChange={() => onToggleSelection(row.caseId)} /></td>}<td><div className="renewal-member-cell"><i>{row.student.name.trim().charAt(0).toUpperCase() || 'A'}</i><span><strong>{row.student.name}</strong><small>{row.student.phone || row.student.email || 'Chưa có liên hệ'}</small></span></div></td><td><strong>{row.contract.packageName}</strong><small>{row.contract.usedSessions}/{row.contract.totalSessions} buổi · đến {formatDate(row.contract.endDate)}</small></td><td><span className={`renewal-risk renewal-risk--${row.risk.category}`}>{riskLabels[row.risk.category]}</span><small>{riskSummary(row)}</small></td><td><strong>{row.assignedSalesName}</strong><small>{row.branchName}</small></td><td><span className={`renewal-stage renewal-stage--${row.stage}`}>{stageLabels[row.stage]}</span></td><td><span className={`renewal-sla renewal-sla--${row.slaStatus}`}>{slaLabels[row.slaStatus]}</span><small>{formatDate(row.nextActionAt || row.slaDueAt)}</small></td>{permissions.canViewFinancials && <td><strong>{money(row.expectedValue)}</strong><small>{Math.round(row.probability * 100)}% xác suất</small></td>}<td><div className="renewal-row-actions"><StudentProfileButton row={row} onOpen={onOpenStudentProfile} /><button type="button" onClick={(event) => { event.stopPropagation(); canRenew ? onRenew(row) : onOpen(row.caseId) }}>{canRenew ? 'Tái ký' : 'Chăm sóc'} <ChevronRight size={15} /></button></div></td></tr>)}</tbody></table></div>
-    <div className="renewal-mobile-list">{rows.map((row) => <RenewalMobileCard key={row.caseId} row={row} selectable={canTransfer} selected={selectedCaseIds.has(row.caseId)} showFinancials={permissions.canViewFinancials} canRenew={canRenew} onToggleSelection={onToggleSelection} onOpen={onOpen} onRenew={onRenew} onOpenStudentProfile={onOpenStudentProfile} />)}</div>
+    <div className="renewal-table-wrap"><table className="renewal-table"><thead><tr>{selectable && <th className="renewal-select-cell"><input type="checkbox" aria-label="Chọn các hồ sơ đang hiển thị" checked={rows.length > 0 && rows.slice(0, 20).every((row) => selectedCaseIds.has(row.caseId))} onChange={(event) => onSelectAll(event.target.checked)} /></th>}<th>Học viên</th><th>Hợp đồng</th><th>Cảnh báo</th><th>Phụ trách</th><th>Giai đoạn</th><th>Hẹn chăm sóc</th>{permissions.canViewFinancials && <th>Giá trị</th>}<th /></tr></thead><tbody>{rows.map((row) => <tr key={row.caseId} className={selectedCaseIds.has(row.caseId) ? 'is-selected' : ''} onClick={() => onOpen(row.caseId)}>{selectable && <td className="renewal-select-cell"><input type="checkbox" aria-label={`Chọn ${row.student.name}`} checked={selectedCaseIds.has(row.caseId)} onClick={(event) => event.stopPropagation()} onChange={() => onToggleSelection(row.caseId)} /></td>}<td><div className="renewal-member-cell"><i>{row.student.name.trim().charAt(0).toUpperCase() || 'A'}</i><span><strong>{row.student.name}</strong><small>{row.student.phone || row.student.email || 'Chưa có liên hệ'}</small></span></div></td><td><strong>{row.contract.packageName}</strong><small>{row.contract.usedSessions}/{row.contract.totalSessions} buổi · đến {formatDate(row.contract.endDate)}</small></td><td><span className={`renewal-risk renewal-risk--${row.risk.category}`}>{riskLabels[row.risk.category]}</span><small>{riskSummary(row)}</small></td><td><strong>{row.assignedSalesName}</strong><small>{row.branchName}</small></td><td><span className={`renewal-stage renewal-stage--${row.stage}`}>{stageLabels[row.stage]}</span></td><td><span className={`renewal-sla renewal-sla--${row.slaStatus}`}>{slaLabels[row.slaStatus]}</span><small>{formatDate(row.nextActionAt || row.slaDueAt)}</small></td>{permissions.canViewFinancials && <td><strong>{money(row.expectedValue)}</strong><small>{Math.round(row.probability * 100)}% xác suất</small></td>}<td><div className="renewal-row-actions"><StudentProfileButton row={row} onOpen={onOpenStudentProfile} /><button type="button" onClick={(event) => { event.stopPropagation(); canRenew ? onRenew(row) : onOpen(row.caseId) }}>{canRenew ? 'Tái ký' : 'Chăm sóc'} <ChevronRight size={15} /></button></div></td></tr>)}</tbody></table></div>
+    <div className="renewal-mobile-list">{rows.map((row) => <RenewalMobileCard key={row.caseId} row={row} selectable={selectable} selected={selectedCaseIds.has(row.caseId)} showFinancials={permissions.canViewFinancials} canRenew={canRenew} onToggleSelection={onToggleSelection} onOpen={onOpen} onRenew={onRenew} onOpenStudentProfile={onOpenStudentProfile} />)}</div>
   </section>
 }
 
 function RenewalMobileCard({ row, selectable, selected, showFinancials, canRenew, onToggleSelection, onOpen, onRenew, onOpenStudentProfile }: { row: RenewalPipelineRow; selectable: boolean; selected: boolean; showFinancials: boolean; canRenew: boolean; onToggleSelection: (id: string) => void; onOpen: (id: string) => void; onRenew: (row: RenewalPipelineRow) => void; onOpenStudentProfile?: OpenStudentProfile }) {
-  return <article className={`renewal-mobile-card ${selectable ? 'is-selectable' : ''} ${selected ? 'is-selected' : ''}`} onClick={() => onOpen(row.caseId)}>
+  const extraSessions = Math.max(0, row.contract.usedSessions - row.contract.totalSessions)
+  const expired = row.risk.daysLeft < 0
+  const careLabels: Record<RenewalSlaStatus, string> = { overdue: 'Quá hẹn chăm sóc', due_today: 'Chăm sóc hôm nay', upcoming: 'Hẹn chăm sóc', done: 'Đã chăm sóc' }
+  const openCard = () => selectable ? onToggleSelection(row.caseId) : onOpen(row.caseId)
+  return <article className={`renewal-mobile-card ${selectable ? 'is-selectable' : ''} ${selected ? 'is-selected' : ''}`} onClick={openCard}>
     <header>
       {selectable && <label className="renewal-mobile-select" onClick={(event) => event.stopPropagation()}><input type="checkbox" aria-label={`Chọn ${row.student.name}`} checked={selected} onChange={() => onToggleSelection(row.caseId)} /></label>}
-      <button type="button" className="renewal-mobile-identity" aria-label={`Chăm sóc ${row.student.name}`} onClick={(event) => { event.stopPropagation(); onOpen(row.caseId) }}><strong>{row.student.name}</strong><span>{row.student.phone || 'Chưa có SĐT'} · {row.branchName}</span></button>
+      <button type="button" className="renewal-mobile-identity" aria-label={`${selectable ? 'Chọn hồ sơ' : 'Chăm sóc'} ${row.student.name}`} onClick={(event) => { event.stopPropagation(); openCard() }}><i aria-hidden="true">{row.student.name.trim().charAt(0).toUpperCase() || 'A'}</i><span><strong>{row.student.name}</strong><small>{row.branchName || 'Chưa gắn chi nhánh'}</small></span></button>
+      <span className={`renewal-risk renewal-risk--${row.risk.category}`}>{riskLabels[row.risk.category]}</span>
     </header>
     <div className="renewal-mobile-contract">
-      <div><span>{row.contract.packageName}</span><span className={`renewal-risk renewal-risk--${row.risk.category}`}>{riskLabels[row.risk.category]}</span></div>
-      <p><strong>{riskSummary(row)}</strong><span>Đã dùng {row.contract.usedSessions}/{row.contract.totalSessions} buổi</span></p>
-      <small><span>Hết hạn {formatDate(row.contract.endDate)}</span>{showFinancials && <b>{money(row.expectedValue)}</b>}</small>
+      <div><strong>{row.contract.packageName}</strong>{showFinancials && <b>{money(row.expectedValue)}</b>}</div>
+      <p><span>Đã dùng {row.contract.usedSessions}/{row.contract.totalSessions} buổi</span><span className={extraSessions > 0 ? 'renewal-session-overage' : 'renewal-sessions-left'}>{extraSessions > 0 ? `Vượt ${extraSessions} buổi` : `Còn ${Math.max(0, row.risk.sessionsLeft)} buổi`}</span></p>
     </div>
-    <footer><span className={`renewal-sla renewal-sla--${row.slaStatus}`}>{slaLabels[row.slaStatus]} · {formatDate(row.nextActionAt || row.slaDueAt)}</span><div className="renewal-row-actions"><StudentProfileButton row={row} onOpen={onOpenStudentProfile} /><button type="button" onClick={(event) => { event.stopPropagation(); canRenew ? onRenew(row) : onOpen(row.caseId) }}>{canRenew ? 'Tái ký' : 'Chăm sóc'} <ArrowRight size={14} /></button></div></footer>
+    <div className="renewal-mobile-expiry"><span>Hết hạn {formatDate(row.contract.endDate)}</span><strong className={expired ? 'is-expired' : ''}>{expired ? `Quá ${Math.abs(row.risk.daysLeft)} ngày` : row.risk.daysLeft === 0 ? 'Hôm nay' : `Còn ${row.risk.daysLeft} ngày`}</strong></div>
+    <div className={`renewal-care-date renewal-care-date--${row.slaStatus}`}><CalendarDays size={18} /><span>{careLabels[row.slaStatus]} · {formatDate(row.nextActionAt || row.slaDueAt)}</span></div>
+    <footer><div className="renewal-row-actions"><StudentProfileButton row={row} onOpen={onOpenStudentProfile} /><button type="button" onClick={(event) => { event.stopPropagation(); canRenew ? onRenew(row) : onOpen(row.caseId) }}>{canRenew ? 'Tái ký' : 'Chăm sóc'} <ArrowRight size={17} /></button></div></footer>
   </article>
 }
 
