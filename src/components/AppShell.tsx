@@ -42,6 +42,7 @@ import { Sheet } from './ui'
 import { useAuraUiSurface } from '../features/ui-rollout/AuraUiRolloutContext'
 import { isNavigationViewVisible } from '../config/navigationAvailability'
 import { usesClubOperationsDock } from '../features/loyalty/clubNavigationPolicy'
+import { AppShellHeaderContext } from '../contexts/AppShellHeaderContext'
 import './AppShell.css'
 
 // Keep the conversation out of the initial shell bundle. The coach is
@@ -345,7 +346,7 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   'staff-requests': 'Yêu cầu đổi và hủy lịch',
   'staff-nutrition-reviews': 'Duyệt món học viên',
   'staff-quotes': 'Báo giá',
-  'staff-renewals': 'Tái ký và gia hạn',
+  'staff-renewals': 'Tái ký & chăm sóc',
   'staff-performance': 'Hiệu suất của tôi',
   'staff-payroll': 'Lương của tôi',
   progress: 'Tiến độ & ôn tập',
@@ -364,7 +365,7 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   'admin-pt-workouts': 'Giáo án & mức tạ',
   'admin-trainer-quality': 'Chất lượng PT',
   'admin-performance': 'Performance PT',
-  'admin-renewals': 'Tái ký & chăm sóc hợp đồng',
+  'admin-renewals': 'Tái ký & chăm sóc',
   'admin-report': 'Tổng quan vận hành Gym',
   'admin-finance': 'Tài chính',
   'admin-payroll': 'Bảng lương',
@@ -392,6 +393,8 @@ function isNavigationActive(view: ViewId, itemId: ViewId, mobile = false) {
   if (view === 'admin-course-editor' && itemId === 'admin-courses') return true
   if (mobile && view === 'student-availability' && itemId === 'schedule') return true
   if (mobile && view === 'eat-clean' && itemId === 'nutrition') return true
+  if (mobile && view === 'admin-renewals' && itemId === 'admin-pt-students') return true
+  if (mobile && view === 'staff-renewals' && itemId === 'staff-students') return true
   return false
 }
 
@@ -411,6 +414,8 @@ function StaffWorkspaceSwitcher({ personal, onChange, canOpenWork }: { personal:
 export default function AppShell({ children, mode, view, onNavigate, onModeChange, mobileMenu, setMobileMenu, userName, userId, userRole, role, setPreviewRole, userPhoto, backendMode, isStaffWorkspace = false, isStaffAccount = false, onStaffWorkspaceChange, staffPositions = [], onSignOut, onSearch, canNavigate = () => true, authorizationError, aiCoachConversationScope = 'progress-demo', aiCoachLearningContext = null }: AppShellProps) {
   const hasClubNavigation = usesClubOperationsDock(view, role, mode, isStaffWorkspace)
   const shellV4 = useAuraUiSurface('shell')
+  const isRenewalWorkspace = view === 'admin-renewals' || view === 'staff-renewals'
+  const [headerActionHost, setHeaderActionHost] = useState<HTMLDivElement | null>(null)
   const isPersonalWorkspace = isStaffAccount && !isStaffWorkspace
   // Staff can always return from personal mode via “Thêm”, even before the
   // global V4 shell rollout. Keep four routes plus More, never a six-item dock.
@@ -616,7 +621,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
   if (isImmersive) return <>{children}{aiCoachSurface}</>
 
   return (
-    <div className={`app-shell ${mode}${shellV4 ? ' aura-ui-v4-shell' : ''}`} data-view={view} data-workspace={isStaffAccount ? isPersonalWorkspace ? 'personal' : 'staff' : mode}>
+    <div className={`app-shell ${mode}${shellV4 ? ' aura-ui-v4-shell' : ''}${isRenewalWorkspace ? ' renewal-workspace' : ''}`} data-view={view} data-workspace={isStaffAccount ? isPersonalWorkspace ? 'personal' : 'staff' : mode}>
       <a className="skip-link" href="#main-content">Bỏ qua điều hướng</a>
       <aside id="app-sidebar" className={`sidebar ${mobileMenu ? 'open' : ''}`}>
         <button className="brand" type="button" aria-label="Về trang chính" onClick={() => { onNavigate(isStaffWorkspace ? 'staff-dashboard' : mode === 'student' ? 'home' : 'admin-dashboard'); setMobileMenu(false) }}>
@@ -677,7 +682,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
           <button className="mobile-menu-button" aria-label="Mở menu" aria-controls="app-sidebar" aria-expanded={mobileMenu} onClick={() => setMobileMenu(true)}><Menu size={23} /></button>
           <div className="mobile-page-context">
             <small>{isStaffWorkspace ? 'AURA STAFF' : mode === 'student' ? 'AURA FITNESS' : 'AURA OPERATIONS'}</small>
-            <strong>{viewTitles[view] ?? 'Aura Fitness'}</strong>
+            <strong role={isRenewalWorkspace ? 'heading' : undefined} aria-level={isRenewalWorkspace ? 1 : undefined}>{viewTitles[view] ?? 'Aura Fitness'}</strong>
           </div>
           <form className="topbar-search" onSubmit={submitSearch}>
             <button type="submit" aria-label="Tìm"><Search size={19} /></button>
@@ -685,6 +690,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
             <kbd>Enter</kbd>
           </form>
           <div className="topbar-actions">
+            {isRenewalWorkspace && <div className="page-topbar-action" ref={setHeaderActionHost} />}
             <button className="mobile-search-button" aria-label="Mở tìm kiếm" aria-expanded={mobileSearchOpen} onClick={() => setMobileSearchOpen(true)}><Search size={20} /></button>
             <span className={`backend-indicator ${backendMode}`} title={backendMode === 'firebase' ? 'Dữ liệu đã được đồng bộ' : 'Đang dùng dữ liệu xem trước'}><Cloud size={14} />{backendMode === 'firebase' ? 'Đã đồng bộ' : 'Xem trước'}</span>
             <NotificationCenter />
@@ -803,7 +809,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
             <button type="button" disabled={!canNavigate('staff-dashboard')} onClick={() => changeStaffWorkspace(false)}><LayoutDashboard size={16} aria-hidden="true" /> Về công việc</button>
           </section>
         )}
-        <main id="main-content" className="page-content" tabIndex={-1}>{children}</main>
+        <main id="main-content" className="page-content" tabIndex={-1}><AppShellHeaderContext.Provider value={headerActionHost}>{children}</AppShellHeaderContext.Provider></main>
 
         {hasClubNavigation ? null : mode === 'student' || isStaffWorkspace ? (
           <nav className={`mobile-bottom-nav student-mobile-nav${isStaffWorkspace ? ' staff-mobile-nav' : ''}${mobileDockHidden ? ' is-scroll-hidden' : ''}`} aria-label={isStaffWorkspace ? 'Điều hướng Staff' : 'Điều hướng học viên'}>

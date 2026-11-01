@@ -22,10 +22,13 @@ for (const width of [360, 390, 430]) {
       overflow: element.scrollWidth - element.clientWidth,
       height: element.getBoundingClientRect().height,
     }))
-    expect(layout.columns).toBe(2)
+    expect(layout.columns).toBe(4)
     expect(layout.overflow).toBeLessThanOrEqual(1)
-    expect(layout.height).toBeLessThanOrEqual(190)
-    await expect(page.getByRole('heading', { name: 'Tái ký', exact: true })).toBeVisible()
+    expect(layout.height).toBeLessThanOrEqual(100)
+    await expect(page.getByRole('heading', { name: 'Tái ký & chăm sóc', exact: true })).toBeVisible()
+    await expect(page.locator('.topbar').getByRole('button', { name: /Làm mới danh sách|Đồng bộ hợp đồng/ })).toBeVisible()
+    await expect(page.locator('.renewal-hero')).toBeHidden()
+    await expect(page.locator('.mobile-bottom-nav').getByRole('button', { name: /^Học viên(?: PT)?$/ })).toHaveAttribute('aria-current', 'page')
     await page.screenshot({ path: testInfo.outputPath(`renewal-${width}.png`), fullPage: true })
 
     const expired = groups.getByRole('button', { name: /Hết hạn · 30 ngày qua/i })
