@@ -475,20 +475,6 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
       {!loading && !loadIssue && data && !data.linked && <div className="student-schedule-state is-warning"><Link2 size={28} /><strong>Chưa liên kết hồ sơ học viên</strong><span>{missingProfileDescription}</span></div>}
 
       {!loading && data?.student && <>
-        {attentionAlerts.length > 0 && <section className="student-attention-center" aria-label="Thông tin bạn cần lưu ý">
-          <header><span><AlertCircle size={19} /></span><div><small>AURA NHẮC BẠN</small><h2>{attentionAlerts.length} việc cần lưu ý</h2></div></header>
-          <div className="student-attention-center__rail">
-            {attentionAlerts.slice(0, scheduleV4 ? 3 : attentionAlerts.length).map((alert) => <button type="button" className={`is-${alert.severity}`} key={alert.key} onClick={() => {
-              if (alert.action === 'availability') return onNavigate('student-availability')
-              if (alert.contractId) setSelectedContractId(alert.contractId)
-              setActiveTab('contract')
-            }}>
-              <span className="student-attention-center__icon"><AlertCircle size={20} /></span>
-              <span className="student-attention-center__copy"><small>{alert.severity === 'critical' ? 'CẦN XỬ LÝ SỚM' : alert.severity === 'warning' ? 'CẦN LƯU Ý' : 'THÔNG TIN'}</small><strong>{alert.title}</strong><em>{alert.message}</em><b>{alert.actionLabel} <ChevronRight size={14} /></b></span>
-            </button>)}
-          </div>
-        </section>}
-        <SessionFeedbackPrompt isDemo={isDemo} onSubmitted={() => setMessage('Đánh giá PT đã được gửi đến Aura.')} />
         {scheduleV4 ? <section className="student-schedule-v4-header"><div><small>AURA · LỊCH TẬP</small><h1>Lịch của bạn</h1><p>{weekSessions.length ? `${weekSessions.length} buổi trong tuần · ${weekCompletion}% đã hoàn thành` : 'Chưa có buổi tập trong tuần đang xem.'}</p></div><div><button type="button" onClick={() => onNavigate('student-availability')}><CalendarRange size={17} /> Lịch rảnh</button></div></section> : <section className="student-schedule-hero" aria-roledescription="carousel" aria-label="Tổng quan lịch học viên">
           <div
             ref={heroTrackRef}
@@ -518,6 +504,20 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
             <div>{[0, 1, 2].map((index) => <button type="button" key={index} className={heroSlide === index ? 'active' : ''} aria-label={`Xem slide ${index + 1}`} aria-current={heroSlide === index ? 'true' : undefined} onClick={() => selectHeroSlide(index)} />)}</div>
             <button type="button" aria-label={heroSlide === 2 ? 'Quay lại slide đầu' : 'Slide tiếp theo'} onClick={() => selectHeroSlide(heroSlide === 2 ? 0 : heroSlide + 1)}><ChevronRight size={17} /></button>
           </footer>
+        </section>}
+
+        {attentionAlerts.length > 0 && <section className="student-attention-center" aria-label="Thông tin bạn cần lưu ý">
+          <header><span><AlertCircle size={19} /></span><div><small>AURA NHẮC BẠN</small><h2>{attentionAlerts.length} việc cần lưu ý</h2></div></header>
+          <div className="student-attention-center__rail">
+            {attentionAlerts.slice(0, scheduleV4 ? 3 : attentionAlerts.length).map((alert) => <button type="button" className={`is-${alert.severity}`} key={alert.key} onClick={() => {
+              if (alert.action === 'availability') return onNavigate('student-availability')
+              if (alert.contractId) setSelectedContractId(alert.contractId)
+              setActiveTab('contract')
+            }}>
+              <span className="student-attention-center__icon"><AlertCircle size={20} /></span>
+              <span className="student-attention-center__copy"><small>{alert.severity === 'critical' ? 'CẦN XỬ LÝ SỚM' : alert.severity === 'warning' ? 'CẦN LƯU Ý' : 'THÔNG TIN'}</small><strong>{alert.title}</strong><em>{alert.message}</em><b>{alert.actionLabel} <ChevronRight size={14} /></b></span>
+            </button>)}
+          </div>
         </section>}
 
         {scheduleV4 ? <nav className="student-schedule-tabs student-schedule-tabs--v4" aria-label="Nội dung lịch học viên">
@@ -565,6 +565,7 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
             <button type="button" className="reschedule-button" onClick={goToday}><RotateCcw size={17} /> Quay về tuần hiện tại</button>
           </aside>
         </section>}
+        <SessionFeedbackPrompt isDemo={isDemo} onSubmitted={() => setMessage('Đánh giá PT đã được gửi đến Aura.')} />
         {message && <div className="student-schedule-message" role="status"><Check size={17} /> {message}</div>}
         {data.sessionsTruncated && <div className="student-schedule-state is-warning" role="status"><AlertCircle size={24} /><strong>Khoảng lịch có quá nhiều buổi tập</strong><span>Aura đang hiển thị 1.000 buổi đầu tiên. Hãy chuyển sang khoảng thời gian ngắn hơn để xem đầy đủ.</span></div>}
         {activeTab === 'contract' && <section className="student-contract-center">

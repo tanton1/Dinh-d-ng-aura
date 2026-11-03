@@ -34,6 +34,7 @@ import { loadPtWorkoutSession, readPtExercisePrescription, visibleExerciseTags }
 import { loadAssignedPtWorkout, type CompletedPtProgram } from '../../services/ptCoachingWorkoutService'
 import '../../styles-coaching.css'
 import { restoreWorkoutSubmission } from '../../features/workouts/submissionRecovery'
+import { greetingName } from '../../utils/displayName'
 
 const DEMO_WORKOUT_REF: LessonWorkoutReference = {
   programId: 'foundation-strength-8-week',
@@ -635,7 +636,7 @@ function WorkoutSessionPlayer({
   }
 
   if (finished) {
-    const firstName = user?.displayName?.trim().split(/\s+/).at(-1) || 'bạn'
+    const firstName = greetingName(user?.displayName ?? '')
     return (
       <div className="workout-complete">
         <div className="complete-confetti" aria-hidden="true"><i /><i /><i /><i /><i /></div>

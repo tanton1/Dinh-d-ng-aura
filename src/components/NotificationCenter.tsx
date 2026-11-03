@@ -194,7 +194,7 @@ export default function NotificationCenter({
             right: showLabel ? '2px' : '2px',
             backgroundColor: '#ef4444',
             color: 'white',
-            fontSize: '10px',
+            fontSize: '12px',
             fontWeight: 'bold',
             borderRadius: '10px',
             minWidth: '16px',

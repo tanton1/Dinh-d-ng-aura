@@ -24,6 +24,28 @@
   --aura-radius-lg: 20px;
   --aura-radius-pill: 999px;
   --aura-font: "Be Vietnam Pro", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  /* Type scale. --aura-text-xs is the smallest size allowed on member screens. */
+  --aura-text-xs: 12px;
+  --aura-text-sm: 14px;
+  --aura-text-md: 16px;
+  --aura-text-lg: 20px;
+  --aura-text-xl: 26px;
+  --aura-text-2xl: 32px;
+
+  /* 4px spacing rhythm. */
+  --aura-space-1: 4px;
+  --aura-space-2: 8px;
+  --aura-space-3: 12px;
+  --aura-space-4: 16px;
+  --aura-space-6: 24px;
+  --aura-space-8: 32px;
+
+  --aura-touch-target: 44px;
+
+  /* Accessible brand pairs: both reach 4.5:1 with white, on white and on pink-soft. */
+  --aura-pink-text: #C2185B;
+  --aura-gradient-cta: linear-gradient(135deg, #D6186E 0%, #C2410C 100%);
   /* CRM surfaces share the student workspace palette. Status colors retain
      their semantic success/warning/error meanings. */
   --aura-crm-ink: #211720;

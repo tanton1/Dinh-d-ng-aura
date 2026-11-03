@@ -468,6 +468,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
   const [aiCoachOpen, setAiCoachOpen] = useState(false)
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false)
   const mobileSearchInputRef = useRef<HTMLInputElement>(null)
+  const sidebarRef = useRef<HTMLElement>(null)
   const lastScrollYRef = useRef(0)
   const currentMonth = new Intl.DateTimeFormat('vi-VN', { month: 'numeric' }).format(new Date())
   const showAiCoach = mode === 'student' && !isStaffWorkspace
@@ -537,6 +538,41 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
     document.body.classList.toggle('shell-overlay-open', overlayOpen)
     return () => document.body.classList.remove('shell-overlay-open')
   }, [mobileMenu, mobileSearchOpen])
+
+  useEffect(() => {
+    if (!mobileMenu) return
+    // The off-canvas menu only exists below the tablet rail breakpoint.
+    const offCanvasQuery = window.matchMedia('(max-width: 767px)')
+    if (!offCanvasQuery.matches) {
+      setMobileMenu(false)
+      return
+    }
+    const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const focusable = () => [...(sidebarRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href]') ?? [])]
+    focusable().find((item) => item.classList.contains('sidebar-close'))?.focus()
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setMobileMenu(false)
+        return
+      }
+      if (event.key !== 'Tab') return
+      const items = focusable()
+      if (!items.length) return
+      const first = items[0]
+      const last = items[items.length - 1]
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+    }
+    const handleViewportChange = () => setMobileMenu(false)
+    document.addEventListener('keydown', handleKeyDown)
+    offCanvasQuery.addEventListener('change', handleViewportChange)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      offCanvasQuery.removeEventListener('change', handleViewportChange)
+      returnFocus?.focus({ preventScroll: true })
+    }
+  }, [mobileMenu, setMobileMenu])
 
   const selectStaffWorkspace = (position: StaffPosition) => {
     setStaffWorkspace(position)
@@ -623,7 +659,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
   return (
     <div className={`app-shell ${mode}${shellV4 ? ' aura-ui-v4-shell' : ''}${isRenewalWorkspace ? ' renewal-workspace' : ''}`} data-view={view} data-workspace={isStaffAccount ? isPersonalWorkspace ? 'personal' : 'staff' : mode}>
       <a className="skip-link" href="#main-content">Bỏ qua điều hướng</a>
-      <aside id="app-sidebar" className={`sidebar ${mobileMenu ? 'open' : ''}`}>
+      <aside id="app-sidebar" ref={sidebarRef} className={`sidebar ${mobileMenu ? 'open' : ''}`}>
         <button className="brand" type="button" aria-label="Về trang chính" onClick={() => { onNavigate(isStaffWorkspace ? 'staff-dashboard' : mode === 'student' ? 'home' : 'admin-dashboard'); setMobileMenu(false) }}>
           <div className="brand-mark">A<span /></div>
           <div><strong>AURA</strong><small>FITNESS</small></div>

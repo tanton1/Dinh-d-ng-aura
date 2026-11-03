@@ -351,7 +351,7 @@ function ProgressPhotosCardContent({ ownerId, triggerAddPhoto, onAddPhotoTrigger
               <span
                 key={idx}
                 style={{
-                  fontSize: '11px',
+                  fontSize: '12px',
                   fontWeight: 700,
                   padding: '2px 8px',
                   borderRadius: '6px',
@@ -366,11 +366,11 @@ function ProgressPhotosCardContent({ ownerId, triggerAddPhoto, onAddPhotoTrigger
             ))}
           </div>
         ) : photo.notes ? (
-          <div style={{ fontSize: '11px', color: '#475569', fontStyle: 'italic', background: '#f8fafc', padding: '4px 8px', borderRadius: '6px', border: '1px solid #f1f5f9', lineHeight: '1.3' }}>
+          <div style={{ fontSize: '12px', color: '#475569', fontStyle: 'italic', background: '#f8fafc', padding: '4px 8px', borderRadius: '6px', border: '1px solid #f1f5f9', lineHeight: '1.3' }}>
             "{photo.notes}"
           </div>
         ) : (
-          <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <div style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '4px' }}>
             <Sliders size={12} /> Số đo khác: Chưa cập nhật
           </div>
         )}
@@ -419,7 +419,7 @@ function ProgressPhotosCardContent({ ownerId, triggerAddPhoto, onAddPhotoTrigger
                   border: 'none',
                   background: active ? '#fff0f5' : 'transparent',
                   color: active ? '#ff1a8c' : '#64748b',
-                  fontSize: '11px',
+                  fontSize: '12px',
                   fontWeight: 800,
                   cursor: 'pointer',
                   transition: 'all 0.15s ease',
@@ -445,7 +445,7 @@ function ProgressPhotosCardContent({ ownerId, triggerAddPhoto, onAddPhotoTrigger
             borderRadius: '16px',
             padding: '8px 12px',
             color: '#475569',
-            fontSize: '11px',
+            fontSize: '12px',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
@@ -505,7 +505,7 @@ function ProgressPhotosCardContent({ ownerId, triggerAddPhoto, onAddPhotoTrigger
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px' }}>
              {/* Trước Selection */}
              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#ff1a8c', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#ff1a8c', fontSize: '12px', fontWeight: 800, textTransform: 'uppercase' }}>
                   <Calendar size={12} /> Trước
                 </div>
                 <select
@@ -538,7 +538,7 @@ function ProgressPhotosCardContent({ ownerId, triggerAddPhoto, onAddPhotoTrigger
 
              {/* Sau Selection */}
              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '2px', alignItems: 'flex-end', textAlign: 'right' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#ff1a8c', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#ff1a8c', fontSize: '12px', fontWeight: 800, textTransform: 'uppercase' }}>
                   <Calendar size={12} /> Sau
                 </div>
                 <select
@@ -572,7 +572,7 @@ function ProgressPhotosCardContent({ ownerId, triggerAddPhoto, onAddPhotoTrigger
             {/* Left Card: Before */}
             <div style={{ position: 'relative', display: 'flex', flexDirection: 'column' }}>
               <div style={{ width: '100%', aspectRatio: '3/4', borderRadius: '16px', overflow: 'hidden', position: 'relative', background: '#f8fafc', marginBottom: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
-                <span style={{ position: 'absolute', top: 10, left: 10, padding: '4px 10px', borderRadius: '8px', background: 'rgba(30, 41, 59, 0.75)', color: '#ffffff', fontSize: '11px', fontWeight: 700, zIndex: 10, backdropFilter: 'blur(4px)' }}>
+                <span style={{ position: 'absolute', top: 10, left: 10, padding: '4px 10px', borderRadius: '8px', background: 'rgba(30, 41, 59, 0.75)', color: '#ffffff', fontSize: '12px', fontWeight: 700, zIndex: 10, backdropFilter: 'blur(4px)' }}>
                   Trước
                 </span>
                 
@@ -607,7 +607,7 @@ function ProgressPhotosCardContent({ ownerId, triggerAddPhoto, onAddPhotoTrigger
             {/* Right Card: After */}
             <div style={{ position: 'relative', display: 'flex', flexDirection: 'column' }}>
               <div style={{ width: '100%', aspectRatio: '3/4', borderRadius: '16px', overflow: 'hidden', position: 'relative', background: '#f8fafc', marginBottom: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
-                <span style={{ position: 'absolute', top: 10, left: 10, padding: '4px 10px', borderRadius: '8px', background: '#ff1a8c', color: '#ffffff', fontSize: '11px', fontWeight: 700, zIndex: 10, boxShadow: '0 2px 6px rgba(255,26,140,0.3)' }}>
+                <span style={{ position: 'absolute', top: 10, left: 10, padding: '4px 10px', borderRadius: '8px', background: '#ff1a8c', color: '#ffffff', fontSize: '12px', fontWeight: 700, zIndex: 10, boxShadow: '0 2px 6px rgba(255,26,140,0.3)' }}>
                   Sau
                 </span>
                 
@@ -626,7 +626,7 @@ function ProgressPhotosCardContent({ ownerId, triggerAddPhoto, onAddPhotoTrigger
                 )}
                 
                 {beforePhoto && afterPhoto && beforePhoto.weightKg && afterPhoto.weightKg && (
-                  <span style={{ position: 'absolute', bottom: 10, left: 10, padding: '4px 8px', borderRadius: '8px', background: '#ff1a8c', color: '#ffffff', fontSize: '11px', fontWeight: 800, zIndex: 10, display: 'flex', alignItems: 'center', gap: '3px', boxShadow: '0 2px 6px rgba(255,26,140,0.3)' }}>
+                  <span style={{ position: 'absolute', bottom: 10, left: 10, padding: '4px 8px', borderRadius: '8px', background: '#ff1a8c', color: '#ffffff', fontSize: '12px', fontWeight: 800, zIndex: 10, display: 'flex', alignItems: 'center', gap: '3px', boxShadow: '0 2px 6px rgba(255,26,140,0.3)' }}>
                     <TrendingUp size={12} /> 
                     {afterPhoto.weightKg > beforePhoto.weightKg 
                       ? `+${(afterPhoto.weightKg - beforePhoto.weightKg).toFixed(1)}kg`
@@ -676,7 +676,7 @@ function ProgressPhotosCardContent({ ownerId, triggerAddPhoto, onAddPhotoTrigger
           </div>
           <div>
             <h3 style={{ fontSize: '13px', fontWeight: 800, color: '#0f172a', margin: 0, lineHeight: '1.2' }}>Bạn đang đi đúng hướng!</h3>
-            <p style={{ fontSize: '11px', color: '#64748b', margin: '2px 0 0 0', lineHeight: '1.2' }}>Tiếp tục duy trì thói quen tuyệt vời này nhé.</p>
+            <p style={{ fontSize: '12px', color: '#64748b', margin: '2px 0 0 0', lineHeight: '1.2' }}>Tiếp tục duy trì thói quen tuyệt vời này nhé.</p>
           </div>
         </div>
 

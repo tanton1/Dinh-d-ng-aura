@@ -109,6 +109,8 @@
 .student-schedule-hero__slide.is-week { background: radial-gradient(circle at 82% 14%,rgba(255,255,255,.24),transparent 27%),linear-gradient(125deg,#e62272 0%,#f9467d 48%,#ff8a50 100%); }
 .student-schedule-hero__slide.is-contract { background: radial-gradient(circle at 88% 24%,rgba(255,135,81,.34),transparent 30%),linear-gradient(125deg,#211720 0%,#6b284c 54%,#f66a53 100%); }
 .student-schedule-hero__slide > div:first-child { position: relative; z-index: 2; max-width: min(76%, 560px); }
+/* Keep the headline clear of the absolutely positioned metric on narrow slides. */
+.student-schedule-hero__slide:has(> .student-schedule-hero__metric) > div:first-child { max-width: min(calc(100% - 100px), 560px); overflow-wrap: anywhere; }
 .student-schedule-hero__slide small { display: block; color: rgba(255,255,255,.82); font-size: 9px; font-weight: 900; letter-spacing: .14em; }
 .student-schedule-hero__slide :is(h1,h2) { margin: 7px 0 6px; color: #fff; font-size: clamp(25px, 4vw, 34px); line-height: 1.05; letter-spacing: -.035em; }
 .student-schedule-hero__slide p { max-width: 520px; margin: 0; color: rgba(255,255,255,.84); font-size: 12px; line-height: 1.5; }
@@ -850,7 +852,6 @@
   .student-schedule-page--classic { width:100%; padding-inline:0; padding-bottom:104px; }
   .student-schedule-page--classic .student-schedule-hero { margin:0; border-radius:0; box-shadow:none; }
   .student-schedule-hero__slide { min-height: 194px; padding: 19px 17px 58px; }
-  .student-schedule-hero__slide > div:first-child { max-width: 75%; }
   .student-schedule-hero__slide :is(h1,h2) { font-size: 25px; }
   .student-schedule-hero__slide p { font-size: 11px; }
   .student-schedule-hero__icon { top: 18px; right: 17px; width: 49px; height: 49px; border-radius: 17px; }
@@ -877,7 +878,8 @@
     padding:10px 11px;
   }
   .student-schedule-page--classic .student-session-history { padding:16px 13px; }
-  .student-schedule-tabs { padding: 9px 10px; }
+  /* End inset lets the last tab scroll clear of the floating coach. */
+  .student-schedule-tabs { padding: 9px 72px 9px 10px; }
   .student-schedule-tabs button { min-height: 40px; padding: 0 12px; border-radius: 12px; }
   .student-availability-week-switch { display: grid; margin: 0 13px 12px; }
   .student-availability-week-switch button { min-width:0; padding:0 7px; font-size:10px; }

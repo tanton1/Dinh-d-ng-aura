@@ -107,7 +107,7 @@ export const NutritionChartsCard = React.memo(function NutritionChartsCard({ mea
 
       <div style={{ height: 240, width: '100%', marginTop: 8, display: 'flex' }}>
         {/* Y Axis */}
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', paddingRight: 8, color: '#94a3b8', fontSize: 10, textAlign: 'right', minWidth: 35, paddingBottom: 20 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', paddingRight: 8, color: '#94a3b8', fontSize: 12, textAlign: 'right', minWidth: 35, paddingBottom: 20 }}>
           <span>{maxVal >= 1000 ? `${(maxVal/1000).toFixed(1)}k` : Math.round(maxVal)}</span>
           <span>{maxVal * 0.75 >= 1000 ? `${(maxVal * 0.75 / 1000).toFixed(1)}k` : Math.round(maxVal * 0.75)}</span>
           <span>{maxVal * 0.5 >= 1000 ? `${(maxVal * 0.5 / 1000).toFixed(1)}k` : Math.round(maxVal * 0.5)}</span>
@@ -151,7 +151,7 @@ export const NutritionChartsCard = React.memo(function NutritionChartsCard({ mea
              {data.map((d, i) => {
                const showLabel = range === '7d' || (range === '30d' && i % 4 === 0) || (range === '90d' && i % 14 === 0);
                return (
-                 <div key={i} style={{ flex: 1, textAlign: 'center', fontSize: 10, color: '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                 <div key={i} style={{ flex: 1, textAlign: 'center', fontSize: 12, color: '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                    {showLabel ? d.label.replace('Ngày ', '') : ''}
                  </div>
                )

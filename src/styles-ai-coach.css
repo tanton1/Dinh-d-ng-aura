@@ -22,6 +22,11 @@
   transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
 }
 
+/* Nutrition owns the quick-add FAB in the bottom-right corner. */
+.app-shell[data-view='nutrition'] .ai-coach-global-launcher {
+  right: 98px;
+}
+
 .ai-coach-global-launcher:hover {
   transform: translateY(-2px);
   border-color: rgba(236, 72, 153, 0.35);
@@ -120,6 +125,10 @@ body:has([role='dialog'][aria-modal='true'], [role='alertdialog'][aria-modal='tr
     bottom: calc(80px + env(safe-area-inset-bottom));
   }
 
+  .app-shell[data-view='nutrition'] .ai-coach-global-launcher {
+    right: 94px;
+  }
+
   /* Eat Clean owns a sticky cart bar above the learner navigation. Keep the
      global coach available, but never let it cover the cart's primary action. */
   .app-shell[data-view='eat-clean'] .ai-coach-global-launcher {
@@ -147,7 +156,9 @@ body:has([role='dialog'][aria-modal='true'], [role='alertdialog'][aria-modal='tr
   .ai-coach-global-launcher__copy,
   .ai-coach-global-launcher__status { display: none; }
   .app-shell[data-view='nutrition'] .ai-coach-global-launcher { left: 13px; right: auto; }
-  .app-shell[data-view='courses'] .ai-coach-global-launcher { bottom: calc(150px + env(safe-area-inset-bottom)); }
+  /* The course hero fills the screen with progress and CTA at the bottom;
+     its image at the top is the only area with nothing to cover. */
+  .app-shell[data-view='courses'] .ai-coach-global-launcher { top: calc(var(--shell-mobile-topbar-height) + 12px + env(safe-area-inset-top)); bottom: auto; }
 
   .ai-coach-global-launcher__orb {
     width: 34px;

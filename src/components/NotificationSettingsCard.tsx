@@ -168,7 +168,7 @@ export default function NotificationSettingsCard({
 
       <header style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-          <span style={{ display: 'grid', placeItems: 'center', width: 42, height: 42, flex: '0 0 auto', borderRadius: 14, color: '#fff', background: 'linear-gradient(135deg, #ec4899, #ff873f)' }}>
+          <span style={{ display: 'grid', placeItems: 'center', width: 42, height: 42, flex: '0 0 auto', borderRadius: 14, color: '#fff', background: 'var(--aura-gradient-cta)' }}>
             <Bell size={20} />
           </span>
           <div style={{ minWidth: 0 }}>
@@ -176,7 +176,7 @@ export default function NotificationSettingsCard({
             <p style={{ margin: '4px 0 0', color: '#766d78', fontSize: 12, lineHeight: 1.4 }}>Chọn nội dung cần nhận, Aura tự giữ nhịp và tránh làm phiền.</p>
           </div>
         </div>
-        <span style={{ flex: '0 0 auto', padding: '6px 9px', borderRadius: 999, color: deviceStatus.color, background: deviceStatus.background, fontSize: 10, fontWeight: 850 }}>
+        <span style={{ flex: '0 0 auto', padding: '6px 9px', borderRadius: 999, color: deviceStatus.color, background: deviceStatus.background, fontSize: 12, fontWeight: 850 }}>
           {deviceStatus.label}
         </span>
       </header>
@@ -184,11 +184,11 @@ export default function NotificationSettingsCard({
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '13px 14px', borderRadius: 16, background: 'rgba(255,255,255,.82)', border: '1px solid rgba(92,54,72,.09)' }}>
         <div style={{ minWidth: 0 }}>
           <strong style={{ display: 'block', fontSize: 13 }}>Nhận thông báo từ Aura</strong>
-          <small style={{ display: 'block', marginTop: 3, color: '#766d78', fontSize: 11, lineHeight: 1.35 }}>
+          <small style={{ display: 'block', marginTop: 3, color: '#766d78', fontSize: 12, lineHeight: 1.35 }}>
             {deviceReady ? 'Thiết bị này đã sẵn sàng nhận nhắc nhở.' : 'Bật một lần để kết nối thiết bị hiện tại.'}
           </small>
         </div>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, flex: '0 0 auto', cursor: 'pointer', color: notificationsOn ? '#c52b6b' : '#8d8490', fontSize: 11, fontWeight: 850 }}>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, flex: '0 0 auto', cursor: 'pointer', color: notificationsOn ? '#c52b6b' : '#8d8490', fontSize: 12, fontWeight: 850 }}>
           <input type="checkbox" checked={notificationsOn} onChange={(event) => update({ enabled: event.target.checked })} style={{ width: 19, height: 19, accentColor: '#ec4899' }} />
           {notificationsOn ? 'Bật' : 'Tắt'}
         </label>
@@ -207,7 +207,7 @@ export default function NotificationSettingsCard({
               <input type="checkbox" checked={draft[key] !== false} onChange={(event) => update({ [key]: event.target.checked })} style={{ width: 18, height: 18, accentColor: '#ec4899' }} />
               <span style={{ minWidth: 0, flex: 1 }}>
                 <strong style={{ display: 'block', fontSize: 12 }}>{title}</strong>
-                <small style={{ display: 'block', marginTop: 2, color: '#766d78', fontSize: 10, lineHeight: 1.35 }}>{description}</small>
+                <small style={{ display: 'block', marginTop: 2, color: '#766d78', fontSize: 12, lineHeight: 1.35 }}>{description}</small>
               </span>
             </label>
           ))}
@@ -222,7 +222,7 @@ export default function NotificationSettingsCard({
             ['lunch', 'Bữa trưa'],
             ['dinner', 'Bữa tối'],
           ] as const).map(([key, label]) => (
-            <label key={key} style={{ color: '#766d78', fontSize: 10, fontWeight: 750 }}>
+            <label key={key} style={{ color: '#766d78', fontSize: 12, fontWeight: 750 }}>
               {label}
               <input type="time" value={draft.mealReminderTimes?.[key] ?? ''} onChange={(event) => updateMealTime(key, event.target.value)} style={{ display: 'block', boxSizing: 'border-box', width: '100%', marginTop: 5, padding: '9px 7px', border: '1px solid rgba(92,54,72,.14)', borderRadius: 10, background: '#fff', color: '#211923', fontSize: 12 }} />
             </label>
@@ -235,20 +235,20 @@ export default function NotificationSettingsCard({
           Cài đặt nâng cao · Giờ yên tĩnh & giới hạn
         </summary>
         <div style={{ padding: '0 13px 13px' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#766d78', fontSize: 11, cursor: 'pointer' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#766d78', fontSize: 12, cursor: 'pointer' }}>
             <input type="checkbox" checked={draft.quietHoursEnabled !== false} onChange={(event) => update({ quietHoursEnabled: event.target.checked })} style={{ width: 17, height: 17, accentColor: '#ec4899' }} />
             <Clock3 size={15} /> Không gửi trong giờ yên tĩnh
           </label>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 9, marginTop: 11 }}>
-            <label style={{ color: '#766d78', fontSize: 10, fontWeight: 750 }}>
+            <label style={{ color: '#766d78', fontSize: 12, fontWeight: 750 }}>
               Bắt đầu
               <input type="time" value={draft.quietHoursStart ?? '21:30'} onChange={(event) => update({ quietHoursStart: event.target.value })} style={{ display: 'block', boxSizing: 'border-box', width: '100%', marginTop: 5, padding: '9px 8px', border: '1px solid rgba(92,54,72,.14)', borderRadius: 10, background: '#fff', color: '#211923', fontSize: 12 }} />
             </label>
-            <label style={{ color: '#766d78', fontSize: 10, fontWeight: 750 }}>
+            <label style={{ color: '#766d78', fontSize: 12, fontWeight: 750 }}>
               Kết thúc
               <input type="time" value={draft.quietHoursEnd ?? '07:00'} onChange={(event) => update({ quietHoursEnd: event.target.value })} style={{ display: 'block', boxSizing: 'border-box', width: '100%', marginTop: 5, padding: '9px 8px', border: '1px solid rgba(92,54,72,.14)', borderRadius: 10, background: '#fff', color: '#211923', fontSize: 12 }} />
             </label>
-            <label style={{ color: '#766d78', fontSize: 10, fontWeight: 750 }}>
+            <label style={{ color: '#766d78', fontSize: 12, fontWeight: 750 }}>
               Tối đa mỗi ngày
               <select value={draft.maxDaily ?? 3} onChange={(event) => update({ maxDaily: Number(event.target.value) })} style={{ display: 'block', boxSizing: 'border-box', width: '100%', marginTop: 5, padding: '9px 8px', border: '1px solid rgba(92,54,72,.14)', borderRadius: 10, background: '#fff', color: '#211923', fontSize: 12, fontWeight: 800 }}>
                 {[1, 2, 3, 4, 5].map((value) => <option key={value} value={value}>{value} lần</option>)}
@@ -259,17 +259,17 @@ export default function NotificationSettingsCard({
       </details>
 
       {error && (
-        <p role="alert" style={{ display: 'flex', alignItems: 'flex-start', gap: 7, margin: '13px 0 0', padding: '10px 12px', borderRadius: 11, color: '#b4234d', background: '#fff0f5', fontSize: 11, lineHeight: 1.4 }}>
+        <p role="alert" style={{ display: 'flex', alignItems: 'flex-start', gap: 7, margin: '13px 0 0', padding: '10px 12px', borderRadius: 11, color: '#b4234d', background: '#fff0f5', fontSize: 12, lineHeight: 1.4 }}>
           <AlertTriangle size={15} style={{ flex: '0 0 auto', marginTop: 1 }} /> {error}
         </p>
       )}
 
       <div style={{ display: 'grid', gap: 8, marginTop: 16 }}>
-        <button type="button" onClick={handlePrimaryAction} disabled={readOnly || saving || enablingPush} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: 44, padding: '0 16px', border: 0, borderRadius: 13, color: '#fff', background: 'linear-gradient(135deg, #ec4899, #ff873f)', boxShadow: '0 8px 20px rgba(236,72,153,.18)', fontSize: 12, fontWeight: 850, cursor: readOnly ? 'not-allowed' : saving || enablingPush ? 'wait' : 'pointer', opacity: readOnly ? .55 : 1 }}>
+        <button type="button" onClick={handlePrimaryAction} disabled={readOnly || saving || enablingPush} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: 44, padding: '0 16px', border: 0, borderRadius: 13, color: '#fff', background: 'var(--aura-gradient-cta)', boxShadow: '0 8px 20px rgba(236,72,153,.18)', fontSize: 12, fontWeight: 850, cursor: readOnly ? 'not-allowed' : saving || enablingPush ? 'wait' : 'pointer', opacity: readOnly ? .55 : 1 }}>
           {!notificationsOn ? <Bell size={16} /> : deviceReady ? <ShieldCheck size={16} /> : <Smartphone size={16} />}
           {saving ? 'Đang lưu…' : enablingPush ? 'Đang kết nối thiết bị…' : !notificationsOn ? 'Lưu trạng thái tắt' : deviceReady ? 'Lưu thay đổi' : 'Bật Push và lưu'}
         </button>
-        <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, color: saved ? '#16845a' : '#8d8490', fontSize: 10, fontWeight: saved ? 800 : 600 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, color: saved ? '#16845a' : '#8d8490', fontSize: 12, fontWeight: saved ? 800 : 600 }}>
           {saved ? <CheckCircle2 size={14} /> : <Volume2 size={13} />}
           {saved ? 'Đã lưu cài đặt' : 'Bạn có thể thay đổi hoặc tắt bất cứ lúc nào'}
         </span>

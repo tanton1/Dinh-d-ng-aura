@@ -30,6 +30,7 @@ import type { NutritionProfileDraft } from './NutritionPage'
 import { useAuraUiSurface } from '../../features/ui-rollout/AuraUiRolloutContext'
 import LoyaltyHomeCard from '../../features/loyalty/LoyaltyHomeCard'
 import { readDailyNutritionCache, writeDailyNutritionCache } from '../../features/nutrition/dailyNutritionSummaryCache'
+import { greetingName } from '../../utils/displayName'
 
 interface DailyPulseMeal {
   id?: string
@@ -102,7 +103,7 @@ export default function HomePage({
   const day = useVietnamDay()
   const accountId = useWorkspaceAccountId()
   const now = new Date()
-  const firstName = displayName.trim().split(/\s+/).slice(-1)[0] || 'bạn'
+  const firstName = greetingName(displayName)
   const todayDateId = day
 
   const [dailyPulseMeals, setDailyPulseMeals] = useState<DailyPulseMeal[]>(() =>

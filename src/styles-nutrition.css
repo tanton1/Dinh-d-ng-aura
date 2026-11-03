@@ -665,9 +665,6 @@
   .nutrition-calorie-ring::before { inset: 8px; }
   .nutrition-energy-card__copy > strong { font-size: 33px; }
   .nutrition-energy-card__stats b { font-size: 12px; }
-  .nutrition-date-strip button:nth-child(2),
-  .nutrition-date-strip button:nth-child(6) { display: none; }
-  .nutrition-date-strip { grid-template-columns: repeat(3,1fr); }
   .nutrition-result-hero { grid-template-columns: 1fr; }
   .nutrition-result-image { min-height: 175px; }
   .nutrition-ingredient { grid-template-columns: 7px minmax(0,1fr) 58px 24px; }

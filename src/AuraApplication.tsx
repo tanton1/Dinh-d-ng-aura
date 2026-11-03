@@ -48,6 +48,7 @@ import './styles-aura.css'
 import './styles-ai-coach.css'
 import './styles-ui-v4.css'
 import './styles-aura-tokens.css'
+import './styles-member-foundation.css'
 import { AuraUiRolloutProvider } from './features/ui-rollout/AuraUiRolloutContext'
 
 const AdminAcademyStudentsPage = lazyWithRetry(() => import('./pages/admin/AdminAcademyStudentsPage'))

@@ -239,13 +239,12 @@ export default function AuraTodayFlow({
     <section className="aura-today-flow" aria-labelledby="aura-today-flow-title">
       <header className="aura-today-flow__heading">
         <div>
-          <h2 id="aura-today-flow-title">Hôm nay của {firstName}</h2>
+          <h1 id="aura-today-flow-title">Hôm nay của {firstName}</h1>
         </div>
         <div className="aura-today-flow__heading-actions">
-          <span className="aura-today-flow__streak" aria-label={`${streak} ngày liên tục`}>
+          <span className="aura-today-flow__streak" aria-label={streak > 0 ? `${streak} ngày liên tục` : 'Chưa có chuỗi ngày liên tục'}>
             <Flame size={15} fill="currentColor" aria-hidden="true" />
-            <strong>{Math.max(0, streak)}</strong>
-            <span>ngày streak</span>
+            {streak > 0 ? <><strong>{streak}</strong><span>ngày streak</span></> : <span>Bắt đầu chuỗi hôm nay</span>}
           </span>
           <p>Vuốt để xem · chạm để mở chi tiết</p>
         </div>

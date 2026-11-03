@@ -478,16 +478,16 @@ export function StreaksAndBadgesCard({ ownerId, progressItems }: StreaksAndBadge
         {/* Level and XP indicator */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 150, background: '#fff0f5', padding: '8px 12px', borderRadius: 12, border: '1px solid rgba(255, 26, 140, 0.15)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 11, fontWeight: 800, color: '#ff1a8c', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ fontSize: 12, fontWeight: 800, color: '#ff1a8c', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <Zap size={13} style={{ color: '#ff1a8c', fill: '#ff1a8c' }} />
               Cấp độ {currentLevel}
             </span>
-            <span style={{ fontSize: 11, fontWeight: 800, color: '#ff7b54' }}>{xp} XP</span>
+            <span style={{ fontSize: 12, fontWeight: 800, color: '#ff7b54' }}>{xp} XP</span>
           </div>
           <div style={{ width: '100%', height: 6, background: 'rgba(255, 26, 140, 0.15)', borderRadius: 3, overflow: 'hidden' }}>
             <div style={{ width: `${xpPercent}%`, height: '100%', background: 'linear-gradient(90deg, #ff1a8c 0%, #ff7b54 100%)', borderRadius: 3 }} />
           </div>
-          <span style={{ fontSize: 9, color: '#94a3b8', fontWeight: 600, textAlign: 'right' }}>Còn {500 - xpInCurrentLevel} XP lên cấp</span>
+          <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 600, textAlign: 'right' }}>Còn {500 - xpInCurrentLevel} XP lên cấp</span>
         </div>
       </div>
 
@@ -499,7 +499,7 @@ export function StreaksAndBadgesCard({ ownerId, progressItems }: StreaksAndBadge
             <Flame size={22} style={{ fill: '#ffffff' }} />
           </div>
           <div>
-            <span style={{ fontSize: 10, fontWeight: 800, color: '#ff1a8c', letterSpacing: '0.5px', textTransform: 'uppercase', display: 'block' }}>CHUỖI HIỆN TẠI</span>
+            <span style={{ fontSize: 12, fontWeight: 800, color: '#ff1a8c', letterSpacing: '0.5px', textTransform: 'uppercase', display: 'block' }}>CHUỖI HIỆN TẠI</span>
             <strong style={{ fontSize: 18, fontWeight: 900, color: '#0f172a' }}>{streak} ngày</strong>
           </div>
         </div>
@@ -510,7 +510,7 @@ export function StreaksAndBadgesCard({ ownerId, progressItems }: StreaksAndBadge
             <Award size={22} />
           </div>
           <div>
-            <span style={{ fontSize: 10, fontWeight: 800, color: '#ff7b54', letterSpacing: '0.5px', textTransform: 'uppercase', display: 'block' }}>ĐÃ MỞ KHÓA</span>
+            <span style={{ fontSize: 12, fontWeight: 800, color: '#ff7b54', letterSpacing: '0.5px', textTransform: 'uppercase', display: 'block' }}>ĐÃ MỞ KHÓA</span>
             <strong style={{ fontSize: 18, fontWeight: 900, color: '#0f172a' }}>{unlockedBadgesCount} / {badges.length} huy hiệu</strong>
           </div>
         </div>
@@ -533,7 +533,7 @@ export function StreaksAndBadgesCard({ ownerId, progressItems }: StreaksAndBadge
             
             return (
               <div key={day.dateStr} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 11, fontWeight: 800, color: day.isToday ? '#ff1a8c' : '#94a3b8' }}>
+                <span style={{ fontSize: 12, fontWeight: 800, color: day.isToday ? '#ff1a8c' : '#94a3b8' }}>
                   {day.name} {day.isToday && '•'}
                 </span>
                 <div
@@ -687,14 +687,14 @@ export function StreaksAndBadgesCard({ ownerId, progressItems }: StreaksAndBadge
                 <span style={{ fontSize: 12, fontWeight: 800, color: isUnlocked ? '#0f172a' : '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {badge.title}
                 </span>
-                <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600, height: 28, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 600, height: 28, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                   {badge.description}
                 </span>
               </div>
 
               {/* Progress bar for locked badges */}
               <div style={{ width: '100%', marginTop: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, fontWeight: 800, color: isUnlocked ? '#ff1a8c' : '#64748b' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 800, color: isUnlocked ? '#ff1a8c' : '#64748b' }}>
                   <span>{percent}%</span>
                   <span>{badge.actual}/{badge.target} {badge.unit}</span>
                 </div>
@@ -760,7 +760,7 @@ export function StreaksAndBadgesCard({ ownerId, progressItems }: StreaksAndBadge
                 {showBadgeModal.icon}
               </div>
               <h3 style={{ fontSize: 18, fontWeight: 900, color: '#0f172a', margin: 0 }}>{showBadgeModal.title}</h3>
-              <span style={{ fontSize: 11, fontWeight: 800, padding: '4px 10px', borderRadius: 20, background: showBadgeModal.actual >= showBadgeModal.target ? '#fff0f5' : '#f1f5f9', color: showBadgeModal.actual >= showBadgeModal.target ? '#ff1a8c' : '#64748b', marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontSize: 12, fontWeight: 800, padding: '4px 10px', borderRadius: 20, background: showBadgeModal.actual >= showBadgeModal.target ? '#fff0f5' : '#f1f5f9', color: showBadgeModal.actual >= showBadgeModal.target ? '#ff1a8c' : '#64748b', marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 {showBadgeModal.actual >= showBadgeModal.target ? (
                   <>
                     <ShieldCheck size={14} />
@@ -779,7 +779,7 @@ export function StreaksAndBadgesCard({ ownerId, progressItems }: StreaksAndBadge
             <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
               {/* Requirements & Progress */}
               <div style={{ background: '#f8fafc', padding: 14, borderRadius: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <span style={{ fontSize: 11, fontWeight: 800, color: '#64748b' }}>YÊU CẦU MỞ KHÓA</span>
+                <span style={{ fontSize: 12, fontWeight: 800, color: '#64748b' }}>YÊU CẦU MỞ KHÓA</span>
                 <p style={{ fontSize: 13, color: '#1e293b', fontWeight: 600, margin: 0 }}>
                   {showBadgeModal.description}
                 </p>
@@ -794,7 +794,7 @@ export function StreaksAndBadgesCard({ ownerId, progressItems }: StreaksAndBadge
 
               {/* Coaching/Motivation Tips */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <span style={{ fontSize: 11, fontWeight: 800, color: '#64748b', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontSize: 12, fontWeight: 800, color: '#64748b', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                   <HelpCircle size={14} style={{ color: '#ff1a8c' }} />
                   Bí kíp của huấn luyện viên Aura:
                 </span>

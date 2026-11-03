@@ -41,7 +41,7 @@
   margin-bottom: 15px;
 }
 
-.aura-today-flow__heading h2 {
+.aura-today-flow__heading h1 {
   margin: 0;
   color: var(--home-ink);
   font-size: clamp(23px, 2.4vw, 30px);
@@ -316,7 +316,7 @@
     border-radius: 0 0 30px 30px;
   }
   .aura-today-flow__heading { align-items: flex-start; flex-direction: column; gap: 5px; }
-  .aura-today-flow__heading h2 { font-size: 24px; }
+  .aura-today-flow__heading h1 { font-size: 24px; }
   .aura-today-flow__heading-actions { width: 100%; flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; }
   .aura-today-flow__heading-actions > p { font-size: 11px; }
   .aura-today-flow__streak { min-height: 28px; padding-inline: 9px; }

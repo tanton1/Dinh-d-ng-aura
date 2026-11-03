@@ -153,7 +153,7 @@ export default function ProfilePage({ fullProfile, displayName, email, membershi
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: membership === 'pro' ? 'linear-gradient(135deg, #3b82f6, #60a5fa)' : 'rgba(255,255,255,0.1)', color: 'white', padding: '4px 12px', borderRadius: '999px', fontSize: '12px', fontWeight: 700 }}>
                   {membership === 'pro' ? <><ShieldCheck size={14}/> PRO</> : 'Gói Cơ Bản'}
                 </div>
-                <button onClick={onEditProfile} disabled={profileReadOnly} title={profileReadOnly ? 'Hồ sơ đang hiển thị dữ liệu cache ở chế độ chỉ đọc' : undefined} style={{ background: 'linear-gradient(135deg, #ff8a38, #ff3f7d)', color: 'white', border: 'none', borderRadius: '999px', padding: '6px 14px', fontSize: '12px', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: profileReadOnly ? 'not-allowed' : 'pointer', opacity: profileReadOnly ? .55 : 1, boxShadow: '0 4px 12px rgba(255, 63, 125, 0.3)' }}>
+                <button onClick={onEditProfile} disabled={profileReadOnly} title={profileReadOnly ? 'Hồ sơ đang hiển thị dữ liệu cache ở chế độ chỉ đọc' : undefined} style={{ background: 'var(--aura-gradient-cta)', color: 'white', border: 'none', borderRadius: '999px', minHeight: '44px', padding: '6px 14px', fontSize: '12px', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: profileReadOnly ? 'not-allowed' : 'pointer', opacity: profileReadOnly ? .55 : 1, boxShadow: '0 4px 12px rgba(255, 63, 125, 0.3)' }}>
                   <Pencil size={12} /> Cập nhật
                 </button>
               </div>
@@ -324,13 +324,13 @@ export default function ProfilePage({ fullProfile, displayName, email, membershi
               <input aria-label="Mật khẩu hiện tại" type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} placeholder="Mật khẩu hiện tại" style={{ minHeight: 46, borderRadius: 12, border: '1px solid #f0dfe6', padding: '0 13px', background: '#fff' }} />
               <input aria-label="Mật khẩu mới" type="password" autoComplete="new-password" value={nextPassword} onChange={(event) => setNextPassword(event.target.value)} placeholder="Mật khẩu mới (ít nhất 6 ký tự)" style={{ minHeight: 46, borderRadius: 12, border: '1px solid #f0dfe6', padding: '0 13px', background: '#fff' }} />
               {passwordFeedback && <small style={{ color: passwordFeedback.startsWith('Đã ') ? '#16864a' : '#c1275a', fontWeight: 650 }}>{passwordFeedback}</small>}
-              <button type="button" onClick={() => void submitPasswordChange()} disabled={passwordSaving || profileReadOnly} style={{ minHeight: 46, border: 0, borderRadius: 13, background: 'linear-gradient(135deg, #f62f82, #ff8751)', color: '#fff', fontWeight: 750, cursor: passwordSaving || profileReadOnly ? 'not-allowed' : 'pointer', opacity: passwordSaving || profileReadOnly ? .6 : 1 }}>{passwordSaving ? 'Đang cập nhật…' : 'Đổi mật khẩu'} {passwordFeedback?.startsWith('Đã ') && <CheckCircle2 size={15} style={{ verticalAlign: 'middle', marginLeft: 5 }} />}</button>
+              <button type="button" onClick={() => void submitPasswordChange()} disabled={passwordSaving || profileReadOnly} style={{ minHeight: 46, border: 0, borderRadius: 13, background: 'var(--aura-gradient-cta)', color: '#fff', fontWeight: 750, cursor: passwordSaving || profileReadOnly ? 'not-allowed' : 'pointer', opacity: passwordSaving || profileReadOnly ? .6 : 1 }}>{passwordSaving ? 'Đang cập nhật…' : 'Đổi mật khẩu'} {passwordFeedback?.startsWith('Đã ') && <CheckCircle2 size={15} style={{ verticalAlign: 'middle', marginLeft: 5 }} />}</button>
             </div>
           </section>
         )}
         {/* Actions */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <button style={{ width: '100%', padding: '16px', background: 'white', border: '1px solid var(--aura-border)', borderRadius: '16px', color: '#ef4444', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', cursor: 'pointer' }} onClick={onSignOut}>
+          <button style={{ width: '100%', padding: '16px', background: 'white', border: '1px solid var(--aura-border)', borderRadius: '16px', color: 'var(--aura-danger)', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', cursor: 'pointer' }} onClick={onSignOut}>
             <LogOut size={18} /> Đăng xuất
           </button>
         </div>

@@ -1,0 +1,334 @@
+/* Member readability foundation.
+ *
+ * Feature stylesheets load lazily, so import order cannot decide who wins here.
+ * Every rule is scoped to .app-shell.student for specificity. Staff and admin
+ * surfaces are deliberately out of scope. New member UI should use the Aura
+ * tokens directly instead of adding to these lists.
+ */
+
+/* Smallest readable text. */
+.app-shell.student :is(
+  .sidebar-nav__section > p,
+  .mobile-page-context small,
+  .student-mobile-nav span,
+  .aura-today-flow__streak span,
+  .aura-today-flow__heading-actions > p,
+  .aura-today-flow small,
+  .aura-today-flow header span,
+  .loyalty-home-card__main small,
+  .home-v3-week__header span,
+  .home-v3-week__summary small,
+  .home-v3-week__chart small,
+  .home-v3-milestone__copy span,
+  .student-attention-center small,
+  .student-attention-center em,
+  .student-attention-center b,
+  .session-feedback-prompt p,
+  .session-feedback-prompt small,
+  .session-feedback-prompt__score-label,
+  .student-schedule-hero__slide small,
+  .student-schedule-hero__slide p,
+  .student-schedule-hero__slide > button,
+  .student-schedule-hero__controls span,
+  .student-schedule-hero__metric span,
+  .calendar-header div button,
+  .week-strip button span,
+  .day-label span,
+  .day-label small,
+  .schedule-empty-inline p,
+  .upcoming-date small,
+  .upcoming-item span small,
+  .upcoming-item span strong,
+  .upcoming-item span em,
+  .schedule-side .eyebrow,
+  .consistency-card p,
+  .reschedule-button,
+  .nutrition-workspace-nav__sections button span,
+  .nutrition-date-pill .day-name,
+  .connect-health-card p,
+  .connect-health-card button,
+  .burned-subtitle,
+  .burned-total small,
+  .burned-item-name,
+  .burned-item-val,
+  .macro-card-info span,
+  .macro-card-estimate,
+  .nutrition-next-action small,
+  .nutrition-next-action p,
+  .nutrition-next-action button,
+  .nutrition-meal-rhythm__heading span,
+  .nutrition-meal-rhythm__heading small,
+  .nutrition-meal-rhythm__copy small,
+  .nutrition-meal-rhythm__grid button em,
+  .pt-workout-workspace__hero span,
+  .student-library__tabs button,
+  .pt-workout-learner__title span,
+  .progress-v2-header button,
+  .progress-v2-journey__photo small,
+  .progress-v2-journey__photo figcaption span,
+  .progress-v2-journey__photo figcaption strong,
+  .progress-v2-journey__changes span,
+  .progress-v2-journey__changes strong,
+  [class^='progress-v2'] small,
+  .progress-v2-insight button,
+  .loyalty-hero__wallet span,
+  .loyalty-tier-progress small,
+  .loyalty-tabs button,
+  .loyalty-page article small,
+  .loyalty-reward__copy span,
+  .loyalty-reward footer button,
+  .academy-single-course__eyebrow,
+  .eat-clean-toolbar small,
+  .eat-clean-hero__copy span,
+  .eat-clean-hero__copy small,
+  .eat-clean-hero__facts strong,
+  .eat-clean-section-heading small,
+  .eat-clean-section-heading span,
+  .eat-clean-categories button,
+  .eat-clean-meal-card__visual em,
+  .eat-clean-meal-card__title small,
+  .eat-clean-meal-card__meta span,
+  .eat-clean-meal-card__footer del,
+  .account-connections__score,
+  .account-connections__demo,
+  .account-provider small,
+  .account-provider button,
+  .profile-page header p,
+  .profile-page section header span,
+  .profile-page section label,
+  .profile-page section small,
+  .student-availability-page__hero small,
+  .student-availability-page__hero p,
+  .student-availability-page header small,
+  .student-availability-status-button strong,
+  .student-availability-status-button span,
+  .student-availability-week-switch button,
+  .student-availability-target__copy small,
+  .student-availability-target__copy span,
+  .student-availability-off-helper button,
+  .student-schedule-legend span,
+  .student-availability-source strong,
+  .student-schedule-matrix th
+) {
+  font-size: var(--aura-text-xs);
+}
+
+/* Comfortable touch targets. */
+.app-shell.student :is(
+  .student-schedule-tabs button,
+  .calendar-header div button,
+  .text-button,
+  .reschedule-button,
+  .nutrition-workspace-nav__sections button,
+  .carousel-nav-btn,
+  .nutrition-next-action button,
+  .quick-add-text-btn,
+  .progress-v2-header button,
+  .progress-v2-period button,
+  .progress-v2-tabs button,
+  .progress-v2-insight button,
+  .progress-v2-adherence__sync button,
+  .loyalty-my-redemptions__list button,
+  .loyalty-reward-filters button,
+  .loyalty-reward footer button,
+  .eat-clean-categories button,
+  .eat-clean-search input,
+  .account-provider button,
+  .student-availability-page__hero button,
+  .student-availability-week-switch button,
+  .student-availability-target__controls button,
+  .student-availability-off-helper button,
+  .student-schedule-matrix td button
+) {
+  min-height: var(--aura-touch-target);
+}
+
+.app-shell.student :is(
+  .calendar-header > button,
+  .recently-card-delete,
+  .student-availability-target__controls button
+) {
+  min-width: var(--aura-touch-target);
+  min-height: var(--aura-touch-target);
+}
+
+.app-shell.student .loyalty-page :is(.loyalty-back, .loyalty-refresh) {
+  width: var(--aura-touch-target);
+  height: var(--aura-touch-target);
+}
+
+.app-shell.student .nutrition-date-arrow {
+  width: 28px;
+  min-width: 28px;
+}
+
+.app-shell.student .student-schedule-hero__controls > button {
+  width: var(--aura-touch-target);
+  height: var(--aura-touch-target);
+}
+
+.app-shell.student .profile-page__content select {
+  min-height: var(--aura-touch-target);
+}
+
+.app-shell.student .pt-workout-workspace__refresh {
+  flex: 0 0 auto;
+  width: auto;
+  min-height: var(--aura-touch-target);
+  padding-inline: var(--aura-space-3);
+  white-space: nowrap;
+}
+
+/* Text on the selected day inherits the gradient tile, so keep it white. */
+.app-shell.student .week-strip button.active :is(span, strong) {
+  color: #fff;
+}
+
+/* Keep the small badges visually compact but expand what can be tapped. */
+.app-shell.student .profile-avatar-upload__button::after {
+  content: "";
+  position: absolute;
+  inset: -7px;
+}
+
+/* Hero dots: hit areas must not overlap, or a dot's neighbour takes its tap. */
+.app-shell.student .student-schedule-hero__controls > div {
+  gap: 18px;
+}
+
+.app-shell.student .student-schedule-hero__controls div button {
+  position: relative;
+}
+
+.app-shell.student .student-schedule-hero__controls div button::after {
+  content: "";
+  position: absolute;
+  inset: -19px -9px;
+}
+
+/* Primary actions: white text stays at 4.5:1 across the whole gradient. */
+.app-shell.student :is(
+  .aura-today-flow__next button,
+  .nutrition-pink-fab,
+  .profile-avatar-upload__button,
+  .home-v3-milestone button,
+  .home-v3-week__tabs button.active,
+  .home-v3-week__tabs button.is-active,
+  .student-schedule-tabs button.active,
+  .week-strip button.active,
+  .nutrition-workspace-nav__sections button.active,
+  .nutrition-workspace-nav__sections button.is-active,
+  .nutrition-next-action button,
+  .student-library__tabs button.active,
+  .student-library__tabs button.is-active,
+  .eat-clean-categories button.active,
+  .eat-clean-categories button.is-active,
+  .account-provider button,
+  .student-availability-week-switch button.active,
+  .student-availability-week-switch button.is-active,
+  .student-availability-card footer button
+) {
+  color: #fff;
+  background: var(--aura-gradient-cta);
+}
+
+/* Copy over the Eat Clean photo: contrast depends on the image, so add a halo. */
+.app-shell.student .eat-clean-hero__copy :is(h1, p, span, small) {
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(25, 22, 26, .55), 0 2px 14px rgba(25, 22, 26, .6);
+}
+
+/* Pink used as text. */
+.app-shell.student :is(
+  .student-attention-center__copy small,
+  .student-attention-center__copy b,
+  .calendar-header div button,
+  .text-button,
+  .upcoming-date small,
+  .upcoming-item span small,
+  .schedule-side .eyebrow,
+  .reschedule-button,
+  .aura-today-flow__eat-clean strong,
+  .aura-today-flow header span:not(.aura-today-flow__streak, .aura-today-flow__streak span),
+  .home-v3-week__header span,
+  .home-v3-week__footer button,
+  .home-v3-milestone__copy span,
+  .nutrition-date-pill .day-name,
+  .nutrition-next-action small,
+  .nutrition-meal-rhythm__heading span,
+  .nutrition-meal-rhythm__grid button em,
+  .pt-workout-learner__title span,
+  .session-feedback-prompt small,
+  .eat-clean-toolbar small,
+  .eat-clean-catalog-switch button,
+  .eat-clean-section-heading small,
+  .eat-clean-meal-card__footer strong,
+  .student-availability-page header small,
+  .aura-today-flow__rhythm-card header button,
+  .home-v4-milestone summary b,
+  .student-schedule-v4-header small,
+  .student-availability-v4-header small,
+  .student-availability-target__copy small
+) {
+  color: var(--aura-pink-text);
+}
+
+@media (max-width: 767px) {
+  /* iOS zooms the page when a focused field is under 16px. */
+  .app-shell.student :is(input:not([type='checkbox'], [type='radio'], [type='range']), textarea, select) {
+    font-size: var(--aura-text-md);
+  }
+
+  /* The topbar already names these pages; drop the repeated second header. */
+  .app-shell.student .eat-clean-page--storefront .eat-clean-toolbar > div:first-child > span,
+  .app-shell.student .loyalty-hero__eyebrow,
+  .app-shell.student .loyalty-back {
+    display: none;
+  }
+
+  /* The wallet fills the right column, so refresh takes the freed back corner. */
+  .app-shell.student .loyalty-page .loyalty-refresh {
+    right: auto;
+    left: 12px;
+  }
+
+  .app-shell.student .loyalty-hero__main {
+    margin-top: var(--aura-space-6);
+  }
+
+  .app-shell.student .mobile-page-context small {
+    letter-spacing: .5px;
+    white-space: nowrap;
+  }
+
+  .app-shell.student .profile-page > .page-heading {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+/* Schedule: the week is the job of this page, so the hero stays a short summary. */
+@media (max-width: 640px) {
+  .app-shell.student .student-schedule-hero__slide {
+    min-height: 118px;
+    padding: 16px 16px 44px;
+  }
+
+  .app-shell.student :is(
+    .student-schedule-hero__slide p,
+    .student-schedule-hero__slide > button,
+    .student-schedule-hero__icon
+  ) {
+    display: none;
+  }
+
+  .app-shell.student .student-schedule-hero__slide :is(h1, h2) {
+    margin-bottom: 0;
+  }
+}

@@ -134,6 +134,7 @@ import {
   type NutritionPlanMeal,
   type NutritionPlanRecord,
 } from '../../services/nutritionPlanService'
+import { greetingName } from '../../utils/displayName'
 
 const NutritionFoodDetail = React.lazy(() => import('./NutritionFoodDetail'))
 const MealEditorSheet = lazyWithRetry(() => import('./NutritionMealEditors').then((module) => ({ default: module.MealEditorSheet })))
@@ -715,7 +716,7 @@ export default function NutritionPageController({ entry = 'nutrition', displayNa
     ...activities.map((activity) => activity.date),
     ...Object.entries(waterByDate).filter(([_, amount]) => amount > 0).map(([date]) => date),
   ]), [activities, meals, waterByDate])
-  const firstName = displayName.trim().split(/\s+/).slice(-1)[0] || 'bạn'
+  const firstName = greetingName(displayName)
 
   // Get actual weight in the last 30 days based on weight history of this user
   const actual30DayWeight = useNutritionWeight(resolvedOwnerId, profileDraft.weightKg, !isDemo && (dayReadEnabled || planReadEnabled))

@@ -301,6 +301,7 @@ function NutritionDashboardHome({
 
   return (
     <div className="nutrition-home nutrition-home--cal-ai">
+      <h1 className="aura-visually-hidden">Dinh dưỡng hôm nay</h1>
       {/* Date Strip Bar (Thứ ngày ở đầu) */}
       <section
         className="nutrition-date-strip"
@@ -674,7 +675,7 @@ function NutritionDashboardHome({
                     </div>
                     <div className="recently-card-body" onClick={() => onOpenMeal?.(meal.id)} style={{ cursor: onOpenMeal ? 'pointer' : 'default' }}>
                       <div className="recently-card-top">
-                        <h3>{meal.title} {meal.reviewStatus === 'pending' ? <span style={{ marginLeft: 6, fontSize: 11, padding: '2px 6px', background: '#fef3c7', color: '#a65a16', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 600 }}><Clock size={10} /> Chờ duyệt</span> : meal.reviewStatus === 'approved' ? <span style={{ marginLeft: 6, fontSize: 11, padding: '2px 6px', background: '#d1fae5', color: '#14805e', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 600 }}><Check size={10} /> Đã duyệt</span> : meal.reviewStatus === 'rejected' ? <span style={{ marginLeft: 6, fontSize: 11, padding: '2px 6px', background: '#ffe7ed', color: '#b82850', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 600 }}>Cần chỉnh</span> : null}</h3>
+                        <h3>{meal.title} {meal.reviewStatus === 'pending' ? <span style={{ marginLeft: 6, fontSize: 12, padding: '2px 6px', background: '#fef3c7', color: '#a65a16', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 600 }}><Clock size={10} /> Chờ duyệt</span> : meal.reviewStatus === 'approved' ? <span style={{ marginLeft: 6, fontSize: 12, padding: '2px 6px', background: '#d1fae5', color: '#14805e', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 600 }}><Check size={10} /> Đã duyệt</span> : meal.reviewStatus === 'rejected' ? <span style={{ marginLeft: 6, fontSize: 12, padding: '2px 6px', background: '#ffe7ed', color: '#b82850', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 600 }}>Cần chỉnh</span> : null}</h3>
                         <span className="recently-card-time">{meal.time}</span>
                       </div>
                       <div className="recently-card-calories">
