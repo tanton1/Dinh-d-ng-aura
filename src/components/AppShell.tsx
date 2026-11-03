@@ -549,6 +549,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
     }
     const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const focusable = () => [...(sidebarRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href]') ?? [])]
+      .filter((item) => item.getClientRects().length > 0 && getComputedStyle(item).visibility === 'visible')
     focusable().find((item) => item.classList.contains('sidebar-close'))?.focus()
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -561,7 +562,8 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
       if (!items.length) return
       const first = items[0]
       const last = items[items.length - 1]
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+      if (!sidebarRef.current?.contains(document.activeElement)) { event.preventDefault(); first.focus() }
+      else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
     }
     const handleViewportChange = () => setMobileMenu(false)

@@ -633,6 +633,9 @@ body.shell-overlay-open { overflow: hidden; }
     transition: transform .22s cubic-bezier(.2, .8, .2, 1), visibility 0s linear .22s;
   }
 
+  /* A transition on `all` would delay these children's inherited visibility. */
+  .sidebar :is(button, a) { transition-property: color, background-color, border-color, box-shadow, transform, opacity; }
+
   .sidebar.open,
   .admin .sidebar.open { transform: none; visibility: visible; box-shadow: 24px 0 70px rgba(9, 9, 11, .42); transition: transform .22s cubic-bezier(.2, .8, .2, 1), visibility 0s; }
   .sidebar-close { top: max(18px, env(safe-area-inset-top)); right: 14px; display: grid; place-items: center; width: 44px; height: 44px; color: var(--aura-white); }
