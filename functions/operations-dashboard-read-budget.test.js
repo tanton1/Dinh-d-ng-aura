@@ -145,6 +145,22 @@ test('dashboard telemetry measures executed scoped reads and cache hits without 
   assert.doesNotMatch(JSON.stringify(metrics), /correlationId|actorUid|sourceId|Actor|Student|Trainer|Foreign/)
 })
 
+test('reports ending now share one cache entry across caller clock minutes', async () => {
+  const { db, handlers, request } = fixture()
+  const minute = (offset) => { const value = new Date(Date.now() - offset * 60_000); value.setSeconds(0, 0); return value.toISOString() }
+  const first = await handlers.getOperationsDashboard(request({ endAt: minute(1) }))
+  const readsBefore = db.reads.length
+  const second = await handlers.getOperationsDashboard(request({ endAt: minute(0) }))
+  const third = await handlers.getOperationsDashboard(request({ endAt: undefined }))
+  assert.equal(db.reads.slice(readsBefore).filter(read => read.type === 'query').length, 0)
+  assert.equal(second.cache.hit, true)
+  assert.equal(third.cache.hit, true)
+  assert.deepEqual(second.finance, first.finance)
+
+  const closed = await handlers.getOperationsDashboard(request({ startAt: new Date(Date.now() - 3 * 86_400_000).toISOString(), endAt: new Date(Date.now() - 2 * 86_400_000).toISOString() }))
+  assert.equal(closed.cache.hit, false, 'a range that ended earlier keeps its own exact key')
+})
+
 test('branch dashboard reduces document reads before limits while preserving canonical package/debt/session metrics', async () => {
   const { db, handlers, request } = fixture()
   const result = await handlers.getOperationsDashboard(request())

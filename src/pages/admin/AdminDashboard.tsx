@@ -52,12 +52,6 @@ function startOfMonth() {
   return new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
 }
 
-function currentMinute() {
-  const now = new Date()
-  now.setSeconds(0, 0)
-  return now.toISOString()
-}
-
 function dashboardErrorMessage(error: unknown) {
   const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : ''
   if (code.includes('permission-denied')) return 'Tài khoản chưa có quyền xem Tổng quan hoặc phạm vi chi nhánh chưa được đồng bộ.'
@@ -261,7 +255,9 @@ function AdminDashboardContent({
   const [requestLoading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [requestError, setError] = useState<{ queryKey: string; message: string } | null>(null)
-  const [range, setRange] = useState(() => ({ startAt: startOfMonth(), endAt: currentMinute() }))
+  // An empty endAt means "until now": the server then keys its shared cache by
+  // day instead of by this browser's clock minute.
+  const [range, setRange] = useState(() => ({ startAt: startOfMonth(), endAt: '' }))
   const [branchId, setBranchId] = useState('all')
   const dashboardQuery = useMemo(() => ({ branchId, startAt: range.startAt, endAt: range.endAt }), [branchId, range.endAt, range.startAt])
   const debouncedDashboardQuery = useDebounce(dashboardQuery, 250)
@@ -283,7 +279,7 @@ function AdminDashboardContent({
     try {
       const result = await getOperationsDashboard({
         startAt: debouncedDashboardQuery.startAt,
-        endAt: debouncedDashboardQuery.endAt,
+        endAt: debouncedDashboardQuery.endAt || undefined,
         branchId: debouncedDashboardQuery.branchId,
         forceRefresh,
       }, { authorizationVersion, authorityKey })
@@ -319,11 +315,10 @@ function AdminDashboardContent({
     const now = new Date()
     const safeEnd = new Date(Math.min(end.getTime(), now.getTime()))
     safeEnd.setMilliseconds(0)
-    if (safeEnd.toDateString() === now.toDateString()) safeEnd.setSeconds(0)
     const safeStart = new Date(start)
     safeStart.setMilliseconds(0)
     const startAt = safeStart.toISOString()
-    const endAt = safeEnd.toISOString()
+    const endAt = safeEnd.toDateString() === now.toDateString() ? '' : safeEnd.toISOString()
     setRange((current) => current.startAt === startAt && current.endAt === endAt ? current : { startAt, endAt })
   }, [])
 
@@ -513,8 +508,6 @@ function AdminDashboardContent({
 
     <AuraMetricCarousel slides={reportSlides} label="Báo cáo nhanh theo kỳ" loading={loading && !data} />
 
-    {payrollEnabled && <AdminDashboardPayroll key={branchId} branchId={branchId} isDemo={isDemo} onOpenPayroll={() => goTo('admin-payroll')} />}
-
     {data?.permissions.finance && <section className="admin-dashboard__receivables" aria-labelledby="dashboard-receivables-title">
       <header><div><small>CÔNG NỢ KHÁCH HÀNG</small><h2 id="dashboard-receivables-title">Lịch cần thu</h2></div><button type="button" onClick={() => goTo('admin-finance', 'overdue')}>Xem thêm<ArrowRight size={15} /></button></header>
       <div className="admin-dashboard__debt-metrics" aria-label="Tổng hợp công nợ cần thu">
@@ -555,6 +548,8 @@ function AdminDashboardContent({
         </article>}
       </div>
     </section>}
+
+    {payrollEnabled && <AdminDashboardPayroll key={branchId} branchId={branchId} isDemo={isDemo} onOpenPayroll={() => goTo('admin-payroll')} />}
 
     {shortcuts.length > 0 && (dashboardV4 ? <details className="admin-dashboard__shortcuts admin-dashboard__shortcuts--collapsed"><summary><span><small>CÔNG CỤ KHÁC</small><strong>Mở nhanh công việc</strong></span><ArrowRight size={17} /></summary><div>{shortcuts.map((item) => <button key={item.id} type="button" onClick={() => onNavigate(item.view)}>{item.icon}<span>{item.label}</span></button>)}</div></details> : <section className="admin-dashboard__shortcuts" aria-label="Lối tắt công việc"><header><small>LỐI TẮT</small><strong>Mở nhanh công việc</strong></header><div>{shortcuts.map((item) => <button key={item.id} type="button" onClick={() => onNavigate(item.view)}>{item.icon}<span>{item.label}</span></button>)}</div></section>)}
   </div>

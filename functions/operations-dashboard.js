@@ -16,6 +16,7 @@ const MAX_RANGE_DAYS = 366
 const MAX_SCANNED_DOCUMENTS = 10000
 const MAX_ACTION_DOCUMENTS = 2000
 const DASHBOARD_CACHE_TTL_MS = 60_000
+const OPEN_ENDED_TOLERANCE_MS = 5 * 60_000
 const DASHBOARD_CACHE_MAX_ENTRIES = 24
 const MAX_CONTRACT_DOCUMENTS = 2000
 const MAX_STUDENT_DOCUMENTS = 2000
@@ -780,7 +781,11 @@ function createOperationsDashboardFunctions({
     const now = new Date()
     const startFallback = new Date(`${dateKey(now).slice(0, 7)}-01T00:00:00+07:00`)
     const start = dateInput(request.data?.startAt, startFallback)
-    const end = dateInput(request.data?.endAt, now)
+    const requestedEnd = dateInput(request.data?.endAt, now)
+    // A report that ends "now" is keyed by day, not by the caller's clock
+    // minute, so every open within the cache TTL shares one built result.
+    const openEnded = !request.data?.endAt || Math.abs(now.getTime() - requestedEnd.getTime()) <= OPEN_ENDED_TOLERANCE_MS
+    const end = openEnded ? now : requestedEnd
     if (start > end || end.getTime() - start.getTime() > MAX_RANGE_DAYS * 86400000) {
       throw new HttpsError('invalid-argument', `Khoảng báo cáo tối đa ${MAX_RANGE_DAYS} ngày.`)
     }
@@ -794,7 +799,7 @@ function createOperationsDashboardFunctions({
     const today = dateKey(now)
     const cacheKey = stableDashboardCacheKey({ actor, permissions, scope, startDate, endDate,
       startAt: request.data?.startAt ? start.toISOString() : startDate,
-      endAt: request.data?.endAt ? end.toISOString() : endDate, today })
+      endAt: openEnded ? endDate : end.toISOString(), today })
     const memoryCacheKey = `${cacheScope(db)}|${cacheKey}`
     const cached = getCachedDashboard(memoryCacheKey, request.data?.forceRefresh === true)
     if (cached) {

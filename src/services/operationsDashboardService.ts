@@ -60,7 +60,7 @@ function normalizeDashboardResponse(response: unknown) {
 
 function previewDashboard(input: { startAt?: string; endAt?: string; branchId?: string }) {
   const startAt = input.startAt || '2026-08-01T00:00:00.000+07:00'
-  const endAt = input.endAt || '2026-08-27T23:59:59.999+07:00'
+  const endAt = input.endAt || new Date().toISOString()
   return normalizeOperationsDashboardData({
     schemaVersion: 7,
     range: { startAt, endAt, timeZone: 'Asia/Ho_Chi_Minh' },

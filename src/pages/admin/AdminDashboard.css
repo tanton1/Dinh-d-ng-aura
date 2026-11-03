@@ -26,9 +26,9 @@
 }
 .admin-dashboard *,.admin-dashboard *::before,.admin-dashboard *::after{box-sizing:border-box}
 .admin-dashboard>.aura-metric-carousel{min-width:0}
-.admin-dashboard>.aura-metric-carousel{order:1}.admin-dashboard>.admin-dashboard__syncbar{order:2}.admin-dashboard>.admin-data-warning{order:3}.admin-dashboard>.admin-dashboard__shortcuts{order:7}
+/* Sections render in DOM order so reading, focus and visual order agree. */
 .admin-dashboard__syncbar{display:flex;min-width:0;align-items:center;justify-content:space-between;gap:12px;padding:2px 2px 0}
-.admin-dashboard__syncbar>div:first-child{display:grid;min-width:0;gap:2px}
+.admin-dashboard__syncbar>div:first-of-type{display:grid;min-width:0;gap:2px}
 .admin-dashboard__syncbar small,.admin-dashboard__tasks header small,.admin-dashboard__glance header small,.admin-dashboard__shortcuts header small,.admin-dashboard__analytics>header small{color:var(--dashboard-pink);font-size:9px;font-weight:900;letter-spacing:.1em}
 .admin-dashboard__syncbar strong{overflow:hidden;font-size:16px;text-overflow:ellipsis;white-space:nowrap}
 .admin-dashboard__syncbar span{color:var(--dashboard-muted);font-size:10px}
@@ -61,7 +61,7 @@
 .admin-dashboard__task-icon{display:grid;width:35px;height:35px;place-items:center;border-radius:11px;background:linear-gradient(135deg,var(--aura-pink-soft),#fff4ed);color:var(--dashboard-pink)}
 .admin-dashboard__task-list>button>span:nth-child(2){display:grid;min-width:0;gap:2px}
 .admin-dashboard__task-list strong{overflow:hidden;color:var(--dashboard-ink);font-size:12px;text-overflow:ellipsis;white-space:nowrap}
-.admin-dashboard__task-list small{overflow:hidden;color:var(--dashboard-muted);font-size:9.5px;text-overflow:ellipsis;white-space:nowrap}
+.admin-dashboard__task-list small{overflow:hidden;color:var(--dashboard-muted);font-size:9.5px;line-height:1.35;text-wrap:pretty}
 .admin-dashboard__healthy{display:flex;align-items:center;gap:10px;min-height:92px;border-radius:15px;padding:14px;background:linear-gradient(135deg,#fff3f8,#fff7ef);color:#2cad65}
 .admin-dashboard__healthy>div{display:grid;gap:3px}.admin-dashboard__healthy strong{color:var(--dashboard-ink);font-size:13px}.admin-dashboard__healthy span{font-size:10px;line-height:1.45;color:var(--dashboard-muted)}
 .admin-dashboard__task-skeleton{display:grid;gap:8px}.admin-dashboard__task-skeleton i{height:56px;border-radius:14px;background:linear-gradient(90deg,#fff4f8,#fff,#fff4f8);background-size:200% 100%;animation:dashboard-skeleton 1.2s linear infinite}
@@ -129,7 +129,7 @@
   .admin-dashboard.admin-dashboard--v2{gap:10px;margin:0;padding:12px 0 max(138px,env(safe-area-inset-bottom))}
   .admin-dashboard>:not(.aura-metric-carousel){margin-inline:10px}.admin-dashboard>.aura-metric-carousel{margin-inline:0}
   .admin-dashboard>.aura-metric-carousel .aura-metric-carousel__viewport{margin-inline:0}
-  .admin-dashboard__syncbar{align-items:flex-start;flex-wrap:wrap;padding-inline:2px}.admin-dashboard__syncbar>div:first-child{flex:1 1 100%}.admin-dashboard__syncbar strong{font-size:14px}.admin-dashboard__syncbar>div:first-child>span{display:flex!important}.admin-dashboard__sync-actions{width:100%;justify-content:flex-end}.admin-dashboard__sync-actions>button span{display:none}.admin-dashboard__sync-actions>button{width:36px;flex:0 0 36px;padding:0}.admin-dashboard__sync-actions>.date-range-filter{width:auto;max-width:145px;flex:1 1 112px}.admin-dashboard__branch-filter{min-width:0;flex:1 1 122px}.admin-dashboard__branch-filter select{width:100%;max-width:none}
+  .admin-dashboard__syncbar{align-items:flex-start;flex-wrap:wrap;padding-inline:2px}.admin-dashboard__syncbar>div:first-of-type{flex:1 1 100%}.admin-dashboard__syncbar strong{font-size:14px}.admin-dashboard__syncbar>div:first-of-type>span{display:flex!important}.admin-dashboard__sync-actions{width:100%;justify-content:flex-end}.admin-dashboard__sync-actions>button span{display:none}.admin-dashboard__sync-actions>button{width:36px;flex:0 0 36px;padding:0}.admin-dashboard__sync-actions>.date-range-filter{width:auto;max-width:145px;flex:1 1 112px}.admin-dashboard__branch-filter{min-width:0;flex:1 1 122px}.admin-dashboard__branch-filter select{width:100%;max-width:none}
   .admin-dashboard__tasks,.admin-dashboard__glance,.admin-dashboard__shortcuts,.admin-dashboard__attendance,.admin-dashboard__receivables{border-radius:18px;padding:12px}
   .admin-dashboard__glance{margin-right:0!important;border-radius:18px 0 0 18px;border-right:0;padding-right:0}
   .admin-dashboard__glance>header{padding-right:12px}
@@ -150,13 +150,8 @@
 }
 
 /* Dashboard v3: full-width operations view with a dedicated daily table. */
-.admin-dashboard.admin-dashboard--v2{padding-inline:0}
-.admin-dashboard>.admin-dashboard__analytics{order:4}
-.admin-dashboard>.admin-dashboard__main-grid{order:5}
-.admin-dashboard>.admin-dashboard__receivables{order:6}
-.admin-dashboard__main-grid{grid-template-columns:minmax(0,1fr) minmax(0,1.15fr)}
-.admin-dashboard__attendance{order:1}
-.admin-dashboard__tasks{order:2}
+.admin-dashboard.admin-dashboard--v2{padding-inline:clamp(16px,2.2vw,32px)}
+.admin-dashboard__main-grid{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr)}
 .admin-dashboard__task-list{grid-template-columns:repeat(2,minmax(0,1fr))}
 .admin-dashboard__receivables>header{justify-content:flex-start}
 .admin-dashboard__receivables>header>button{margin-left:auto}
@@ -212,21 +207,27 @@
   .admin-dashboard__analytics>header{padding-right:0}
   .admin-dashboard__analytics-grid{padding-right:0}
   .admin-dashboard__main-grid{grid-template-columns:1fr}
+  /* All five attendance counts stay visible instead of scrolling sideways. */
+  .admin-dashboard__attendance>header{flex-direction:row;align-items:center}
   .admin-dashboard__attendance-metrics,
-  .admin-dashboard__metric-skeleton{display:flex;overflow-x:auto;padding:1px 0 4px;scroll-snap-type:x mandatory;scrollbar-width:none}
-  .admin-dashboard__attendance-metrics::-webkit-scrollbar,
-  .admin-dashboard__metric-skeleton::-webkit-scrollbar,
+  .admin-dashboard__metric-skeleton{gap:5px}
+  .admin-dashboard__attendance-metrics>span{gap:4px;padding:10px 6px}
+  .admin-dashboard__attendance-metrics b{font-size:20px}
   .admin-dashboard__debt-metrics::-webkit-scrollbar{display:none}
-  .admin-dashboard__attendance-metrics>span,
-  .admin-dashboard__metric-skeleton>i{width:108px;min-width:108px;scroll-snap-align:start}
+  /* Header: greeting with help/refresh on top, the two filters share row two. */
+  .admin-dashboard__syncbar{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:8px 6px}
+  .admin-dashboard__syncbar>div:first-of-type{grid-column:1/3;grid-row:1;padding-right:84px}
+  .admin-dashboard__sync-actions{display:contents}
+  .admin-dashboard__help{position:relative;grid-column:2;grid-row:1;justify-self:end;margin-right:42px}
+  .admin-dashboard__sync-actions>button{grid-column:2;grid-row:1;justify-self:end}
+  .admin-dashboard__branch-filter{grid-column:1;grid-row:2}
+  .admin-dashboard__sync-actions>.date-range-filter{grid-column:2;grid-row:2;width:auto;max-width:none}
+  .admin-dashboard__sync-actions:not(:has(.admin-dashboard__branch-filter))>.date-range-filter{grid-column:1/3}
   .admin-dashboard__debt-metrics{display:flex;overflow-x:auto;padding:1px 0 4px;scroll-snap-type:x mandatory;scrollbar-width:none}
   .admin-dashboard__debt-metrics>span{width:min(74vw,240px);min-width:min(74vw,240px);scroll-snap-align:start}
 }
 
 /* Admin dashboard payroll: same weekly view as Staff, switchable by employee. */
-.admin-dashboard>.admin-dashboard__payroll{order:6}
-.admin-dashboard>.admin-dashboard__receivables{order:7}
-.admin-dashboard>.admin-dashboard__shortcuts{order:8}
 .admin-dashboard__payroll{min-width:0;border:1px solid rgba(246,47,130,.14);border-radius:21px;padding:16px;background:rgba(255,255,255,.94);box-shadow:0 13px 34px rgba(91,39,64,.07);backdrop-filter:blur(12px)}
 .admin-dashboard__payroll>header{display:flex;min-width:0;align-items:flex-start;justify-content:space-between;gap:14px}
 .admin-dashboard__payroll>header>div{display:grid;min-width:0;gap:2px}

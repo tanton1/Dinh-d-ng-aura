@@ -89,6 +89,24 @@ test('metric carousel dots expose at least 24px tap targets without overlapping'
   for (let index = 1; index < areas.length; index += 1) expect(areas[index].left).toBeGreaterThanOrEqual(areas[index - 1].right - 0.5)
 })
 
+for (const width of [1440, 375]) {
+  test(`admin dashboard puts today's work first and keeps attendance readable at ${width}px`, async ({ page }) => {
+    await openAdmin(page, 'admin-dashboard', width)
+    const tasks = page.locator('.admin-dashboard__tasks')
+    await expect(tasks.getByRole('heading', { name: 'Hôm nay cần làm' })).toBeVisible()
+    const tasksBox = await tasks.boundingBox()
+    const carouselBox = await page.locator('.aura-metric-carousel').boundingBox()
+    expect(tasksBox!.y).toBeLessThan(carouselBox!.y)
+    expect(tasksBox!.y).toBeLessThan(260)
+    await expect(page.locator('.admin-dashboard__syncbar strong')).toHaveText(/^Chào /)
+    const metrics = await page.locator('.admin-dashboard__attendance-metrics > span').evaluateAll((items) => items.map((item) => item.getBoundingClientRect().right))
+    expect(metrics).toHaveLength(5)
+    for (const right of metrics) expect(right).toBeLessThanOrEqual(width)
+    const order = await page.locator('.admin-dashboard > *').evaluateAll((items) => items.map((item) => getComputedStyle(item).order))
+    expect(new Set(order)).toEqual(new Set(['0']))
+  })
+}
+
 const adminViews = ['admin-dashboard', 'admin-pt-students', 'admin-renewals', 'admin-loyalty', 'admin-pt-schedule', 'admin-training-history', 'admin-pt-workouts', 'admin-performance', 'admin-trainer-quality', 'admin-hr', 'admin-payroll', 'admin-finance', 'admin-eat-clean', 'admin-nutrition-reviews', 'admin-notifications']
 const staffViews = ['staff-dashboard', 'staff-students', 'staff-schedule', 'staff-availability', 'staff-requests', 'staff-workouts', 'staff-nutrition-reviews', 'staff-renewals', 'staff-performance', 'staff-payroll']
 
