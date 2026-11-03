@@ -1,0 +1,286 @@
+/* Operations readability foundation (admin and the staff workspace).
+ *
+ * Feature stylesheets load lazily, so import order cannot decide who wins here.
+ * Every rule is scoped to the operations shells for specificity. Member screens
+ * use styles-member-foundation.css instead. New operations UI should use the
+ * Aura tokens directly instead of adding to these lists.
+ */
+
+/* Smallest readable text: people read these numbers and labels all day. */
+:is(.app-shell.admin, .app-shell[data-workspace='staff']) :is(
+  .admin-dashboard__analytics header p,
+  .admin-dashboard__analytics header small,
+  .admin-dashboard__attendance header button,
+  .admin-dashboard__attendance header small,
+  .admin-dashboard__attendance-metrics small,
+  .admin-dashboard__chart-card header p,
+  .admin-dashboard__chart-card header small,
+  .admin-dashboard__chart-totals b,
+  .admin-dashboard__chart-totals small,
+  .admin-dashboard__data-state,
+  .admin-dashboard__debt-metrics em,
+  .admin-dashboard__debt-metrics small,
+  .admin-dashboard__donut small,
+  .admin-dashboard__help b,
+  .admin-dashboard__help span,
+  .admin-dashboard__package-bars b,
+  .admin-dashboard__package-bars small,
+  .admin-dashboard__payroll header button,
+  .admin-dashboard__payroll header p,
+  .admin-dashboard__payroll header small,
+  .admin-dashboard__payroll-state button,
+  .admin-dashboard__payroll-state p,
+  .admin-dashboard__ratio-legend b,
+  .admin-dashboard__ratio-legend small,
+  .admin-dashboard__receivables header button,
+  .admin-dashboard__receivables header small,
+  .admin-dashboard__shortcuts button span,
+  .admin-dashboard__shortcuts header small,
+  .admin-dashboard__sync-actions button span,
+  .admin-dashboard__syncbar small,
+  .admin-dashboard__task-list button small,
+  .admin-dashboard__tasks header small,
+  .admin-dashboard__tasks header span,
+  .aura-metric-carousel__action,
+  .aura-metric-carousel__eyebrow,
+  .aura-metric-carousel__number,
+  .aura-metric-carousel__slide small,
+  .club-overview small,
+  .club-overview span,
+  .club-reward-banner button,
+  .date-range-filter__trigger-label span,
+  .eat-clean-dispatch-empty small,
+  .eat-clean-dispatch-map footer span,
+  .eat-clean-dispatch-map header span,
+  .eat-clean-dispatch-map header small,
+  .eat-clean-dispatch-metrics small,
+  .eat-clean-dispatch-queue header b,
+  .eat-clean-dispatch-queue header span,
+  .eat-clean-dispatch-switch button,
+  .eat-clean-driver-strip header span,
+  .eat-clean-eyebrow,
+  .eat-clean-kicker,
+  .eat-clean-map-empty small,
+  .eat-clean-operations-signals small,
+  .eat-clean-operations-signals span,
+  .eat-clean-readiness-grid small,
+  .eat-clean-readiness-grid strong,
+  .eat-clean-tabs button span,
+  .finance-hub__tabs button strong,
+  .finance-management__debt-filters button,
+  .finance-management__section-head strong,
+  .identity-carousel button em,
+  .identity-carousel button small,
+  .identity-hero__actions span,
+  .identity-section__count,
+  .needs-setup small,
+  .needs-setup strong,
+  .nrw-hero-copy span,
+  .nrw-kpis span,
+  .nrw-status-tabs button,
+  .nrw-status-tabs button b,
+  .operations-requests__header span,
+  .operations-requests__summary button span,
+  .operations-requests__toolbar span,
+  .opv2-attendance-summary span,
+  .opv2-badge,
+  .opv2-kicker-dark,
+  .opv2-student-meta span,
+  .opv2-student-metrics span,
+  .opv2-student-open,
+  .opv2-student-result span,
+  .opv2-student-schedule span,
+  .opv2-student-schedule strong,
+  .opv2-student-zalo,
+  .opv2-week-cell b,
+  .opv2-week-cell span,
+  .opv2-week-corner,
+  .opv2-week-day small,
+  .opv2-week-day-tabs button,
+  .opv2-week-row time,
+  .payroll-page__nav button,
+  .performance-brand__metrics small,
+  .performance-brand__overview small,
+  .performance-brand__section-title small,
+  .performance-review-page__framework dd span,
+  .performance-scorecard-review__empty span,
+  .pt-schedule-matrix__day-tabs button,
+  .pt-schedule-matrix__grid thead span,
+  main .eyebrow,
+  .pt-workout-workspace__autosave,
+  .pt-workout-workspace__exercise-heading small,
+  .pt-workout-workspace__hero span,
+  .pt-workout-workspace__logger header span,
+  .pt-workout-workspace__logger header label,
+  .pt-workout-workspace__notes label,
+  .pt-workout-workspace__section-title span,
+  .pt-workout-workspace__session-group em,
+  .pt-workout-workspace__session-group span,
+  .pt-workout-workspace__set-grid small,
+  .pt-workout-workspace__student-search small,
+  .pt-workout-workspace__toolbar label,
+  .push-inline-meta span,
+  .push-metric small,
+  .push-metric span,
+  .push-schedule-row span,
+  .push-section-heading__eyebrow,
+  .push-status-pill,
+  .push-tab-label--short,
+  .renewal-error button,
+  .renewal-focus-card small,
+  .renewal-focus-card span,
+  .renewal-state span,
+  .renewal-student-shortcut,
+  .schedule-workspace__heading p,
+  .schedule-workspace__heading span,
+  .schedule-workspace__week-picker button span,
+  .schedule-workspace__week-picker button strong,
+  .staff-dashboard__chart small,
+  .staff-dashboard__chart strong,
+  .staff-dashboard__eyebrow b,
+  .staff-dashboard__heading-copy p,
+  .staff-dashboard__payroll header button,
+  .staff-dashboard__payroll header small,
+  .staff-dashboard__payroll-summary small,
+  .staff-dashboard__payroll-summary span,
+  .staff-dashboard__performance header button,
+  .staff-dashboard__performance header small,
+  .staff-dashboard__performance-body dt,
+  .staff-dashboard__performance-body small,
+  .staff-dashboard__performance-score p,
+  .staff-dashboard__performance-score span,
+  .staff-dashboard__role-actions button small,
+  .staff-dashboard__role-actions button strong,
+  .staff-dashboard__role-actions header small,
+  .staff-dashboard__schedule-filters button,
+  .staff-dashboard__schedule-filters button b,
+  .staff-dashboard__section-actions button,
+  .staff-dashboard__section-actions span,
+  .staff-dashboard__sync,
+  .staff-dashboard__timeline button small,
+  .staff-dashboard__today header small,
+  .staff-payroll__money-grid p,
+  .staff-payroll__money-grid small,
+  .staff-payroll__section-title span,
+  .staff-payroll__section-title small,
+  .staff-payroll__toolbar label span,
+  .staff-schedule-workspace__heading small,
+  .staff-schedule-workspace__tabs button small,
+  .staff-schedule-workspace__tabs button strong,
+  .student-management__carousel-controls span,
+  .student-management__carousel-metrics span,
+  .student-management__carousel-slide button,
+  .student-management__carousel-slide p,
+  .student-management__carousel-slide small,
+  .student-management__eyebrow,
+  .student-management .text-xs,
+  .student-roster__availability,
+  .student-roster__identity small,
+  .student-roster__status,
+  .trainer-availability-controls button,
+  .trainer-availability-status button,
+  .trainer-availability-status small,
+  .trainer-availability-week-tools button,
+  .trainer-availability-week-tools button b,
+  .trainer-availability-week-tools button span,
+  .trainer-availability-week-tools small,
+  .trainer-quality-status,
+  .training-history-workspace__hero span,
+  .training-history-workspace__switch button,
+  main table th,
+  main table td small
+) {
+  font-size: var(--aura-text-xs);
+}
+
+/* Figures line up in columns and do not shift while they update. */
+:is(.app-shell.admin, .app-shell[data-workspace='staff']) :is(
+  main table,
+  .aura-metric-carousel__number,
+  .admin-dashboard__chart-totals,
+  .admin-dashboard__debt-metrics,
+  .staff-payroll__money-grid,
+  .staff-dashboard__payroll-summary
+) {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Pink used as text. */
+:is(.app-shell.admin, .app-shell[data-workspace='staff']) :is(
+  .admin-dashboard__shortcuts button span,
+  .eat-clean-dispatch-map header span,
+  .eat-clean-dispatch-queue header span,
+  .eat-clean-driver-strip header span,
+  .eat-clean-kicker,
+  .identity-section__count,
+  .opv2-badge,
+  .opv2-kicker-dark,
+  .opv2-student-open,
+  .opv2-week-cell b,
+  .performance-scorecard-review__empty button,
+  .student-management .text-xs,
+  .staff-dashboard__eyebrow span,
+  .trainer-availability-status span
+) {
+  color: var(--aura-pink-text);
+}
+
+/* White text on a solid pink fill. */
+:is(.app-shell.admin, .app-shell[data-workspace='staff']) :is(
+  .admin-dashboard__payroll-state button,
+  .eat-clean-dispatch-queue header b
+) {
+  background: var(--aura-pink-text);
+}
+
+/* Supporting grey text. */
+:is(.app-shell.admin, .app-shell[data-workspace='staff']) :is(
+  .date-range-filter__trigger-label span,
+  .eat-clean-dispatch-empty small,
+  .finance-management__empty p,
+  .finance-management__section-head strong,
+  .operations-requests__toolbar span,
+  .opv2-week-corner,
+  .opv2-week-day small,
+  .opv2-week-cell i,
+  .payroll-page__empty p,
+  .pt-workout-workspace__autosave,
+  .pt-workout-workspace__exercise-heading small,
+  .pt-workout-workspace__session-group button small,
+  .pt-workout-workspace__set-grid small,
+  .pt-workout-workspace__set-grid span,
+  .pt-workout-workspace__student-search small,
+  .push-status-pill,
+  .renewal-focus-card small,
+  .renewal-state span,
+  .renewal-workspace-tabs button,
+  .staff-dashboard__performance-body small,
+  .staff-dashboard__role-actions header small,
+  .student-roster__identity small,
+  .trainer-availability-status small,
+  .trainer-availability-week-tools small,
+  main table td small
+) {
+  color: var(--aura-muted);
+}
+
+:is(.app-shell.admin, .app-shell[data-workspace='staff']) .pt-workout-workspace__session-group em {
+  color: #7a4a0e;
+}
+
+/* Phone filters: a 16px select must not cut its selected value. */
+@media (max-width: 767px) {
+  :is(.app-shell.admin, .app-shell[data-workspace='staff']) .finance-management__filters { flex-wrap: wrap; }
+  :is(.app-shell.admin, .app-shell[data-workspace='staff']) .finance-management__filters select { width: auto; min-width: 0; flex: 1 1 100%; }
+  :is(.app-shell.admin, .app-shell[data-workspace='staff']) .aura-operations-page--schedule .schedule-workspace__controlbar > select { flex: 0 0 160px; }
+}
+
+@media (max-width: 650px) {
+  :is(.app-shell.admin, .app-shell[data-workspace='staff']) .opv2-student-filters { grid-template-columns: 1fr; }
+
+  /* Four renewal groups share one phone row: let 12px labels wrap instead of overflowing. */
+  :is(.app-shell.admin, .app-shell[data-workspace='staff']) .renewal-kpis { padding-block: 8px; }
+  :is(.app-shell.admin, .app-shell[data-workspace='staff']) .renewal-focus-card { gap: 2px; padding: 0 6px; }
+  :is(.app-shell.admin, .app-shell[data-workspace='staff']) .renewal-focus-card strong { font-size: 21px; }
+  :is(.app-shell.admin, .app-shell[data-workspace='staff']) .renewal-focus-card :is(span, small) { line-height: 1.2; white-space: normal; overflow-wrap: anywhere; }
+}

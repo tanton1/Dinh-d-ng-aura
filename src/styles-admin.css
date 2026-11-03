@@ -1,16 +1,16 @@
 .app-shell.admin { --sidebar: 228px; }
-.admin .sidebar { background: #252331; border-color: #353240; color: #fff; }
+.admin .sidebar { background: linear-gradient(160deg, #2b1020, #0b090c 38%); border-color: #ffffff10; color: #fff; }
 .admin .brand small { color: #aaa6b7; }
-.admin .brand-mark { color: #272431; background: #b9ef68; box-shadow: none; }
+.admin .brand-mark { color: #fff; background: var(--aura-brand-pink); box-shadow: none; }
 .admin .brand-mark > span { background: var(--gradient-primary); }
 .admin .sidebar-nav__section > p { color: #777382; }
 .admin .sidebar-nav button, .admin .sidebar-bottom > button { color: #aba8b5; }
-.admin .sidebar-nav button:hover, .admin .sidebar-bottom > button:hover { color: #fff; background: #302d3c; }
-.admin .sidebar-nav button.active { color: #fff; background: #42365f; }
-.admin .sidebar-nav button.active svg { color: #bdaafc; }
-.admin .sidebar-nav button.active i { background: #b9ef68; }
-.admin .sidebar-bottom { border-color: #3a3744; }
-.admin .sidebar-bottom .mode-switch { color: #262331; background: #b9ef68; }
+.admin .sidebar-nav button:hover, .admin .sidebar-bottom > button:hover { color: #fff; background: #2a1520; }
+.admin .sidebar-nav button.active { color: #fff; background: #43152c; }
+.admin .sidebar-nav button.active svg { color: #ff4b94; }
+.admin .sidebar-nav button.active i { background: var(--aura-brand-pink); }
+.admin .sidebar-bottom { border-color: #ffffff14; }
+.admin .sidebar-bottom .mode-switch { color: #fff; background: linear-gradient(135deg, #4d142f, #2d173c); }
 .admin .topbar { background: rgba(255,255,255,.94); }
 .admin-header-actions { display: flex; gap: 9px; }
 .admin-kpi-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 13px; margin-bottom: 17px; }

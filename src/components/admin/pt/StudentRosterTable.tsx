@@ -138,7 +138,7 @@ export default function StudentRosterTable({
 
   return (
     <div className="student-roster" aria-label="Danh sách vận hành học viên PT">
-      <table className="student-roster__table">
+      <table className="student-roster__table" aria-label="Học viên PT">
         <thead>
           <tr>
             <th>Học viên</th>

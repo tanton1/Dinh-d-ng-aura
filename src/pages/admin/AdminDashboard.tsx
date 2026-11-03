@@ -462,6 +462,7 @@ function AdminDashboardContent({
 
   return <div className={`page admin-dashboard admin-dashboard--v2${dashboardV4 ? ' aura-ui-v4-surface aura-ui-v4-operations admin-dashboard--v4' : ''}`}>
     <section className="admin-dashboard__syncbar" aria-label="Trạng thái tổng quan">
+      <h1 className="aura-visually-hidden">Trung tâm điều hành</h1>
       <div><small>AURA · TỔNG QUAN</small><strong>Chào {adminName}</strong><span className={`admin-dashboard__data-state ${error ? 'is-error' : loading || refreshing ? 'is-loading' : 'is-synced'}`}><i />{data?.generatedAt ? `Đồng bộ ${new Date(data.generatedAt).toLocaleString('vi-VN')}${data.cache.hit ? ' · dữ liệu đệm' : ''}` : error ? 'Chưa đồng bộ dữ liệu' : 'Đang kết nối dữ liệu vận hành'}</span></div>
       <div className="admin-dashboard__sync-actions">
         {response && response.value.filters.branches.length > 1 && <label className="admin-dashboard__branch-filter" aria-label="Lọc theo chi nhánh"><Building2 size={15} /><select value={branchId} onChange={(event) => setBranchId(event.target.value)}><option value="all">Tất cả cơ sở</option>{response.value.filters.branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>}

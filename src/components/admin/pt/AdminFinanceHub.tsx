@@ -28,6 +28,7 @@ function FinanceHubSession({ user, profile, initialTab = 'ledger' }: Props) {
     { id: 'overview', label: 'Báo cáo kỳ', icon: BarChart3 },
   ]
   return <div className="operations-hub finance-hub">
+    <h1 className="aura-visually-hidden">Tài chính</h1>
     <nav className="finance-hub__tabs finance-hub__tabs--management" role="tablist" aria-label="Phân hệ tài chính">
       {tabs.map((item, index) => {
         const Icon = item.icon

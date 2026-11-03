@@ -88,3 +88,52 @@ test('metric carousel dots expose at least 24px tap targets without overlapping'
   }
   for (let index = 1; index < areas.length; index += 1) expect(areas[index].left).toBeGreaterThanOrEqual(areas[index - 1].right - 0.5)
 })
+
+const adminViews = ['admin-dashboard', 'admin-pt-students', 'admin-renewals', 'admin-loyalty', 'admin-pt-schedule', 'admin-training-history', 'admin-pt-workouts', 'admin-performance', 'admin-trainer-quality', 'admin-hr', 'admin-payroll', 'admin-finance', 'admin-eat-clean', 'admin-nutrition-reviews', 'admin-notifications']
+const staffViews = ['staff-dashboard', 'staff-students', 'staff-schedule', 'staff-availability', 'staff-requests', 'staff-workouts', 'staff-nutrition-reviews', 'staff-renewals', 'staff-performance', 'staff-payroll']
+
+async function openStaff(page: Page, view: string, width: number) {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/#/home')
+  await expect(page.locator('#aura-today-flow-title')).toBeVisible()
+  await page.locator('.user-menu').click()
+  await page.getByRole('button', { name: 'PT Gym' }).click()
+  await expect(page).toHaveURL(/#\/staff-dashboard/)
+  await page.setViewportSize({ width, height: 900 })
+  await page.evaluate((target) => { location.hash = `#/${target}` }, view)
+  await expect(page).toHaveURL(new RegExp(`#/${view}`))
+}
+
+const readability = (page: Page) => page.evaluate(() => {
+  const main = document.querySelector('main') ?? document.body
+  const tooSmall = [...main.querySelectorAll('*')].filter((element) => {
+    const style = getComputedStyle(element)
+    const size = parseFloat(style.fontSize)
+    const rect = element.getBoundingClientRect()
+    const hasText = [...element.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && (node.textContent ?? '').trim().length > 0)
+    return hasText && size > 1 && size < 12 && rect.width > 0 && style.visibility !== 'hidden' && !element.closest('.aura-visually-hidden, svg')
+  }).map((element) => `${parseFloat(getComputedStyle(element).fontSize)}px ${element.className || element.tagName} "${(element.textContent ?? '').trim().slice(0, 24)}"`)
+  return { tooSmall: [...new Set(tooSmall)], h1: main.querySelectorAll('h1').length, overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth }
+})
+
+for (const width of [1440, 375]) {
+  for (const view of adminViews) {
+    test(`${view} keeps operations text readable at ${width}px`, async ({ page }) => {
+      await openAdmin(page, view, width)
+      await page.waitForTimeout(1200)
+      const result = await readability(page)
+      expect(result.tooSmall).toEqual([])
+      expect(result.h1).toBe(1)
+      expect(result.overflow).toBe(0)
+    })
+  }
+  for (const view of staffViews) {
+    test(`${view} keeps PT workspace text readable at ${width}px`, async ({ page }) => {
+      await openStaff(page, view, width)
+      await page.waitForTimeout(1200)
+      const result = await readability(page)
+      expect(result.tooSmall).toEqual([])
+      expect(result.overflow).toBe(0)
+    })
+  }
+}
