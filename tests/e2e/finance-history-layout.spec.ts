@@ -197,9 +197,10 @@ test.describe('Aura Finance Intelligence responsive workspace', () => {
       const attendanceTop = await dashboard.locator('.admin-dashboard__attendance').evaluate((element) => element.getBoundingClientRect().top)
       const payrollTop = await payrollChart.evaluate((element) => element.getBoundingClientRect().top)
       const receivablesTop = await dashboard.locator('.admin-dashboard__receivables').evaluate((element) => element.getBoundingClientRect().top)
-      expect(analyticsTop).toBeLessThan(attendanceTop)
-      expect(payrollTop).toBeGreaterThan(attendanceTop)
-      expect(payrollTop).toBeLessThan(receivablesTop)
+      // Today's work leads; debt follows the KPIs, analysis and payroll come after.
+      expect(attendanceTop).toBeLessThan(receivablesTop)
+      expect(receivablesTop).toBeLessThan(analyticsTop)
+      expect(analyticsTop).toBeLessThan(payrollTop)
       await expect(dashboard.locator(':scope > .aura-metric-carousel .aura-metric-carousel__number').first()).toHaveText('01 / 05')
       await expect(dashboard.getByText('Một phần dữ liệu cần đối soát.')).toHaveCount(0)
       const dashboardLayout = await dashboard.evaluate((element) => {

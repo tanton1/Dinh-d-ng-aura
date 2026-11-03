@@ -166,7 +166,7 @@
 .admin-dashboard__receivable-tabs>button b{display:grid;min-width:20px;height:20px;place-items:center;border-radius:999px;background:#fdebf2;color:#d63c73;font-size:8px}
 .admin-dashboard__table-wrap--debt table{min-width:520px}
 
-/* Dashboard v4: analysis first; daily attendance and debt stay summary-only. */
+/* Dashboard v4: daily attendance and debt stay summary-only. */
 .admin-dashboard__attendance>header>button,
 .admin-dashboard__receivables>header>button{display:inline-flex;min-height:32px;align-items:center;justify-content:center;gap:5px;border:0;border-radius:10px;padding:0 11px;background:linear-gradient(110deg,var(--aura-brand-pink),#ff8751);color:#fff;font-size:9px;font-weight:900;cursor:pointer;white-space:nowrap}
 .admin-dashboard__attendance-metrics,
