@@ -636,7 +636,7 @@
 
 .nutrition-assistant-brief {
   border-color: rgba(245, 48, 130, .14);
-  background: linear-gradient(110deg, #fff0f6, #fff9f6 55%, #fff3e8);
+  background: linear-gradient(110deg, var(--aura-pink-soft), #fff9f6 55%, #fff3e8);
   box-shadow: 0 10px 25px rgba(74, 31, 50, .045);
 }
 
@@ -744,21 +744,21 @@
 /* Aura UI 4.0 is opt-in. Keeping these selectors behind the page flag lets
    production return to the established nutrition workspace immediately. */
 .nutrition-page--v4 .nutrition-workspace {
-  --nw-bg: #f7f4f6;
+  --nw-bg: var(--aura-canvas);
   --nw-surface: #fff;
-  --nw-ink: #19161a;
-  --nw-muted: #5f5961;
-  --nw-line: #ece8ec;
+  --nw-ink: var(--aura-ink);
+  --nw-muted: var(--aura-muted);
+  --nw-line: var(--aura-line);
   --nw-purple: var(--aura-brand-pink);
   --nw-purple-dark: #c91f61;
-  --nw-purple-soft: #fff0f6;
-  --nw-green: #14805e;
+  --nw-purple-soft: var(--aura-pink-soft);
+  --nw-green: var(--aura-success);
   --nw-green-soft: #e9f5f0;
-  --nw-amber: #a65a16;
+  --nw-amber: var(--aura-warning);
   --nw-amber-soft: #fff2e4;
   --nw-red: #b82850;
   --nw-red-soft: #fff0f4;
-  --nw-blue: #386bc1;
+  --nw-blue: var(--aura-info);
   --nw-blue-soft: #edf3ff;
 }
 

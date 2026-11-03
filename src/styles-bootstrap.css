@@ -34,7 +34,7 @@ button, input, textarea, select { font: inherit; }
   margin-bottom: 15px;
   border-radius: 20px;
   color: #fff;
-  background: linear-gradient(135deg, #f42482, #ff7839);
+  background: linear-gradient(135deg, var(--aura-brand-pink), #ff7839);
   box-shadow: 0 18px 42px rgba(244, 36, 130, .22);
   font-size: 34px;
   font-weight: 900;
@@ -53,7 +53,7 @@ button, input, textarea, select { font: inherit; }
 .aura-bootstrap > strong { font-size: 24px; letter-spacing: -.03em; }
 .aura-bootstrap > p { margin: 8px 0 19px; color: #827982; font-size: 14px; }
 .aura-bootstrap__progress { width: 132px; height: 4px; overflow: hidden; border-radius: 99px; background: rgba(244, 36, 130, .15); }
-.aura-bootstrap__progress i { display: block; width: 48%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #f42482, #ff7839); animation: aura-bootstrap-load 1.05s ease-in-out infinite alternate; }
+.aura-bootstrap__progress i { display: block; width: 48%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--aura-brand-pink), #ff7839); animation: aura-bootstrap-load 1.05s ease-in-out infinite alternate; }
 
 @keyframes aura-bootstrap-load {
   from { transform: translateX(-20%); }

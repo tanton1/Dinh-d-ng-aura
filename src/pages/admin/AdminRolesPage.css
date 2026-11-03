@@ -1,5 +1,5 @@
 .identity-admin-page {
-  --team-pink: #f62f82;
+  --team-pink: var(--aura-brand-pink);
   --team-orange: #ff8751;
   --team-ink: #241a25;
   --team-muted: #766b76;
@@ -307,7 +307,7 @@
 .identity-employment-type { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin: 10px 0 12px; padding: 5px; border: 1px solid #f0dfe6; border-radius: 14px; background: #fff; }
 .identity-employment-type button { min-height: 40px; border: 0; border-radius: 10px; color: #746b74; background: transparent; font-size: 12px; font-weight: 800; }
 .identity-employment-type button.active { color: #fff; background: linear-gradient(135deg, var(--aura-pink), #ff8651); box-shadow: 0 8px 18px rgba(246,47,130,.2); }
-.identity-employment-note { margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; color: #8b4661; background: linear-gradient(135deg, #fff0f6, #fff5ed); font-size: 12px; line-height: 1.55; }
+.identity-employment-note { margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; color: #8b4661; background: linear-gradient(135deg, var(--aura-pink-soft), #fff5ed); font-size: 12px; line-height: 1.55; }
 .identity-policy-select { display: grid; gap: 6px; margin: 10px 0 14px; color: var(--team-ink); font-size: 12px; font-weight: 800; }
 .identity-policy-select select { width: 100%; min-height: 45px; padding: 0 38px 0 12px; border: 1px solid #efdae4; border-radius: 12px; color: #4e404c; background: #fff; font: inherit; }
 .identity-policy-select small { color: var(--team-muted); font-size: 10px; font-weight: 600; line-height: 1.45; }
@@ -329,7 +329,7 @@
 .identity-staff-availability tbody th { width: 62px; color: #352a35; font-variant-numeric: tabular-nums; }
 .identity-staff-availability td { height: 40px; padding: 0; }
 .identity-staff-availability td button { display: grid; width: 100%; height: 37px; place-items: center; border: 1px solid transparent; border-radius: 10px; color: #fff; background: #faf2f6; }
-.identity-staff-availability td button:hover { border-color: #f0aac5; background: #fff0f6; }
+.identity-staff-availability td button:hover { border-color: #f0aac5; background: var(--aura-pink-soft); }
 .identity-staff-availability td button.active { border-color: transparent; background: linear-gradient(135deg, var(--team-pink), var(--team-orange)); box-shadow: 0 6px 14px rgba(246,47,130,.22); }
 
 .identity-admin-page .identity-modal__actions { position: sticky; z-index: 5; bottom: -19px; display: flex; justify-content: flex-end; gap: 8px; margin-top: 15px; margin-right: -19px; margin-left: -19px; padding: 12px 19px calc(12px + env(safe-area-inset-bottom, 0px)); background: rgba(255,255,255,.96); box-shadow: 0 -9px 24px rgba(64,37,52,.07); backdrop-filter: blur(14px); }

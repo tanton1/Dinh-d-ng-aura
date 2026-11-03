@@ -1,18 +1,18 @@
 .account-connections { padding: 22px; overflow: hidden; border: 1px solid rgba(245, 48, 130, .12); border-radius: 24px; color: #241724; background: linear-gradient(145deg, rgba(255,255,255,.98), rgba(255,246,241,.96)); box-shadow: 0 16px 38px rgba(85, 34, 58, .07); }
 .account-connections > header { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; gap: 12px; margin-bottom: 17px; }
-.account-connections__icon { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 14px; color: #fff; background: linear-gradient(135deg, #f53082, #ff8a34); box-shadow: 0 9px 20px rgba(245,48,130,.2); }
+.account-connections__icon { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 14px; color: #fff; background: linear-gradient(135deg, var(--aura-brand-pink), #ff8a34); box-shadow: 0 9px 20px rgba(245,48,130,.2); }
 .account-connections h3 { margin: 0 0 3px; font-size: 17px; }
 .account-connections header p { margin: 0; color: #7b6c77; font-size: 11px; line-height: 1.45; }
 .account-connections__score { display: inline-flex; align-items: center; gap: 5px; padding: 6px 9px; border-radius: 99px; color: #247653; background: #eaf8f1; font-size: 9px; font-weight: 800; white-space: nowrap; }
 .account-connections__list { display: flex; flex-direction: column; gap: 8px; }
 .account-provider { min-height: 62px; display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 11px; padding: 10px 11px; border: 1px solid rgba(69,43,59,.08); border-radius: 16px; background: rgba(255,255,255,.84); }
 .account-provider__logo { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 12px; background: #f7f4f5; }
-.account-provider__logo--phone { color: #f53082; background: #fff0f6; }
+.account-provider__logo--phone { color: var(--aura-pink-text); background: var(--aura-pink-soft); }
 .account-provider__logo--email { color: #e66a27; background: #fff3e8; }
 .account-provider > div { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .account-provider strong { font-size: 12px; }
 .account-provider small { overflow: hidden; color: #847680; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-.account-provider button, .account-link-form > button { min-height: 32px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 10px; border: 0; border-radius: 10px; color: #fff; background: linear-gradient(135deg, #f53082, #ff8a34); font-size: 9px; font-weight: 850; cursor: pointer; }
+.account-provider button, .account-link-form > button { min-height: 32px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 10px; border: 0; border-radius: 10px; color: #fff; background: linear-gradient(135deg, var(--aura-brand-pink), #ff8a34); font-size: 9px; font-weight: 850; cursor: pointer; }
 .account-provider button:disabled, .account-link-form > button:disabled { opacity: .5; cursor: not-allowed; }
 .account-provider__connected { display: inline-flex; align-items: center; gap: 4px; color: #27805c; font-size: 9px; font-weight: 800; }
 .account-link-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 11px; border-radius: 14px; background: #fff3f6; }

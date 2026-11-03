@@ -50,7 +50,7 @@ button.aura-metric-carousel__slide:focus-visible { outline: 3px solid rgba(246,4
 .aura-metric-carousel__dots button { position: relative; width: 7px; height: 7px; padding: 0; border: 0; border-radius: 999px; background: #e8cad7; cursor: pointer; transition: width .2s ease, background .2s ease; }
 /* Neighbouring hit areas meet but never overlap, so each dot keeps its own tap. */
 .aura-metric-carousel__dots button::after { content: ""; position: absolute; inset: -12px -7px; }
-.aura-metric-carousel__dots button.is-active { width: 23px; background: linear-gradient(90deg, #f62f82, #ff8751); }
+.aura-metric-carousel__dots button.is-active { width: 23px; background: linear-gradient(90deg, var(--aura-brand-pink), #ff8751); }
 @media (min-width: 1180px) {
   .aura-metric-carousel__viewport { grid-auto-columns: calc((100% - 36px) / 4); }
   .aura-metric-carousel__dots { display: none; }

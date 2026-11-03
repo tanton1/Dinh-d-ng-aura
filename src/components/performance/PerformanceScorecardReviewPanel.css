@@ -19,7 +19,7 @@
   padding: 13px;
   background: #fff;
 }
-.performance-scorecard-review__header > span { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 11px; color: #ec2c76; background: #fff0f5; }
+.performance-scorecard-review__header > span { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 11px; color: var(--aura-brand-pink); background: #fff0f5; }
 .performance-scorecard-review__header > span svg { width: 20px; }
 .performance-scorecard-review__header small { color: #b82850; font-size: 11px; font-weight: 800; }
 .performance-scorecard-review__header h2 { margin: 2px 0; font-size: 19px; letter-spacing: -.02em; }
@@ -27,22 +27,22 @@
 .performance-scorecard-review__header label { display: grid; gap: 4px; }
 .performance-scorecard-review__header label > span { color: #756a70; font-size: 10px; font-weight: 750; }
 .performance-scorecard-review__header select { min-height: 42px; border: 1px solid #e8e1e5; border-radius: 10px; padding: 0 10px; color: #251f23; background: #fff; }
-.performance-scorecard-review__header > button { display: grid; width: 42px; height: 42px; place-items: center; border: 1px solid #e8e1e5; border-radius: 10px; color: #ec2c76; background: #fff; }
+.performance-scorecard-review__header > button { display: grid; width: 42px; height: 42px; place-items: center; border: 1px solid #e8e1e5; border-radius: 10px; color: var(--aura-brand-pink); background: #fff; }
 .performance-scorecard-review__header > button svg { width: 17px; }
 
-.performance-scorecard-review__state { display: flex; align-items: center; gap: 8px; border-left: 3px solid #14805e; padding: 10px 12px; color: #176a4b; background: #eef8f3; font-size: 12px; }
+.performance-scorecard-review__state { display: flex; align-items: center; gap: 8px; border-left: 3px solid var(--aura-success); padding: 10px 12px; color: #176a4b; background: #eef8f3; font-size: 12px; }
 .performance-scorecard-review__state.is-error { border-left-color: #b82850; color: #9f2c4e; background: #ffedf2; }
 .performance-scorecard-review__state svg { width: 17px; }
 .performance-scorecard-review__empty { display: grid; min-height: 220px; place-items: center; align-content: center; gap: 7px; border: 1px dashed #d9cfd4; border-radius: 14px; padding: 24px; color: #756a70; background: #fff; text-align: center; }
-.performance-scorecard-review__empty > svg { width: 27px; color: #ec2c76; }
+.performance-scorecard-review__empty > svg { width: 27px; color: var(--aura-brand-pink); }
 .performance-scorecard-review__empty strong { color: #251f23; font-size: 15px; }
 .performance-scorecard-review__empty span { max-width: 420px; font-size: 11px; line-height: 1.5; }
-.performance-scorecard-review__empty button { display: flex; min-height: 40px; align-items: center; gap: 6px; margin-top: 3px; border: 1px solid #e8e1e5; border-radius: 10px; padding: 0 11px; color: #ec2c76; background: #fff; font-size: 11px; font-weight: 800; }
+.performance-scorecard-review__empty button { display: flex; min-height: 40px; align-items: center; gap: 6px; margin-top: 3px; border: 1px solid #e8e1e5; border-radius: 10px; padding: 0 11px; color: var(--aura-brand-pink); background: #fff; font-size: 11px; font-weight: 800; }
 .performance-scorecard-review__empty button svg { width: 15px; }
 
 .performance-scorecard-review__summary { display: grid; grid-template-columns: .8fr 1fr 1fr; border: 1px solid #e8e1e5; border-radius: 14px; background: #fff; }
 .performance-scorecard-review__summary article { position: relative; display: grid; min-width: 0; gap: 3px; border-left: 1px solid #e8e1e5; padding: 14px 15px; }
-.performance-scorecard-review__summary article:first-child { border-left: 0; box-shadow: inset 4px 0 #ec2c76; }
+.performance-scorecard-review__summary article:first-child { border-left: 0; box-shadow: inset 4px 0 var(--aura-brand-pink); }
 .performance-scorecard-review__summary small { color: #756a70; font-size: 10px; font-weight: 750; }
 .performance-scorecard-review__summary strong { overflow: hidden; font-size: 23px; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; }
 .performance-scorecard-review__summary strong em { color: #8c7b83; font-size: 11px; font-style: normal; }
@@ -52,7 +52,7 @@
 .performance-scorecard-review__gates button { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 7px; min-height: 57px; border: 0; border-left: 1px solid #e8e1e5; padding: 9px 10px; color: #725f68; background: #fff; text-align: left; }
 .performance-scorecard-review__gates button:first-child { border-left: 0; border-radius: 12px 0 0 12px; }
 .performance-scorecard-review__gates button:last-child { border-radius: 0 12px 12px 0; }
-.performance-scorecard-review__gates button.is-pass { box-shadow: inset 0 3px #14805e; }
+.performance-scorecard-review__gates button.is-pass { box-shadow: inset 0 3px var(--aura-success); }
 .performance-scorecard-review__gates button.is-fail { box-shadow: inset 0 3px #b82850; }
 .performance-scorecard-review__gates button.is-unknown { box-shadow: inset 0 3px #d08a32; }
 .performance-scorecard-review__gates button:disabled { cursor: default; }
@@ -63,7 +63,7 @@
 .performance-scorecard-review__gates .is-pass em { color: #176a4b; background: #e7f6ee; }
 .performance-scorecard-review__gates .is-fail em { color: #a02a4b; background: #ffe9ef; }
 .performance-scorecard-review__gates .is-unknown em { color: #8b5819; background: #fff1d9; }
-.performance-scorecard-review__gates svg { width: 14px; color: #ec2c76; }
+.performance-scorecard-review__gates svg { width: 14px; color: var(--aura-brand-pink); }
 
 .performance-scorecard-review__categories { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .performance-scorecard-review__categories > section { overflow: hidden; border: 1px solid #e8e1e5; border-radius: 13px; background: #fff; }
@@ -89,15 +89,15 @@
 .performance-scorecard-review__automation strong { font-size: 11px; }
 .performance-scorecard-review__automation small, .performance-scorecard-review__automation em { font-size: 9px; font-style: normal; }
 .performance-scorecard-review__automation.has-warning { border-color: #efd7b8; color: #8c4c13; background: #fff8ef; }
-.performance-scorecard-review__categories article.is-automatic { box-shadow: inset 3px 0 #14805e; }
-.performance-scorecard-review__categories article.is-automatic > div > em { color: #14805e; font-weight: 800; }
+.performance-scorecard-review__categories article.is-automatic { box-shadow: inset 3px 0 var(--aura-success); }
+.performance-scorecard-review__categories article.is-automatic > div > em { color: var(--aura-success); font-weight: 800; }
 .performance-scorecard-review__categories article details { margin-top: 3px; color: #685b62; font-size: 9px; }
-.performance-scorecard-review__categories article summary { width: max-content; cursor: pointer; color: #386bc1; font-weight: 750; }
+.performance-scorecard-review__categories article summary { width: max-content; cursor: pointer; color: var(--aura-info); font-weight: 750; }
 .performance-scorecard-review__categories article dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin: 7px 0 2px; }
 .performance-scorecard-review__categories article dl > div { min-width: 0; border-left: 2px solid #e7e1e4; padding-left: 6px; }
 .performance-scorecard-review__categories article dt { color: #96878e; }
 .performance-scorecard-review__categories article dd { overflow-wrap: anywhere; margin: 1px 0 0; color: #493f44; font-weight: 700; }
-.performance-scorecard-review__categories article details p { margin: 5px 0 0; color: #a65a16; line-height: 1.4; }
+.performance-scorecard-review__categories article details p { margin: 5px 0 0; color: var(--aura-warning); line-height: 1.4; }
 
 .performance-scorecard-review__lock { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 320px) auto; align-items: center; gap: 10px; border: 1px solid #e8e1e5; border-radius: 13px; padding: 11px 12px; background: #fff; }
 .performance-scorecard-review__lock > div { display: grid; gap: 2px; }
@@ -125,7 +125,7 @@
 .performance-scorecard-review__editor > footer button { display: flex; min-height: 42px; align-items: center; gap: 6px; border: 1px solid #e5d6dc; border-radius: 10px; padding: 0 13px; color: #725f68; background: #fff; font-weight: 800; }
 .performance-scorecard-review__editor > footer button.is-primary { border-color: #b82850; color: #fff; background: #b82850; }
 .performance-scorecard-review__editor > footer svg { width: 15px; }
-.performance-scorecard-review__gate-warning { display: flex; align-items: flex-start; gap: 8px; border-left: 3px solid #a65a16; padding: 9px 10px; color: #98532f; background: #fff1e6; font-size: 10px; line-height: 1.45; }
+.performance-scorecard-review__gate-warning { display: flex; align-items: flex-start; gap: 8px; border-left: 3px solid var(--aura-warning); padding: 9px 10px; color: #98532f; background: #fff1e6; font-size: 10px; line-height: 1.45; }
 .performance-scorecard-review__gate-warning svg { width: 16px; flex: 0 0 auto; }
 .performance-scorecard-review button:disabled { cursor: not-allowed; opacity: .55; }
 .spin { animation: performance-scorecard-spin .8s linear infinite; }

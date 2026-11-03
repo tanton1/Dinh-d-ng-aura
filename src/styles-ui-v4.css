@@ -77,7 +77,7 @@ select { font-family: var(--aura-font); }
 .aura-badge.aura-tone--warning { color: var(--aura-warning); background: #fff2e4; }
 .aura-badge.aura-tone--danger { color: var(--aura-danger); background: #fff0f4; }
 .aura-badge.aura-tone--info { color: var(--aura-info); background: #edf3ff; }
-.aura-badge.aura-tone--brand { color: var(--aura-brand-pink); background: #fff0f6; }
+.aura-badge.aura-tone--brand { color: var(--aura-brand-pink); background: var(--aura-pink-soft); }
 
 .aura-tabs {
   display: flex;
@@ -140,7 +140,7 @@ select { font-family: var(--aura-font); }
 .aura-mobile-more__workspaces button.is-active { color: #fff; border-color: var(--aura-brand-pink); background: var(--aura-brand-pink); }
 .aura-mobile-more__routes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .aura-mobile-more__routes > button { min-height: 58px; display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 8px 10px; border: 1px solid var(--aura-neutral-150); border-radius: var(--aura-radius-sm); color: var(--aura-neutral-950); background: #fff; text-align: left; }
-.aura-mobile-more__routes > button > span { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; color: var(--aura-brand-pink); background: #fff0f6; }
+.aura-mobile-more__routes > button > span { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; color: var(--aura-brand-pink); background: var(--aura-pink-soft); }
 .aura-mobile-more__routes strong { overflow: hidden; font-size: 12px; line-height: 1.3; text-overflow: ellipsis; }
 .aura-mobile-more__routes > button > svg { color: var(--aura-neutral-500); }
 .aura-mobile-more__signout { width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 14px; border-radius: var(--aura-radius-sm); color: var(--aura-danger); background: #fff0f4; font-size: 12px; font-weight: 750; }
@@ -256,7 +256,7 @@ select { font-family: var(--aura-font); }
 .admin-dashboard--v4 .aura-metric-carousel__slide { color: var(--aura-neutral-950); border: 1px solid var(--aura-neutral-150); border-radius: 16px; background: #fff; box-shadow: 0 3px 14px rgba(25,22,26,.045); }
 .admin-dashboard--v4 .aura-metric-carousel__slide::before,
 .admin-dashboard--v4 .aura-metric-carousel__slide::after { content: none; }
-.admin-dashboard--v4 .aura-metric-carousel__icon { color: var(--aura-brand-pink); border: 0; background: #fff0f6; }
+.admin-dashboard--v4 .aura-metric-carousel__icon { color: var(--aura-brand-pink); border: 0; background: var(--aura-pink-soft); }
 .admin-dashboard--v4 .aura-metric-carousel__number,
 .admin-dashboard--v4 .aura-metric-carousel__eyebrow,
 .admin-dashboard--v4 .aura-metric-carousel__slide small { color: var(--aura-neutral-700); }

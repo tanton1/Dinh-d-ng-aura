@@ -172,7 +172,7 @@
 .staff-dashboard__performance-score > strong { font-size: 36px; line-height: 1; }
 .staff-dashboard__performance-score > strong small { margin-left: 3px; color: #e9cad6; font-size: 13px; }
 .staff-dashboard__performance-score > div { overflow: hidden; height: 7px; border-radius: 999px; background: rgba(255, 255, 255, .16); }
-.staff-dashboard__performance-score > div i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #ec2c76, #ff7a45); }
+.staff-dashboard__performance-score > div i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--aura-brand-pink), var(--aura-brand-orange)); }
 .staff-dashboard__performance-score > p { margin: 0; color: #e9d9df; font-size: 11px; line-height: 1.45; }
 
 .staff-dashboard__performance-body dl {
@@ -593,8 +593,8 @@
   --staff-line: #e9e2e7;
   --staff-surface: #fff;
   --staff-soft: #fbf8fa;
-  --staff-pink: #ec2c76;
-  --staff-orange: #ff7a45;
+  --staff-pink: var(--aura-brand-pink);
+  --staff-orange: var(--aura-brand-orange);
   display: flex;
   flex-direction: column;
   gap: 0;

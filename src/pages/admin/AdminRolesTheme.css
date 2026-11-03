@@ -12,7 +12,7 @@
 .identity-admin-page.aura-workforce .identity-carousel > button::after { display: none; }
 .identity-admin-page.aura-workforce .identity-carousel > button > span { display: none; }
 .identity-admin-page.aura-workforce .identity-carousel > button > svg { grid-column: 2; grid-row: 1 / 4; width: 16px; color: #ffccdf; }
-.identity-admin-page.aura-workforce .identity-carousel :is(small, em) { grid-column: 1; align-self: auto; color: #fff0f6; font-size: 12px; letter-spacing: 0; font-weight: 500; }
+.identity-admin-page.aura-workforce .identity-carousel :is(small, em) { grid-column: 1; align-self: auto; color: var(--aura-pink-soft); font-size: 12px; letter-spacing: 0; font-weight: 500; }
 .identity-admin-page.aura-workforce .identity-carousel strong { grid-column: 1; color: #fff; font-size: 30px; }
 .identity-admin-page.aura-workforce .identity-admin-tabs { position: static; gap: 4px; width: fit-content; max-width: 100%; margin-bottom: 14px; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; backdrop-filter: none; }
 .identity-admin-page.aura-workforce .identity-admin-tabs button { min-height: 36px; border: 0; border-radius: 8px; padding: 7px 12px; color: var(--aw-muted); background: transparent; font-size: 12px; box-shadow: none; }

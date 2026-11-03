@@ -29,7 +29,7 @@
 .aura-workforce .aura-workforce__icon-button svg { width: 18px; height: 18px; }
 /* The legacy AdminRoles import must not recolor the shell while these pages are open. */
 .app-shell.admin:has(.aura-workforce) .sidebar { color: #fff; background: linear-gradient(160deg, #2b1020, #0b090c 38%); border-color: #ffffff10; }
-.app-shell.admin:has(.aura-workforce) .brand-mark { color: #211720; background: #f62f82; }
+.app-shell.admin:has(.aura-workforce) .brand-mark { color: #211720; background: var(--aura-brand-pink); }
 .app-shell.admin:has(.aura-workforce) .sidebar-nav button.active { background: #43152c; color: #fff; }
 .app-shell.admin:has(.aura-workforce) .sidebar-nav button.active svg { color: #ff4b94; }
 .app-shell.admin:has(.aura-workforce) .sidebar-bottom .mode-switch { background: linear-gradient(135deg, #4d142f, #2d173c); color: #fff; }

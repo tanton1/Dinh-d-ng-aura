@@ -21,7 +21,7 @@ body.auth-screen-open #root {
 }
 
 .auth-shell {
-  --auth-pink: #f42482;
+  --auth-pink: var(--aura-brand-pink);
   --auth-orange: #ff7839;
   --auth-ink: #17131c;
   --auth-muted: #89838e;

@@ -54,11 +54,11 @@
 .aura-workforce .aura-metric-carousel__slide::before, .aura-workforce .aura-metric-carousel__slide::after { display: none; }
 .aura-workforce .aura-metric-carousel__icon { width: 30px; height: 30px; border: 0; border-radius: 8px; background: #ffffff18; }
 .aura-workforce .aura-metric-carousel__icon svg { width: 17px; }
-.aura-workforce .aura-metric-carousel__number { font-size: 11px; color: #fff0f6; font-weight: 500; letter-spacing: 0; }
-.aura-workforce .aura-metric-carousel__eyebrow { margin-top: 10px; font-size: 12px; line-height: 1.5; color: #fff0f6; text-transform: none; letter-spacing: 0; font-weight: 600; }
+.aura-workforce .aura-metric-carousel__number { font-size: 11px; color: var(--aura-pink-soft); font-weight: 500; letter-spacing: 0; }
+.aura-workforce .aura-metric-carousel__eyebrow { margin-top: 10px; font-size: 12px; line-height: 1.5; color: var(--aura-pink-soft); text-transform: none; letter-spacing: 0; font-weight: 600; }
 .aura-workforce .aura-metric-carousel__slide strong { font-size: clamp(23px, 2.3vw, 29px); color: #fff; }
-.aura-workforce .aura-metric-carousel__slide small { color: #fff0f6; font-size: 12px; }
-.aura-workforce .aura-metric-carousel__action { color: #fff0f6; font-size: 11px; line-height: 1.5; text-transform: none; letter-spacing: 0; font-weight: 500; }
+.aura-workforce .aura-metric-carousel__slide small { color: var(--aura-pink-soft); font-size: 12px; }
+.aura-workforce .aura-metric-carousel__action { color: var(--aura-pink-soft); font-size: 11px; line-height: 1.5; text-transform: none; letter-spacing: 0; font-weight: 500; }
 .payroll-statement-workspace .staff-payroll--admin-statement { padding: 0; width: 100%; max-width: none; background: transparent; }
 .payroll-statement-workspace .staff-payroll__statement-head { border: 0; border-radius: 14px; box-shadow: none; }
 .payroll-statement-workspace .staff-payroll__statement-head h1 { font-size: 26px; color: var(--aw-pink); }

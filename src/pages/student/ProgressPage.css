@@ -6,8 +6,8 @@
   --pv2-paper: #fff;
   --pv2-pink: var(--aura-pink-text);
   --pv2-pink-soft: #fff0f7;
-  --pv2-green: #14805e;
-  --pv2-amber: #a65a16;
+  --pv2-green: var(--aura-success);
+  --pv2-amber: var(--aura-warning);
   max-width: 1100px;
   min-height: 100vh;
   margin: 0 auto;

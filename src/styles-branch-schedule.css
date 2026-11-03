@@ -1,5 +1,5 @@
 .branch-schedule {
-  --branch-pink: #f62f82;
+  --branch-pink: var(--aura-brand-pink);
   --branch-orange: #ff8751;
   --branch-ink: #271a23;
   --branch-muted: #7d6d77;
@@ -84,13 +84,13 @@
 .branch-schedule__actions { display: flex; align-items: center; gap: 6px; }
 .branch-schedule__toolbar button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 38px; padding: 0 11px; border: 1px solid #ead8e0; border-radius: 9px; color: #5b4654; background: #fff; font-size: .72rem; font-weight: 820; }
 .branch-schedule__tabs button { border-color: transparent; background: transparent; }
-.branch-schedule__tabs button.is-active { color: #d4236d; background: #fff0f6; }
+.branch-schedule__tabs button.is-active { color: #d4236d; background: var(--aura-pink-soft); }
 .branch-schedule__tabs b { min-width: 18px; padding: 2px 5px; border-radius: 999px; color: #fff; background: linear-gradient(110deg,var(--branch-pink),var(--branch-orange)); font-size: .6rem; }
 .branch-schedule__actions button.is-publish { border: 0; color: #fff; background: linear-gradient(110deg,var(--branch-pink),var(--branch-orange)); box-shadow: 0 7px 16px rgba(246,47,130,.2); }
 .branch-schedule__more { position:relative; }
 .branch-schedule__more > summary { display:grid; width:38px; height:38px; place-items:center; border:1px solid #ead8e0; border-radius:9px; color:#745967; background:#fff; cursor:pointer; list-style:none; }
 .branch-schedule__more > summary::-webkit-details-marker { display:none; }
-.branch-schedule__more[open] > summary { color:#c62b69; background:#fff0f6; }
+.branch-schedule__more[open] > summary { color:#c62b69; background:var(--aura-pink-soft); }
 .branch-schedule__more > div { position:absolute; top:calc(100% + 8px); right:0; z-index:60; display:grid; width:min(310px,calc(100vw - 20px)); overflow:hidden; border:1px solid #ead8e0; border-radius:15px; background:#fff; box-shadow:0 20px 48px rgba(52,27,41,.18); }
 .branch-schedule__more > div > header { display:grid; gap:2px; padding:11px 12px; border-bottom:1px solid #f0e3e9; background:linear-gradient(110deg,#fff4f8,#fff8f2); }
 .branch-schedule__more > div > header strong { font-size:.73rem; }
@@ -142,7 +142,7 @@
 .trainer-availability-chip.is-unconfigured { color: #a04423; background: #fff1e9; }
 .trainer-availability-chip.is-unrestricted { color: #6c4a9a; background: #f5effc; }
 .schedule-opportunity-inline-legend { display:flex; flex-wrap:wrap; align-items:center; gap:5px; margin-left:auto; }
-.schedule-opportunity-inline-legend span { display:inline-flex; align-items:center; gap:5px; padding:5px 7px; border-radius:999px; color:#665965; background:#f7f4f6; font-size:.55rem; font-weight:760; }
+.schedule-opportunity-inline-legend span { display:inline-flex; align-items:center; gap:5px; padding:5px 7px; border-radius:999px; color:#665965; background:var(--aura-canvas); font-size:.55rem; font-weight:760; }
 .schedule-opportunity-inline-legend span.is-trainer-availability { border:1px solid rgba(73,164,207,.24); color:#23647e; background:#eaf7fc; }
 .schedule-opportunity-inline-legend span.is-trainer-availability i { display:inline-block; width:8px; height:8px; flex:0 0 auto; border-radius:3px; background:#c9edf8; box-shadow:inset 0 0 0 1px rgba(49,147,186,.32); }
 .branch-schedule__draft-meta { display: flex; gap: 6px; margin-left: auto; }
@@ -243,7 +243,7 @@
   .schedule-cell__student:hover { outline:0; color:#087a52; background:rgba(255,255,255,.76); box-shadow:0 0 0 2px rgba(38,175,113,.20); }
 }
 .schedule-student-focus { display:flex; min-height:36px; align-items:center; justify-content:space-between; gap:10px; margin:0 2px 8px; border:1px solid rgba(35,168,109,.25); border-radius:11px; padding:7px 10px; color:#177552; background:linear-gradient(110deg,#ecfbf4,#f6fff9); font-size:.68rem; }
-.schedule-student-focus.is-pinned { border-color:rgba(220,37,99,.26); color:#a52555; background:linear-gradient(110deg,#fff0f6,#fff5ef); }
+.schedule-student-focus.is-pinned { border-color:rgba(220,37,99,.26); color:#a52555; background:linear-gradient(110deg,var(--aura-pink-soft),#fff5ef); }
 .schedule-student-focus { height:64px; box-sizing:border-box; }
 .schedule-student-focus > span { display:-webkit-box; min-width:0; overflow:hidden; -webkit-box-orient:vertical; -webkit-line-clamp:3; line-height:1.4; }
 .schedule-student-focus button { min-height:28px; flex:0 0 auto; border:0; border-radius:8px; padding:0 9px; color:#b12559; background:#fff; font-size:.61rem; font-weight:850; }
@@ -275,8 +275,6 @@
 .branch-schedule__student-tools button.is-active { border-color: transparent; color: #fff; background: linear-gradient(110deg,var(--branch-pink),var(--branch-orange)); }
 .branch-schedule__student-list { display: grid; gap: 7px; }
 .branch-schedule__student-list > article { display: grid; grid-template-columns:minmax(210px,1fr) minmax(110px,.42fr) minmax(145px,.52fr); align-items: center; gap: 10px 14px; min-width: 0; padding: 11px 13px; border: 0; border-radius: 16px; background: #fff; box-shadow: 0 9px 22px rgba(50,29,42,.05); }
-.branch-schedule__student-list > article.is-missing,
-.branch-schedule__student-list > article.is-ready { border-left: 0; }
 .branch-schedule__student-person { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .branch-schedule__student-person > span { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; border-radius: 12px; color: #ef3679; background: #fff0f5; }
 .branch-schedule__student-person > div,.branch-schedule__student-contract,.branch-schedule__student-trainer,.branch-schedule__student-progress,.branch-schedule__weekly-target { display: grid; min-width: 0; gap: 3px; }
@@ -299,7 +297,7 @@
 .branch-schedule__weekly-target > span { color: #9a7a89; font-size: .58rem; }
 .branch-schedule__student-schedule { display: grid; grid-column: 1/-1; gap: 6px; min-width: 0; padding-top: 9px; border-top: 1px solid #f3e7ec; }
 .branch-schedule__student-schedule > div { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
-.branch-schedule__student-schedule span { display: inline-grid; max-width: 220px; gap: 1px; padding: 6px 9px; border-radius: 10px; color: #5f4351; background: linear-gradient(135deg,#fff0f6,#fff5ed); font-size: .65rem; font-weight: 850; white-space: normal; }
+.branch-schedule__student-schedule span { display: inline-grid; max-width: 220px; gap: 1px; padding: 6px 9px; border-radius: 10px; color: #5f4351; background: linear-gradient(135deg,var(--aura-pink-soft),#fff5ed); font-size: .65rem; font-weight: 850; white-space: normal; }
 .branch-schedule__student-schedule span b { overflow: hidden; color: #a46580; font-size: .56rem; text-overflow: ellipsis; white-space: nowrap; }
 .branch-schedule__student-schedule span.has-assignment-warning { color:#8d451f; background:linear-gradient(135deg,#fff0df,#fff8ee); box-shadow:inset 3px 0 0 #ef7c3a; }
 .branch-schedule__student-schedule span.has-assignment-warning b { display:flex; align-items:center; gap:4px; color:#b45929; }
@@ -336,7 +334,7 @@
 .schedule-warning-summary button[aria-pressed="true"] { border-color:rgba(218,50,110,.35); box-shadow:0 0 0 3px rgba(229,47,113,.08); }
 .schedule-warning-summary button.is-contract strong { color:#b35325; }
 .schedule-warning-summary button.is-learner strong { color:#a16a18; }
-.schedule-warning-summary button.is-capacity strong { color:#386bc1; }
+.schedule-warning-summary button.is-capacity strong { color:var(--aura-info); }
 .schedule-warning-summary button.is-system strong { color:#6d5a91; }
 .schedule-warning-grid { display: grid; grid-template-columns: minmax(0,1fr); gap: 8px; max-width: 1120px; }
 .schedule-pairing-opportunities { display:grid; gap:9px; max-width:1120px; margin-bottom:12px; padding:12px; border:1px solid #f0d7e2; border-radius:16px; background:linear-gradient(135deg,#fff8fb,#fff9f4); }
@@ -377,7 +375,7 @@
 .schedule-unassigned article strong { overflow: hidden; font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }
 .schedule-unassigned article span,.schedule-unassigned article small { color: var(--branch-muted); font-size: .61rem; line-height: 1.4; }
 .schedule-unassigned article small { color: #a05272; }
-.schedule-unassigned article button { min-height: 31px; border: 0; border-radius: 9px; padding: 0 9px; color: #c32b69; background: #fff0f6; font-size: .61rem; font-weight: 850; }
+.schedule-unassigned article button { min-height: 31px; border: 0; border-radius: 9px; padding: 0 9px; color: #c32b69; background: var(--aura-pink-soft); font-size: .61rem; font-weight: 850; }
 .schedule-warning-grid article { display: flex; align-items: flex-start; gap: 10px; min-width: 0; padding: 14px; border: 1px solid #f0dce5; border-radius: 16px; background: rgba(255,255,255,.9); }
 .schedule-warning-grid article.is-blocking { border-color: #ffd7c2; background: #fff8f3; }
 .schedule-warning-grid article.schedule-warning-trainer { align-items: center; padding: 11px 13px; }
@@ -527,7 +525,7 @@
 .schedule-candidate-list article.is-override button { border-color: #f1ccb2; color: #c05722; background: #fff8f2; }
 .schedule-candidate-list article.is-disabled { opacity: .62; }
 .schedule-candidate-list article.is-disabled button { color: #a998a1; background: #f7f3f5; }
-.schedule-candidate-list article.is-selected { margin-inline:-5px; border:1px solid rgba(224,42,105,.28); border-radius:12px; padding-inline:7px; background:linear-gradient(105deg,#fff0f6,#fff8f1); box-shadow:0 8px 18px rgba(176,32,86,.08); }
+.schedule-candidate-list article.is-selected { margin-inline:-5px; border:1px solid rgba(224,42,105,.28); border-radius:12px; padding-inline:7px; background:linear-gradient(105deg,var(--aura-pink-soft),#fff8f1); box-shadow:0 8px 18px rgba(176,32,86,.08); }
 .schedule-candidate-list article.is-selected button { border-color:transparent; color:#fff; background:linear-gradient(130deg,var(--branch-pink),var(--branch-orange)); }
 .schedule-candidate-sync { display:flex; align-items:center; gap:6px; min-height:30px; margin-top:7px; color:#8d7280; font-size:.61rem; }
 .schedule-candidate-sync svg { width:14px; }
@@ -553,7 +551,7 @@
 .schedule-publish-warnings > div { display:grid; gap:3px; }
 .schedule-publish-warnings strong { font-size:.73rem; }
 .schedule-publish-warnings span { color:#8b6755; font-size:.63rem; line-height:1.45; }
-.schedule-publish-branch-ack { display:flex; align-items:flex-start; gap:9px; margin:-8px 0 18px; padding:11px 12px; border-radius:12px; color:#672945; background:#fff0f6; cursor:pointer; }
+.schedule-publish-branch-ack { display:flex; align-items:flex-start; gap:9px; margin:-8px 0 18px; padding:11px 12px; border-radius:12px; color:#672945; background:var(--aura-pink-soft); cursor:pointer; }
 .schedule-publish-branch-ack input { width:17px; height:17px; margin:1px 0 0; flex:0 0 auto; accent-color:var(--branch-pink); }
 .schedule-publish-branch-ack span { display:grid; gap:3px; }
 .schedule-publish-branch-ack strong { font-size:.72rem; }
@@ -661,7 +659,6 @@
   .branch-schedule__student-tools > label { width: 100%; }
   .branch-schedule__student-tools > select { width:100%; }
   .branch-schedule__student-list > article { grid-template-columns:minmax(0,1fr) auto; gap: 10px; padding: 12px; }
-  .branch-schedule__student-person { grid-column: 1; }
   .branch-schedule__student-progress { grid-column:2; min-width:82px; justify-items:end; }
   .branch-schedule__student-progress i { max-width: 120px; }
   .branch-schedule__weekly-target { grid-column:1/-1; display:flex; align-items:center; justify-content:space-between; align-content: start; }
@@ -1089,7 +1086,7 @@
 .schedule-warning-summary button span { overflow: hidden; font-size: .59rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .schedule-warning-summary .is-contract strong { color: #b35325; }
 .schedule-warning-summary .is-learner strong { color: #a16a18; }
-.schedule-warning-summary .is-capacity strong { color: #386bc1; }
+.schedule-warning-summary .is-capacity strong { color: var(--aura-info); }
 .schedule-warning-summary .is-system strong { color: #6d5a91; }
 .schedule-warning-filters { max-width: 960px; gap: 6px; margin: -2px 0 12px; }
 .schedule-warning-filters button { min-height: 34px; padding: 0 10px; font-size: .63rem; }
@@ -1145,7 +1142,7 @@
 .branch-schedule__warning-page--simple .schedule-warning-student > button > strong { color: var(--branch-ink); font-size: .8rem; font-weight: 600; overflow-wrap: anywhere; }
 .branch-schedule__warning-page--simple .schedule-warning-ratio { color: var(--branch-pink); font-size: .78rem; font-weight: 650; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .branch-schedule__warning-page--simple .schedule-warning-student > button:focus-visible { outline: 2px solid var(--branch-pink); outline-offset: -3px; }
-.branch-schedule__warning-page--simple .schedule-warning-detail--simple { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; margin: 0 12px; padding: 12px 0; border-top: 1px solid #ece8ec; }
+.branch-schedule__warning-page--simple .schedule-warning-detail--simple { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; margin: 0 12px; padding: 12px 0; border-top: 1px solid var(--aura-line); }
 .branch-schedule__warning-page--simple .schedule-warning-detail--simple section { display: block; padding: 0; border: 0; border-radius: 0; background: #fff !important; }
 .branch-schedule__warning-page--simple .schedule-warning-detail--simple h4 { margin: 0 0 8px; color: var(--branch-muted); font-size: .7rem; font-weight: 600; }
 .branch-schedule__warning-page--simple .schedule-warning-detail--simple p { margin: 0; color: var(--branch-ink); font-size: .75rem; line-height: 1.6; }
@@ -1161,7 +1158,7 @@
 @media (max-width: 560px) {
   .branch-schedule__warning-page--simple .schedule-warning-detail--simple { grid-template-columns: 1fr; }
 }
-.schedule-approved-off { max-width:900px; margin:0 0 14px; padding:10px 12px; background:var(--aura-surface, #fff); border:1px solid var(--aura-line, #ece8ec); border-radius:8px; color:var(--branch-ink); font-size:.75rem; }
+.schedule-approved-off { max-width:900px; margin:0 0 14px; padding:10px 12px; background:var(--aura-surface, #fff); border:1px solid var(--aura-line, var(--aura-line)); border-radius:8px; color:var(--branch-ink); font-size:.75rem; }
 .schedule-approved-off summary { cursor:pointer; line-height:1.7; }
 .schedule-approved-off summary strong { margin:0 8px; }
 .schedule-approved-off summary span { color:var(--branch-muted); font-size:.7rem; }

@@ -66,7 +66,7 @@ body:has([role='dialog'][aria-modal='true'], [role='alertdialog'][aria-modal='tr
   place-items: center;
   border-radius: 14px;
   color: #fff;
-  background: linear-gradient(135deg, #db2777 0%, #9333ea 100%);
+  background: linear-gradient(135deg, var(--aura-pink-text) 0%, #9333ea 100%);
   box-shadow: 0 7px 16px rgba(219, 39, 119, 0.28);
 }
 

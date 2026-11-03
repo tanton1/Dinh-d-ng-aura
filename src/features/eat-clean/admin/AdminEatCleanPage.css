@@ -4,9 +4,9 @@
   --ec-line: #f2dce6;
   --ec-soft: #fff6f9;
   /* Brand colors: keep the existing token names to avoid widening this CSS-only change. */
-  --ec-green: #f62f82;
+  --ec-green: var(--aura-brand-pink);
   --ec-green-dark: #cf1d67;
-  --ec-green-soft: #fff0f6;
+  --ec-green-soft: var(--aura-pink-soft);
   --ec-orange: #ff7c55;
   --ec-orange-soft: #fff1ea;
   --ec-success: #257a4d;
@@ -80,7 +80,7 @@
 .eat-clean-integrity-alert button { min-height: 38px; padding: 0 13px; border: 1px solid #ffcda9; border-radius: 11px; color: #943f1c; background: #fff; cursor: pointer; font-size: 11px; font-weight: 850; white-space: nowrap; }
 .eat-clean-integrity-text { color: #a65225 !important; font-weight: 800; }
 
-.eat-clean-tabs { min-width: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin-bottom: 18px; padding: 5px; border: 1px solid var(--ec-line); border-radius: 16px; background: #fff0f6; }
+.eat-clean-tabs { min-width: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin-bottom: 18px; padding: 5px; border: 1px solid var(--ec-line); border-radius: 16px; background: var(--aura-pink-soft); }
 .eat-clean-tabs button { min-width: 0; min-height: 46px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 10px; border-radius: 12px; color: #7c6b77; background: transparent; cursor: pointer; font-size: 12px; font-weight: 800; }
 .eat-clean-tabs button svg { flex: 0 0 auto; }
 .eat-clean-tabs button.active { color: var(--ec-green-dark); background: #fff; box-shadow: 0 4px 14px rgba(192, 37, 97, .10); }
@@ -312,7 +312,7 @@
 .eat-clean-current-stock { display: flex; align-items: center; gap: 10px; padding: 13px; border-radius: 13px; color: var(--ec-green); background: var(--ec-green-soft); }
 .eat-clean-current-stock span { display: flex; flex-direction: column; color: var(--ec-muted); font-size: 10px; }
 .eat-clean-current-stock strong { margin-top: 2px; color: var(--ec-ink); font-size: 17px; }
-.eat-clean-segmented { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; padding: 4px; border-radius: 12px; background: #fff0f6; }
+.eat-clean-segmented { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; padding: 4px; border-radius: 12px; background: var(--aura-pink-soft); }
 .eat-clean-segmented button { min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 7px; border-radius: 9px; color: var(--ec-muted); background: transparent; cursor: pointer; font-size: 11px; font-weight: 800; }
 .eat-clean-segmented button.active { color: var(--ec-green-dark); background: #fff; box-shadow: 0 3px 10px rgba(192, 37, 97, .10); }
 
@@ -440,7 +440,7 @@
 }
 
 /* Eat Clean Dispatch Center */
-.eat-clean-dispatch-switch { display: inline-grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin-bottom: 16px; padding: 4px; border-radius: 14px; background: #fff0f6; }
+.eat-clean-dispatch-switch { display: inline-grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin-bottom: 16px; padding: 4px; border-radius: 14px; background: var(--aura-pink-soft); }
 .eat-clean-dispatch-switch button { min-height: 42px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 14px; border-radius: 11px; color: var(--ec-muted); background: transparent; font-size: 11px; font-weight: 850; }
 .eat-clean-dispatch-switch button.active { color: var(--ec-green-dark); background: #fff; box-shadow: 0 5px 14px rgba(192, 37, 97, .10); }
 .eat-clean-readiness-grid { min-width: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
@@ -476,7 +476,7 @@
 .eat-clean-dispatch-map header span, .eat-clean-dispatch-queue header span, .eat-clean-driver-strip header span { color: var(--ec-green); font-size: 9px; font-weight: 900; letter-spacing: .09em; }
 .eat-clean-dispatch-map h3, .eat-clean-dispatch-queue h3, .eat-clean-driver-strip h3 { margin: 3px 0 0; font-size: 14px; }
 .eat-clean-dispatch-map header small { color: var(--ec-muted); font-size: 9px; }
-.eat-clean-dispatch-map__canvas { position: relative; height: 330px; overflow: hidden; background: linear-gradient(135deg, #fff0f6, #fff0e9); }
+.eat-clean-dispatch-map__canvas { position: relative; height: 330px; overflow: hidden; background: linear-gradient(135deg, var(--aura-pink-soft), #fff0e9); }
 .eat-clean-dispatch-map__roads { position: absolute; inset: -20%; opacity: .72; background-image: linear-gradient(#fff 3px, transparent 3px), linear-gradient(90deg, #fff 3px, transparent 3px); background-size: 55px 55px; transform: rotate(-8deg); }
 .eat-clean-dispatch-pin { position: absolute; z-index: 2; width: 35px; height: 35px; display: grid; place-items: center; border: 3px solid #fff; border-radius: 50%; color: #fff; box-shadow: 0 6px 14px rgba(192, 37, 97, .25); transform: translate(-50%, -50%); }
 .eat-clean-dispatch-pin.kitchen { background: var(--ec-orange); }

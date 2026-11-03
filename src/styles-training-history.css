@@ -1,4 +1,4 @@
-.training-history { --th-pink: #f62f82; --th-orange: #ff8751; --th-ink: #281c28; --th-muted: #897684; display: grid; gap: 13px; min-width: 0; color: var(--th-ink); }
+.training-history { --th-pink: var(--aura-brand-pink); --th-orange: #ff8751; --th-ink: #281c28; --th-muted: #897684; display: grid; gap: 13px; min-width: 0; color: var(--th-ink); }
 .training-history *, .training-history *::before, .training-history *::after { box-sizing: border-box; }
 .training-history__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 13px; border: 1px solid #f0dce4; border-radius: 17px; background: linear-gradient(128deg, #fff4f8, #fff8f1); }
 .training-history__header > div > span { display: inline-flex; align-items: center; gap: 6px; color: #dd3f77; font-size: 10px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }

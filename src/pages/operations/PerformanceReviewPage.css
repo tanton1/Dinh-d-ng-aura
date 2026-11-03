@@ -9,7 +9,7 @@
 .performance-review-page__framework dt svg { width: 22px; }
 .performance-review-page__framework dd { display: grid; gap: 5px; margin: 0; }
 .performance-review-page__framework strong { font-size: 30px; line-height: 1; }
-.performance-review-page__framework span { color: #fff0f6; font-size: 12px; }
+.performance-review-page__framework span { color: var(--aura-pink-soft); font-size: 12px; }
 .performance-review-page__scope { margin-top: 18px; color: var(--aw-muted); font-size: 12px; }
 .performance-review-page__scope summary { display: flex; width: fit-content; align-items: center; gap: 7px; min-height: 36px; cursor: pointer; list-style: none; }
 .performance-review-page__scope summary::-webkit-details-marker { display: none; }

@@ -19,7 +19,7 @@
 
 .aura-help-popover summary::-webkit-details-marker { display: none; }
 .aura-help-popover summary:focus-visible { outline: 3px solid rgba(246, 47, 130, .18); outline-offset: 2px; }
-.aura-help-popover[open] summary { border-color: transparent; background: linear-gradient(105deg, #f62f82, #ff8751); color: #fff; }
+.aura-help-popover[open] summary { border-color: transparent; background: linear-gradient(105deg, var(--aura-brand-pink), #ff8751); color: #fff; }
 
 .aura-help-popover__panel {
   position: absolute;

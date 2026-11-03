@@ -1019,7 +1019,7 @@
   padding: 16px;
   border: 1px solid #fce7f3;
   border-radius: 22px;
-  background: linear-gradient(135deg, #fff0f6 0%, #fff7ed 52%, #fdf2f8 100%);
+  background: linear-gradient(135deg, var(--aura-pink-soft) 0%, #fff7ed 52%, #fdf2f8 100%);
   box-shadow: 0 8px 24px rgba(255, 45, 145, .08);
 }
 
@@ -2049,12 +2049,6 @@
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 14px;
-}
-
-.cmd-card-title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
 }
 
 .cmd-card-title h3 {

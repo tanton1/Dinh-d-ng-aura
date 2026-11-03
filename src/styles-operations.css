@@ -6,7 +6,7 @@
  * a dependable, responsive Aura surface without changing existing screens.
  */
 .aura-operations-page {
-  --ops-pink: #f62f82;
+  --ops-pink: var(--aura-brand-pink);
   --ops-orange: #ff8751;
   --ops-ink: #211720;
   --ops-muted: #746c76;
@@ -169,7 +169,7 @@
 .schedule-student-filters input { padding-left:34px; }
 
 .schedule-alerts { overflow:hidden; border:1px solid rgba(246,47,130,.15); border-radius:24px; background:linear-gradient(145deg,rgba(255,248,251,.97),rgba(255,247,240,.98)); box-shadow:0 16px 38px rgba(69,37,55,.09); }
-.schedule-alerts__hero { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:20px; color:#261923; background:radial-gradient(circle at 90% 0,rgba(255,135,81,.23),transparent 42%),linear-gradient(120deg,#fff0f6,#fff5ec); }
+.schedule-alerts__hero { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:20px; color:#261923; background:radial-gradient(circle at 90% 0,rgba(255,135,81,.23),transparent 42%),linear-gradient(120deg,var(--aura-pink-soft),#fff5ec); }
 .schedule-alerts__hero > div:first-child > span { display:flex; align-items:center; gap:6px; color:var(--ops-pink); font-size:.65rem; font-weight:900; letter-spacing:.11em; }
 .schedule-alerts__hero h2 { margin:4px 0 2px; font-size:1.3rem; }
 .schedule-alerts__hero p { margin:0; color:var(--ops-muted); font-size:.75rem; }
@@ -202,7 +202,7 @@
 .schedule-alert-card__issues p { margin:0; }
 .schedule-alert-card__suggestions > span { color:var(--ops-muted); font-size:.61rem; font-weight:800; text-transform:uppercase; }
 .schedule-alert-card__suggestions > div { display:flex; flex-wrap:wrap; gap:4px; margin-top:5px; }
-.schedule-alert-card__suggestions small { padding:4px 6px; border-radius:7px; color:#9d3b64; background:#fff0f6; font-size:.6rem; font-weight:750; }
+.schedule-alert-card__suggestions small { padding:4px 6px; border-radius:7px; color:#9d3b64; background:var(--aura-pink-soft); font-size:.6rem; font-weight:750; }
 .schedule-alert-card > button { display:flex; align-items:center; justify-content:space-between; min-height:34px; margin-top:auto; padding:0 9px; border:0; border-radius:10px; color:#fff; background:#211720; font-size:.68rem; font-weight:850; }
 .schedule-alerts__empty { display:grid; justify-items:center; gap:5px; padding:42px 18px; color:#8b6377; text-align:center; }
 .schedule-alerts__empty svg { color:var(--ops-pink); }
@@ -470,7 +470,7 @@
 /* Cards, typography, status accents and pink-orange calls to action. */
 .aura-operations-page :is(.bg-zinc-950, .bg-zinc-900, .bg-zinc-800, .bg-zinc-800\/50, .bg-zinc-800\/80, .bg-zinc-900\/80, .bg-slate-900, .bg-slate-800) { color: var(--ops-ink); background: rgba(255, 255, 255, .94) !important; }
 .aura-operations-page :is(.bg-zinc-100, .bg-gray-100) { background: #fff5f8 !important; }
-.aura-operations-page :is(.bg-pink-500\/5, .bg-pink-500\/10, .bg-pink-500\/20, .bg-rose-50, .bg-rose-100) { background: #fff0f6 !important; }
+.aura-operations-page :is(.bg-pink-500\/5, .bg-pink-500\/10, .bg-pink-500\/20, .bg-rose-50, .bg-rose-100) { background: var(--aura-pink-soft) !important; }
 .aura-operations-page :is(.bg-orange-50, .bg-orange-500\/5, .bg-orange-500\/10, .bg-orange-500\/20, .bg-amber-500\/10, .bg-amber-500\/20) { background: #fff1ea !important; }
 .aura-operations-page :is(.bg-emerald-500\/10, .bg-emerald-500\/20, .bg-green-500\/10) { background: #eaf7ef !important; }
 .aura-operations-page :is(.bg-blue-50, .bg-blue-500\/10, .bg-indigo-500\/10, .bg-purple-500\/10) { background: #fff3f7 !important; }
@@ -785,7 +785,7 @@
 .schedule-request-card { min-width:0; padding:16px; border:1px solid rgba(117,72,95,.13); border-radius:20px; background:rgba(255,255,255,.96); box-shadow:0 13px 32px rgba(67,35,51,.08); }
 .schedule-request-card>header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
 .schedule-request-kind,.schedule-request-source { display:inline-flex; align-items:center; gap:5px; min-height:27px; padding:0 9px; border-radius:999px; font-size:.64rem; font-weight:850; }
-.schedule-request-kind { color:#d72770; background:#fff0f6; }
+.schedule-request-kind { color:#d72770; background:var(--aura-pink-soft); }
 .schedule-request-kind.is-cancel { color:#b4234f; background:#fff0f2; }
 .schedule-request-kind.is-preservation { color:#a94c16; background:#fff2e7; }
 .schedule-request-source { color:#74626d; background:#f8f3f5; }

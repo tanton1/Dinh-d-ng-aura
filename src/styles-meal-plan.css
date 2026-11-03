@@ -1801,10 +1801,6 @@
     height: 126px;
   }
 
-  .meal-plan-live-card__body {
-    padding: 10px;
-  }
-
   .meal-plan-live-card__body > p span:last-child,
   .meal-plan-live-card__body > small {
     display: none;

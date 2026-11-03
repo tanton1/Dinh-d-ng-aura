@@ -48,7 +48,7 @@
     "production:smoke": "node scripts/production-smoke.mjs",
     "security:secrets": "node scripts/check-secrets.mjs",
     "security:audit": "npm audit --omit=dev --audit-level=high && npm --prefix functions audit --omit=dev --audit-level=high",
-    "check:repo-hygiene": "node scripts/check-repo-hygiene.mjs",
+    "check:repo-hygiene": "node scripts/check-repo-hygiene.mjs && node scripts/check-css-colors.mjs",
     "exercise:compare": "node scripts/compare-exercise-sources.cjs",
     "exercise:release": "node scripts/release-free-exercise-catalog.cjs",
     "ci": "npm run check:repo-hygiene && npm run typecheck && npm run test:profile-sync && npm run test:regional-reads && npm run test:callable-audit && npm run test:function-lifecycle && npm run test:production-smoke && npm run test:eat-clean && npm run test:cooking && npm run build && npm run performance:check && npm --prefix functions run check && npm --prefix functions run check:weekly-view && npm --prefix functions run check:apikey-fun",

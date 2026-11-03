@@ -98,7 +98,7 @@
 }
 
 .date-range-filter__presets button:hover { background: #fff1f5; color: #c83e72; }
-.date-range-filter__presets button.is-active { background: linear-gradient(100deg, #f62f82, #ff8751); color: #fff; }
+.date-range-filter__presets button.is-active { background: linear-gradient(100deg, var(--aura-brand-pink), #ff8751); color: #fff; }
 
 .date-range-filter__custom {
   display: grid;
@@ -127,7 +127,7 @@
   min-height: 40px;
   border: 0;
   border-radius: 11px;
-  background: linear-gradient(100deg, #f62f82, #ff8751);
+  background: linear-gradient(100deg, var(--aura-brand-pink), #ff8751);
   color: #fff;
   font: inherit;
   font-size: 12px;

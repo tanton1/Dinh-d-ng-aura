@@ -13,12 +13,12 @@
 .nrw-hero { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 20px; border: 0; border-radius: 18px; background: var(--aura-crm-overview); color: #fff; }
 .nrw-hero-copy { min-width: 0; }
 .nrw-hero h1 { margin: 0; font-size: 28px; letter-spacing: -.04em; line-height: 1.2; }
-.nrw-hero-copy > span { display: block; margin-top: 4px; color: #fff0f6; font-size: 12px; }
+.nrw-hero-copy > span { display: block; margin-top: 4px; color: var(--aura-pink-soft); font-size: 12px; }
 .nrw-kpis { display: flex; gap: 24px; margin: 0; }
 .nrw-kpis article { min-width: 70px; padding: 0; border: 0; background: transparent; }
 .nrw-kpis strong, .nrw-kpis span { display: block; }
 .nrw-kpis strong { font-size: 24px; line-height: 1.2; font-variant-numeric: tabular-nums; }
-.nrw-kpis span { margin-top: 4px; color: #fff0f6; font-size: 11px; }
+.nrw-kpis span { margin-top: 4px; color: var(--aura-pink-soft); font-size: 11px; }
 .nrw-kpis .is-alert strong { color: #ffd0df; }
 
 .nrw-date-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 14px 0 4px; }

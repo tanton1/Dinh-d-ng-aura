@@ -1,5 +1,5 @@
 .staff-payroll {
-  --sp-pink: #f62f82;
+  --sp-pink: var(--aura-brand-pink);
   --sp-orange: #ff8751;
   --sp-ink: #281c27;
   --sp-muted: #786b75;
@@ -70,7 +70,7 @@
 .staff-payroll__money-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .staff-payroll__money-grid article { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; min-width: 0; border-radius: 17px; padding: 13px; background: linear-gradient(150deg, #fff, #fff8fb); box-shadow: inset 0 0 0 1px rgba(226, 97, 145, .11); }
 .staff-payroll__money-grid article > span { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 12px; color: #fff; }
-.staff-payroll__money-grid .is-pink { background: linear-gradient(135deg, #f62f82, #ff6791); }
+.staff-payroll__money-grid .is-pink { background: linear-gradient(135deg, var(--aura-brand-pink), #ff6791); }
 .staff-payroll__money-grid .is-orange { background: linear-gradient(135deg, #ff8751, #ffad64); }
 .staff-payroll__money-grid .is-sunset { background: linear-gradient(135deg, #f34b72, #ff8751); }
 .staff-payroll__money-grid .is-ink { background: linear-gradient(135deg, #332333, #6e4963); }

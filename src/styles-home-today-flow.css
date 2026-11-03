@@ -216,7 +216,7 @@
   background: #fffafb;
 }
 
-.aura-today-flow__empty > svg:first-child { width: 42px; height: 42px; padding: 10px; border-radius: 13px; color: var(--home-pink); background: #fff0f6; }
+.aura-today-flow__empty > svg:first-child { width: 42px; height: 42px; padding: 10px; border-radius: 13px; color: var(--home-pink); background: var(--aura-pink-soft); }
 .aura-today-flow__empty > span { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .aura-today-flow__empty strong { color: var(--home-ink); font-size: 13px; }
 .aura-today-flow__empty small { color: var(--home-muted); font-size: 11px; line-height: 1.4; }

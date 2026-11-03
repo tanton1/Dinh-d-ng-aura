@@ -360,7 +360,7 @@
   --nutrition-ink: var(--ink, #172033);
   --nutrition-muted: var(--muted, #667085);
   --nutrition-line: var(--line, #e4e7ec);
-  --nutrition-green: #14805e;
+  --nutrition-green: var(--aura-success);
   --nutrition-green-soft: #e9f5f0;
   position: relative;
   min-height: calc(100vh - 76px);
@@ -421,7 +421,7 @@
   --nutrition-ink: #17211d;
   --nutrition-muted: #6e7873;
   --nutrition-line: #e5eae7;
-  --nutrition-green: #14805e;
+  --nutrition-green: var(--aura-success);
   --nutrition-green-soft: #e9f5f0;
   --gradient-primary: linear-gradient(135deg, var(--aura-brand-pink) 0%, #fb923c 100%);
   --gradient-primary-soft: linear-gradient(135deg, #fce7f3 0%, #ffedd5 100%);
@@ -608,7 +608,6 @@
   .nutrition-quick-add { display: flex; overflow-x: auto; margin-inline: -15px; padding: 10px 15px; border-inline: 0; border-radius: 0; scrollbar-width: none; }
   .nutrition-quick-add > div:first-child { display: none; }
   .nutrition-quick-add > button { flex: 0 0 145px; }
-  .nutrition-main-grid { gap: 11px; }
   .nutrition-log-card { padding: 16px 12px; }
   .nutrition-meal { grid-template-columns: 60px minmax(0,1fr) 24px; gap: 9px; padding: 8px; }
   .nutrition-meal__visual { width: 60px; height: 66px; }
@@ -2197,9 +2196,7 @@
 
 .nutrition-category-dropdown { display: flex; align-items: center; gap: 12px; width: 100%; border-bottom: 1px solid #f3f4f6; padding-bottom: 12px; }
 .nutrition-category-dropdown > span { font-size: 13px; color: #6b7280; font-weight: 500; }
-.nutrition-category-dropdown .dropdown-wrapper { position: relative; flex: 1; }
 .nutrition-category-dropdown select { width: 100%; appearance: none; border: none; background: transparent; font-size: 14px; font-weight: 700; color: #111827; outline: none; cursor: pointer; }
-.nutrition-category-dropdown .dropdown-icon { position: absolute; right: 0; top: 50%; transform: translateY(-50%); color: #6b7280; pointer-events: none; }
 
 .nutrition-catalog-verified-status { display: flex; align-items: center; gap: 6px; color: #6b7280; font-size: 11px; }
 .nutrition-catalog-verified-status .icon-check { color: var(--aura-pink-text); }

@@ -1494,7 +1494,7 @@
 .pg-metric-value { display: block; margin-top: 3px; color: var(--aura-pg-text-main); font-size: 18px; font-weight: 850; line-height: 1.15; }
 .pg-metric-status { display: block; margin-top: 3px; overflow: hidden; color: var(--aura-pg-text-muted); font-size: 11px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .pg-metric-status.tone-green { color: var(--aura-pg-green); }
-.pg-metric-status.tone-orange { color: #A65A16; }
+.pg-metric-status.tone-orange { color: var(--aura-warning); }
 .pg-metric-status.tone-pink { color: var(--aura-pg-pink-dark); }
 
 .pg-shape-section {

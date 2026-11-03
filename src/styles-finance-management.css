@@ -1,5 +1,5 @@
 .finance-management {
-  --fm-pink: #f62f82;
+  --fm-pink: var(--aura-brand-pink);
   --fm-orange: #ff8751;
   --fm-ink: #251925;
   --fm-muted: #83717d;

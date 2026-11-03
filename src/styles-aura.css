@@ -310,12 +310,12 @@ body.shell-overlay-open { overflow: hidden; }
   color: #ffffff;
   background: rgba(255, 45, 145, 0.16);
   border-color: rgba(255, 45, 145, 0.3);
-  box-shadow: inset 3px 0 0 var(--aura-pink-neon, #ff2d91);
+  box-shadow: inset 3px 0 0 var(--aura-pink-neon, var(--aura-brand-pink));
   font-weight: 750;
 }
 
 .sidebar-nav button.active svg,
-.admin .sidebar-nav button.active svg { color: var(--aura-pink-neon, #ff2d91); }
+.admin .sidebar-nav button.active svg { color: var(--aura-pink-neon, var(--aura-pink-text)); }
 .sidebar-nav button.active i,
 .admin .sidebar-nav button.active i { display: none; }
 
@@ -487,7 +487,7 @@ body.shell-overlay-open { overflow: hidden; }
 .app-shell .nutrition-page {
   --nutrition-purple: var(--aura-pink);
   --nutrition-purple-dark: var(--aura-pink-dark);
-  --nutrition-green: #14805e;
+  --nutrition-green: var(--aura-success);
   --nutrition-green-dark: #0e664a;
   --nutrition-green-soft: #e9f5f0;
 }
@@ -722,7 +722,7 @@ body.shell-overlay-open { overflow: hidden; }
   }
 
   .mobile-bottom-nav button.active {
-    color: var(--aura-pink-neon, #ff2d91);
+    color: var(--aura-pink-neon, var(--aura-pink-text));
   }
   .mobile-bottom-nav button.active svg {
     filter: drop-shadow(0 2px 8px rgba(255, 45, 145, 0.6));
@@ -734,7 +734,7 @@ body.shell-overlay-open { overflow: hidden; }
     width: 28px;
     height: 3px;
     border-radius: 0 0 4px 4px;
-    background: var(--aura-pink-neon, #ff2d91);
+    background: var(--aura-pink-neon, var(--aura-brand-pink));
     box-shadow: 0 0 14px rgba(255, 45, 145, 0.9);
   }
 
@@ -837,7 +837,7 @@ body.shell-overlay-open { overflow: hidden; }
     width: auto;
     height: auto;
     border-radius: 24px;
-    background: linear-gradient(135deg, #ff2d91 0%, #ff4f78 48%, #ff8751 100%);
+    background: linear-gradient(135deg, var(--aura-brand-pink) 0%, #ff4f78 48%, #ff8751 100%);
     box-shadow:
       0 9px 20px rgba(255, 62, 126, .28),
       inset 0 1px 0 rgba(255, 255, 255, .38);
@@ -1014,17 +1014,17 @@ body.shell-overlay-open { overflow: hidden; }
 .aura-loading-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; object-position: center; will-change: filter, opacity, transform; animation: aura-image-focus 1.15s cubic-bezier(.22,.8,.26,1) both; }
 .aura-loading-overlay { position: absolute; z-index: 1; inset: 0; background: linear-gradient(180deg, rgba(255,255,255,.01) 48%, rgba(35,13,24,.6) 100%); animation: aura-overlay-in .8s ease-out both; }
 .aura-loading-center { position: absolute; z-index: 2; right: 18px; bottom: max(22px, env(safe-area-inset-bottom)); left: 18px; width: auto; display: flex; flex-direction: column; align-items: center; padding: 17px 18px 18px; border: 1px solid rgba(255,255,255,.7); border-radius: 24px; background: rgba(255,255,255,.76); box-shadow: 0 18px 48px rgba(58,21,38,.18); backdrop-filter: blur(18px) saturate(145%); animation: aura-content-rise .72s .12s cubic-bezier(.22,.8,.26,1) both; }
-.aura-loading-title { margin: 0 0 4px; color: transparent; background: linear-gradient(90deg,#f62f82 0%,#ff4f78 50%,#ff8751 100%); background-clip: text; -webkit-background-clip: text; font-size: clamp(15px,4vw,19px); font-weight: 900; line-height: 1.25; letter-spacing: -.02em; }
+.aura-loading-title { margin: 0 0 4px; color: transparent; background: linear-gradient(90deg,var(--aura-brand-pink) 0%,#ff4f78 50%,#ff8751 100%); background-clip: text; -webkit-background-clip: text; font-size: clamp(15px,4vw,19px); font-weight: 900; line-height: 1.25; letter-spacing: -.02em; }
 .aura-loading-copy { margin: 0; color: #78646e; font-size: 11px; font-weight: 700; }
 .aura-loading-progress { width: 132px; height: 4px; overflow: hidden; margin-top: 15px; border-radius: 99px; background: rgba(246,47,130,.16); }
-.aura-loading-progress i { display: block; width: 52%; height: 100%; border-radius: inherit; background: linear-gradient(90deg,#f62f82,#ff8751); animation: aura-loading-slide 1.1s ease-in-out infinite alternate; }
+.aura-loading-progress i { display: block; width: 52%; height: 100%; border-radius: inherit; background: linear-gradient(90deg,var(--aura-brand-pink),#ff8751); animation: aura-loading-slide 1.1s ease-in-out infinite alternate; }
 @keyframes aura-image-focus { from { opacity: .38; filter: blur(15px); transform: scale(1.045); } to { opacity: 1; filter: blur(0); transform: scale(1); } }
 @keyframes aura-overlay-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes aura-content-rise { from { opacity: 0; transform: translateY(18px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @keyframes aura-loading-slide { from { transform: translateX(-18%); } to { transform: translateX(110%); } }
 .aura-route-fallback-card { min-height: 260px; padding: 38px 22px; }
 .aura-route-fallback-image { width: 82px; height: 108px; margin-bottom: 16px; border: 3px solid #fff; border-radius: 22px; object-fit: cover; object-position: center 34%; box-shadow: 0 14px 30px rgba(246,47,130,.18); animation: aura-image-focus .72s ease-out both; }
-.aura-route-fallback-card h1 { margin: 0 0 6px; color: transparent; background: linear-gradient(90deg,#f62f82,#ff8751); background-clip: text; -webkit-background-clip: text; font-size: 18px; font-weight: 850; }
+.aura-route-fallback-card h1 { margin: 0 0 6px; color: transparent; background: linear-gradient(90deg,var(--aura-brand-pink),#ff8751); background-clip: text; -webkit-background-clip: text; font-size: 18px; font-weight: 850; }
 .aura-route-fallback-card p { margin: 0; color: #80747d; font-size: 13px; }
 
 @media (prefers-reduced-motion: reduce) {

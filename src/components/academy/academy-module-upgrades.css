@@ -46,7 +46,7 @@
 .academy-confidence-after p { color: #5a6c62; font-size: 13px; }
 .academy-confidence-after > div { display: flex; flex-wrap: wrap; gap: 8px; }
 .academy-confidence-after button { width: 44px; height: 44px; border: 1px solid #bad8ca; border-radius: 12px; background: #fff; }
-.academy-confidence-after button[aria-pressed=true] { color: #fff; background: #14805e; }
+.academy-confidence-after button[aria-pressed=true] { color: #fff; background: var(--aura-success); }
 .academy-quiz-progress { font-size: 13px; color: #665862; line-height: 1.6; }
 .academy-quiz-question-nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
 .academy-quiz-question-nav button { min-width: 44px; min-height: 44px; border: 1px solid #e3d5dd; border-radius: 12px; background: #fff; color: #65525e; }

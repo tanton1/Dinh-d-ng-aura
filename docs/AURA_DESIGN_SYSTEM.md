@@ -71,3 +71,12 @@ brand without a risky all-at-once rewrite.
 and accessible brand colors on existing member screens. It is a migration aid:
 new member UI should use the tokens directly instead of being added to its
 lists. `tests/e2e/student-shell-layout.spec.ts` guards these rules.
+
+`src/styles-ops-foundation.css` applies the same baseline to admin and the
+staff workspace, guarded by `tests/e2e/ops-shell-layout.spec.ts`.
+
+Raw colors that already have a token, and the retired brand pink variants
+(`#f62f82`, `#ff2d91`, `#ec4899`, `#d90068` and similar), are rejected by
+`scripts/check-css-colors.mjs`, which runs in `npm run check:repo-hygiene`.
+Use `var(--aura-brand-pink)` for decoration and `var(--aura-pink-text)` for
+pink text.

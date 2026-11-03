@@ -32,7 +32,7 @@
   line-height: 1.4;
   cursor: pointer;
 }
-.finance-intent-button--primary { border-color: transparent; background: linear-gradient(110deg, #ec2c76, #f46c48); color: #fff; }
+.finance-intent-button--primary { border-color: transparent; background: linear-gradient(110deg, var(--aura-brand-pink), #f46c48); color: #fff; }
 .finance-intent-button:disabled { cursor: default; opacity: .55; }
 .finance-intent-button:focus-visible { outline: 3px solid #b82764; outline-offset: 3px; }
 .finance-intent-error, .finance-intent-status { margin: 12px 0; color: #70533e; font-size: 13px; line-height: 1.5; }

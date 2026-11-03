@@ -1,12 +1,12 @@
 .performance-review {
-  --pr-pink: #ec2c76;
-  --pr-orange: #ff7a45;
+  --pr-pink: var(--aura-brand-pink);
+  --pr-orange: var(--aura-brand-orange);
   --pr-ink: #251f23;
   --pr-muted: #756a70;
   --pr-line: #e8e1e5;
   --pr-soft: #f7f8fa;
-  --pr-success: #14805e;
-  --pr-warning: #a65a16;
+  --pr-success: var(--aura-success);
+  --pr-warning: var(--aura-warning);
   --pr-danger: #b82850;
   display: grid;
   gap: 12px;

@@ -1,5 +1,5 @@
 .driver-page {
-  --driver-pink: #f62f82;
+  --driver-pink: var(--aura-brand-pink);
   --driver-orange: #ff8751;
   --driver-ink: #18131c;
   --driver-muted: #756e78;
@@ -98,7 +98,7 @@
 .driver-job-content { max-width: 760px; display: grid; gap: 12px; margin: 0 auto; padding: 0 14px; }
 .driver-stop-list, .driver-facts { padding: 16px; border: 1px solid #eae5e8; border-radius: 20px; background: #fff; box-shadow: 0 8px 24px rgba(54,36,48,.05); }
 .driver-stop-list article { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 11px; }
-.driver-stop-list article > span { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 12px; color: var(--driver-pink); background: #fff0f6; }
+.driver-stop-list article > span { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 12px; color: var(--driver-pink); background: var(--aura-pink-soft); }
 .driver-stop-list article > div { min-width: 0; }
 .driver-stop-list small { display: block; color: #9a9098; font-size: 8px; font-weight: 900; letter-spacing: .08em; }
 .driver-stop-list strong { display: block; margin-top: 3px; font-size: 13px; }

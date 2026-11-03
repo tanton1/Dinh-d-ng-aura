@@ -1,15 +1,15 @@
 .staff-performance-page {
-  --staff-performance-ink: var(--aura-neutral-950, #19161a);
-  --staff-performance-muted: var(--aura-neutral-700, #5f5961);
-  --staff-performance-line: var(--aura-neutral-150, #ece8ec);
-  --staff-performance-canvas: var(--aura-neutral-75, #f7f4f6);
-  --staff-performance-brand: var(--aura-brand-pink, #ec2c76);
+  --staff-performance-ink: var(--aura-neutral-950, var(--aura-ink));
+  --staff-performance-muted: var(--aura-neutral-700, var(--aura-muted));
+  --staff-performance-line: var(--aura-neutral-150, var(--aura-line));
+  --staff-performance-canvas: var(--aura-neutral-75, var(--aura-canvas));
+  --staff-performance-brand: var(--aura-brand-pink, var(--aura-brand-pink));
   --staff-performance-brand-strong: var(--aura-pink-dark, #b50055);
-  --staff-performance-accent: var(--aura-brand-orange, #ff7a45);
+  --staff-performance-accent: var(--aura-brand-orange, var(--aura-brand-orange));
   --staff-performance-brand-soft: var(--aura-pink-soft, #fff0f7);
   --staff-performance-mint: var(--nutrition-green-soft, #e9f5f0);
-  --staff-performance-green: var(--aura-success, #14805e);
-  --staff-performance-warning: var(--aura-warning, #a65a16);
+  --staff-performance-green: var(--aura-success, var(--aura-success));
+  --staff-performance-warning: var(--aura-warning, var(--aura-warning));
   --staff-performance-danger: var(--aura-danger, #b82850);
   width: 100%;
   min-height: 100%;
