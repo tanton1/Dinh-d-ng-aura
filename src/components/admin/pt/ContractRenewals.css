@@ -732,3 +732,6 @@
 @media (prefers-reduced-motion: reduce) {
   .renewal-page *, .renewal-modal-layer * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+.renewal-error button,
+.renewal-success button { min-width: 44px; min-height: 36px; border-radius: 9px; }

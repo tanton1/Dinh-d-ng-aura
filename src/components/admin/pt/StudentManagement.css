@@ -151,11 +151,14 @@
 .student-management__carousel-controls > span,
 .student-detail__carousel-controls > span { color: rgba(255,255,255,.72); font-size: .62rem; font-weight: 850; }
 .student-management__carousel-controls > div,
-.student-detail__carousel-controls > div { display: flex; justify-content: center; gap: 5px; }
+.student-detail__carousel-controls > div { display: flex; justify-content: center; gap: 14px; }
 .student-management__carousel-controls button,
 .student-detail__carousel-controls button { cursor: pointer; }
 .student-management__carousel-controls > div button,
-.student-detail__carousel-controls > div button { width: 6px; height: 6px; padding: 0; border: 0; border-radius: 99px; background: rgba(255,255,255,.42); transition: width .2s ease; }
+.student-detail__carousel-controls > div button { position: relative; width: 6px; height: 6px; padding: 0; border: 0; border-radius: 99px; background: rgba(255,255,255,.42); transition: width .2s ease; }
+/* Neighbouring hit areas meet but never overlap, so each dot keeps its own tap. */
+.student-management__carousel-controls > div button::after,
+.student-detail__carousel-controls > div button::after { content: ""; position: absolute; inset: -12px -7px; }
 .student-management__carousel-controls > div button.active,
 .student-detail__carousel-controls > div button.active { width: 21px; background: #fff; }
 .student-management__carousel-controls > button,
@@ -664,3 +667,9 @@
   .student-package-modal__input { font-size:16px; }
   .student-package-modal__input[type="date"] { max-inline-size:calc(100vw - max(28px, env(safe-area-inset-left) + env(safe-area-inset-right))) !important; }
 }
+
+/* Keep row actions in view while the wide roster scrolls sideways. */
+.student-roster__table { min-width: 1080px; }
+.student-roster__table th:last-child,
+.student-roster__table td:last-child { position: sticky; right: 0; z-index: 1; background: #fff; box-shadow: -10px 0 14px -12px rgba(54, 30, 45, .35); }
+.student-roster__table tbody tr:hover td:last-child { background: #fffafb; }

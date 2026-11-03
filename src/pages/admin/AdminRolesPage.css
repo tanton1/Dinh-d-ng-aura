@@ -182,7 +182,7 @@
   font-weight: 800;
   white-space: nowrap;
 }
-.identity-filter select { max-width: 160px; border: 0 !important; background: transparent !important; box-shadow: none !important; font-weight: 800; }
+.identity-filter select { max-width: 160px; min-height: 34px; align-self: stretch; border: 0 !important; background: transparent !important; box-shadow: none !important; font-weight: 800; }
 
 .identity-members-list { overflow-x: auto; margin: 0 16px 17px; border: 1px solid var(--team-line); border-radius: 19px; background: #fff; }
 .identity-members-list .students-head { border-radius: 0; background: #fff7fa; }

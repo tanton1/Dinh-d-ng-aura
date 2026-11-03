@@ -28,7 +28,7 @@
 .nrw-date-picker { display: flex; align-items: center; gap: 3px; min-width: 0; }
 .nrw-date-picker > button { display: grid; place-items: center; flex: none; width: 36px; height: 36px; border: 0; border-radius: 8px; background: var(--nrw-soft); color: var(--nrw-muted); }
 .nrw-date-picker > label { display: flex; align-items: center; gap: 7px; min-height: 36px; padding: 0 10px; border: 0; border-radius: 8px; color: var(--nrw-muted); background: var(--nrw-soft); }
-.nrw-date-picker input { min-width: 0; width: 130px; padding: 0; border: 0; background: transparent; color: var(--nrw-ink); font: inherit; font-size: 12px; }
+.nrw-date-picker input { min-width: 0; width: 130px; min-height: 34px; padding: 0; border: 0; background: transparent; color: var(--nrw-ink); font: inherit; font-size: 12px; }
 .nrw-today { min-height: 36px; padding: 6px 11px; border: 0; border-radius: 8px; color: #a12b4d; background: #fff1f5; font-size: 12px; }
 .nrw-week-label { font-size: 12px; color: var(--nrw-muted); }
 .nrw-toolbar { display: grid; grid-template-columns: auto minmax(160px, 1fr) minmax(150px, auto) 36px; gap: 8px; align-items: center; margin: 10px 0 14px; }
@@ -49,7 +49,7 @@
 .nrw-message { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0; padding: 10px 12px; border-radius: 8px; font-size: 13px; }
 .nrw-message > svg { flex: none; }
 .nrw-message > span { flex: 1; min-width: 150px; overflow-wrap: anywhere; }
-.nrw-message button { margin-left: auto; border: 0; background: transparent; font-size: 20px; }
+.nrw-message button { min-width: 36px; min-height: 36px; margin-left: auto; border: 0; border-radius: 8px; background: transparent; font-size: 20px; }
 .nrw-message[role='status'] > button { min-height: 36px; padding: 6px 10px; border-radius: 8px; background: var(--nrw-soft); color: var(--nrw-ink); font-size: 12px; font-weight: 650; }
 .nrw-message.is-error { background: #fff0f1; color: #a72d3a; }
 .nrw-message.is-success { background: #ecfaf3; color: #16734b; }

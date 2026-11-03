@@ -321,6 +321,7 @@ export default function PTSchedule({ schedule, students, trainers, contracts, cu
                 <User className="w-4 h-4 text-zinc-500" />
               </div>
               <select
+                aria-label="Chọn PT để xem lịch"
                 value={selectedTrainerId}
                 onChange={(e) => setSelectedTrainerId(e.target.value)}
                 className="w-full bg-zinc-950 border border-zinc-800 text-white pl-10 pr-10 py-3 rounded-xl outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent font-medium appearance-none transition-all shadow-sm"

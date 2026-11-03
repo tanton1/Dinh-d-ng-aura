@@ -105,7 +105,7 @@ test('Admin menu follows the operational workflow and hides unfinished modules',
   await search.fill('Nguyễn An')
   await search.press('Enter')
   await expect(page).toHaveURL(/#\/admin-pt-students$/)
-  await expect(page.getByRole('textbox', { name: 'Tìm tên, SĐT học viên...' })).toHaveValue('Nguyễn An')
+  await expect(page.getByRole('textbox', { name: 'Tìm học viên theo tên hoặc số điện thoại' })).toHaveValue('Nguyễn An')
 })
 
 test('Staff student search stays readable and workout workspaces filter students quickly', async ({ page }) => {

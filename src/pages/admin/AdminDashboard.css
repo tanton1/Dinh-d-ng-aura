@@ -35,7 +35,7 @@
 .admin-dashboard__data-state{display:flex!important;align-items:center;gap:5px}.admin-dashboard__data-state>i{width:6px;height:6px;flex:0 0 6px;border-radius:50%;background:#2dbd69;box-shadow:0 0 0 3px rgba(45,189,105,.1)}.admin-dashboard__data-state.is-loading>i{background:#ff9857;animation:dashboard-state-pulse .9s ease-in-out infinite alternate}.admin-dashboard__data-state.is-error>i{background:#e65367}@keyframes dashboard-state-pulse{to{opacity:.38}}
 .admin-dashboard__sync-actions{position:relative;display:flex;align-items:center;gap:6px}
 .admin-dashboard__branch-filter{display:flex;min-width:120px;min-height:36px;align-items:center;gap:6px;border:1px solid rgba(246,47,130,.14);border-radius:12px;padding:0 8px;background:rgba(255,255,255,.9);color:#b23f6b;box-shadow:0 7px 20px rgba(91,39,64,.05)}
-.admin-dashboard__branch-filter select{min-width:0;max-width:140px;border:0;outline:0;background:transparent;color:#735466;font-size:10px;font-weight:850}
+.admin-dashboard__branch-filter select{min-width:0;max-width:140px;min-height:34px;align-self:stretch;border:0;outline:0;background:transparent;color:#735466;font-size:12px;font-weight:850}
 .admin-dashboard__sync-actions>.date-range-filter{width:132px}
 .admin-dashboard__sync-actions .date-range-filter__trigger{min-height:36px;border-radius:12px;padding-inline:9px;background:rgba(255,255,255,.9)}
 .admin-dashboard__sync-actions>button,.admin-dashboard__help>summary{display:inline-flex;min-height:36px;align-items:center;justify-content:center;gap:6px;border:1px solid rgba(246,47,130,.14);border-radius:12px;padding:0 11px;background:rgba(255,255,255,.86);color:#a23862;font-size:10px;font-weight:850;box-shadow:0 7px 20px rgba(91,39,64,.05);cursor:pointer}
