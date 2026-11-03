@@ -816,3 +816,8 @@
   .schedule-request-workspace { padding-inline:2px; }
   .schedule-request-card { border-radius:18px; }
 }
+
+/* The schedule matrix markup uses utility class names this app does not ship.
+   Give the trainer picker room for its icons and stack the hour header icon. */
+.aura-operations-page--schedule .pt-schedule-matrix__actions select { padding-left: 40px !important; padding-right: 36px !important; }
+.pt-schedule-matrix__grid thead th:first-child svg { display: block; margin: 0 auto 4px; }

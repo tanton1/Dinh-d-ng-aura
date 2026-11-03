@@ -4,7 +4,6 @@ import { User } from 'firebase/auth';
 import { Search, Plus, Edit2, Trash2, Phone, Mail, Calendar, CheckCircle, XCircle, AlertCircle, User as UserIcon, Package, RefreshCw, SlidersHorizontal, ChevronRight, LoaderCircle, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import DateRangeFilter from './DateRangeFilter';
-import { LOGO_URL } from '../../../constants';
 import { useDatabase } from '../../../contexts/DatabaseContext';
 import { useAuth } from '../../../contexts/AuthContext';
 import { provisionStudentAccount } from '../../../services/identityAccessService';
@@ -542,7 +541,7 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
     <div className="student-management space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
       <div className="student-management__heading">
         <div className="flex items-center gap-3">
-          <img src={LOGO_URL} alt="Aura" className="student-management__brand h-10 w-10 object-contain" />
+          <img src="/icons/aura-icon.svg" alt="" width="40" height="40" className="student-management__brand h-10 w-10 object-contain" />
           <div>
             <p className="student-management__eyebrow">AURA OPERATIONS · CRM PT</p>
             <h1 className="student-management__title text-3xl md:text-4xl font-serif font-medium text-pink-500 tracking-tight">
@@ -610,6 +609,7 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
           <input
             type="text"
+            aria-label="Tìm học viên theo tên hoặc số điện thoại"
             placeholder="Tìm tên, SĐT học viên..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -859,6 +859,7 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
                         }}
                         className="p-2 rounded-lg transition-colors text-pink-500 hover:text-pink-400 bg-pink-500/10 hover:bg-pink-500/20 flex items-center gap-1"
                         title="Gia hạn hợp đồng"
+                        aria-label={`Gia hạn hợp đồng cho ${student.name}`}
                       >
                         <RefreshCw className="w-4 h-4" />
                       </button>
@@ -876,6 +877,8 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
                       }}
                       className={`p-2 rounded-lg transition-colors ${!canManageStudents ? 'text-zinc-600 bg-zinc-800/50 cursor-not-allowed' : 'text-zinc-400 hover:text-white bg-zinc-800'}`}
                       disabled={!canManageStudents}
+                      title="Sửa hồ sơ"
+                      aria-label={`Sửa ${student.name}`}
                     >
                       <Edit2 className="w-4 h-4" />
                     </button>
@@ -889,6 +892,8 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
                       }}
                       className={`p-2 rounded-lg transition-colors ${!canManageStudents ? 'text-red-900 bg-red-900/10 cursor-not-allowed' : 'text-red-400 hover:text-red-300 bg-red-500/10'}`}
                       disabled={!canManageStudents}
+                      title="Lưu trữ hồ sơ"
+                      aria-label={`Lưu trữ ${student.name}`}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
