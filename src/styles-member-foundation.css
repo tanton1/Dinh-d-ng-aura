@@ -232,12 +232,6 @@
   background: var(--aura-gradient-cta);
 }
 
-/* Copy over the Eat Clean photo: contrast depends on the image, so add a halo. */
-.app-shell.student .eat-clean-hero__copy :is(h1, p, span, small) {
-  color: #fff;
-  text-shadow: 0 1px 2px rgba(25, 22, 26, .55), 0 2px 14px rgba(25, 22, 26, .6);
-}
-
 /* Pink used as text. */
 .app-shell.student :is(
   .student-attention-center__copy small,
@@ -274,6 +268,18 @@
 }
 
 @media (max-width: 767px) {
+  /* The phone hero shows the photo's bright areas behind all of its copy. This
+     overlay keeps the measured worst pixel at 4.5:1 for the small text. */
+  .app-shell.student .eat-clean-hero {
+    background:
+      linear-gradient(180deg, rgba(27, 8, 25, .72) 0%, rgba(62, 9, 42, .72) 62%, rgba(150, 20, 80, .86) 100%),
+      url('/images/eat-clean/hero-bowl.webp') center 48% / cover;
+  }
+
+  .app-shell.student .eat-clean-hero__copy :is(h1, p, span, small) {
+    color: #fff;
+  }
+
   /* iOS zooms the page when a focused field is under 16px. */
   .app-shell.student :is(input:not([type='checkbox'], [type='radio'], [type='range']), textarea, select) {
     font-size: var(--aura-text-md);

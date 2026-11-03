@@ -4,7 +4,7 @@
   --pv2-line: #e7e4e8;
   --pv2-canvas: #f6f6f7;
   --pv2-paper: #fff;
-  --pv2-pink: #d90068;
+  --pv2-pink: var(--aura-pink-text);
   --pv2-pink-soft: #fff0f7;
   --pv2-green: #14805e;
   --pv2-amber: #a65a16;

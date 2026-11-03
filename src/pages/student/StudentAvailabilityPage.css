@@ -1,5 +1,5 @@
 .student-availability-page {
-  --schedule-pink: #f62f82;
+  --schedule-pink: var(--aura-brand-pink);
   --schedule-orange: #ff8751;
   display: grid;
   gap: 16px;

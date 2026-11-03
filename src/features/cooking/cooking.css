@@ -3,7 +3,7 @@
   --cook-ink: #111114;
   --cook-muted: #6d6871;
   --cook-line: #e7e3e8;
-  --cook-pink: #d90068;
+  --cook-pink: var(--aura-pink-text);
   --cook-soft: #fff0f7;
   width: min(1180px, 100%);
   margin: 0 auto;
@@ -23,7 +23,7 @@
 .cooking-page a { color: inherit; text-decoration: none; }
 .cooking-page button { font: inherit; cursor: pointer; }
 .cooking-page button:disabled { cursor: not-allowed; opacity: .45; }
-.cooking-page :focus-visible, .cooking-pdf :focus-visible { outline: 3px solid #d90068; outline-offset: 4px; }
+.cooking-page :focus-visible, .cooking-pdf :focus-visible { outline: 3px solid var(--aura-pink-text); outline-offset: 4px; }
 .cooking-page h1:focus { outline: none; }
 .cooking-secondary { color: var(--cook-muted); font-size: 14px; }
 .cooking-page-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 26px; }
@@ -160,7 +160,7 @@
 .cooking-finished p { color: var(--cook-muted); max-width: 65ch; }
 .cooking-finished > div { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
 .cooking-state { display: flex; flex-direction: column; align-items: center; text-align: center; justify-content: center; min-height: 300px; padding: 32px 16px; gap: 12px; }
-.cooking-state > svg { color: #d90068; }
+.cooking-state > svg { color: var(--aura-pink-text); }
 .cooking-state h1, .cooking-state h3, .cooking-state p { margin: 0; }
 .cooking-state p { max-width: 50ch; color: #6d6871; }
 .cooking-state button, .cooking-state a { min-height: 44px; background: #fff; border: 1px solid #e7e3e8; border-radius: 9px; padding: 10px 16px; margin-top: 6px; color: #111114; text-decoration: none; }

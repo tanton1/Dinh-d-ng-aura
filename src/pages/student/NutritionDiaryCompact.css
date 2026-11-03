@@ -16,7 +16,7 @@
 .nutrition-diary .nutrition-diary-overview__stats > .needs-attention { background: #fff5e8; color: #874512; }
 .nutrition-diary .nutrition-diary-overview__stats strong em { font-size: 12px; }
 .nutrition-diary .nutrition-diary-overview__bar { background: #f5e9ee; height: 3px; }
-.nutrition-diary .nutrition-diary-overview__bar span { background: #ec2c76; }
+.nutrition-diary .nutrition-diary-overview__bar span { background: var(--aura-brand-pink); }
 @media (max-width: 767px) {
   .nutrition-diary .nutrition-diary-overview { gap: 10px; padding: 12px; }
   .nutrition-diary .nutrition-diary-overview__stats > div { min-height: 54px; padding: 7px; }

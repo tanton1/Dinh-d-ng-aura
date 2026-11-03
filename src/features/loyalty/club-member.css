@@ -2,7 +2,7 @@
 .loyalty-page.loyalty-page {
   --loyalty-pink: #cf246a;
   --loyalty-orange: #ff8751;
-  --loyalty-action: linear-gradient(135deg, #f62f82, #ff8751);
+  --loyalty-action: linear-gradient(135deg, var(--aura-brand-pink), #ff8751);
   width: 100%; max-width: none; margin: 0; padding: 12px 12px 32px;
   background: linear-gradient(145deg, #fff3f8, #fff8f5 65%, #fff6f9); color: #211720;
 }

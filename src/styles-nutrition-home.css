@@ -84,7 +84,7 @@
   place-items: center;
   border: none;
   background: transparent;
-  color: #ff3f7d;
+  color: var(--aura-pink-text);
   border-radius: 12px;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
@@ -93,7 +93,7 @@
 
 .nutrition-date-arrow:hover {
   background: #fff0f3;
-  color: #ff3578;
+  color: var(--aura-pink-text);
 }
 
 .nutrition-date-pills {
@@ -154,13 +154,13 @@
 }
 
 .nutrition-date-pill.is-active .day-name {
-  color: #ff3f7d;
+  color: var(--aura-pink-text);
   font-weight: 800;
 }
 
 .nutrition-date-pill.is-active .day-number-circle {
   border-color: transparent;
-  background: linear-gradient(135deg, #ff3578, #ff8c34);
+  background: linear-gradient(135deg, var(--aura-brand-pink), #ff8c34);
   color: #ffffff;
   box-shadow: 0 2px 8px rgba(255, 53, 120, 0.25);
 }
@@ -169,7 +169,7 @@
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: #ff3578;
+  background: var(--aura-brand-pink);
   position: absolute;
   bottom: 2px;
   left: 50%;
@@ -240,7 +240,7 @@
   font-weight: 850;
   letter-spacing: -0.04em;
   line-height: 1.0;
-  background: linear-gradient(135deg, #ff3578 0%, #ff8a33 100%);
+  background: linear-gradient(135deg, var(--aura-brand-pink) 0%, #ff8a33 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
@@ -352,7 +352,7 @@
   font-size: 22px;
   font-weight: 800;
   letter-spacing: -0.02em;
-  background: linear-gradient(135deg, #ff3578 0%, #ff8a33 100%);
+  background: linear-gradient(135deg, var(--aura-brand-pink) 0%, #ff8a33 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   line-height: 1.1;
@@ -1106,7 +1106,7 @@
   height: 62px;
   border-radius: 50%;
   border: none;
-  background: linear-gradient(135deg, #ff2d91 0%, #ff6b00 100%);
+  background: linear-gradient(135deg, var(--aura-brand-pink) 0%, #ff6b00 100%);
   color: #ffffff;
   display: grid;
   place-items: center;
@@ -1393,7 +1393,7 @@
 
 /* Aura 2026 — daily pulse and warm pink/orange visual system */
 .nutrition-home--cal-ai {
-  --aura-pink: #f53082;
+  --aura-pink: var(--aura-brand-pink);
   --aura-coral: #ff5a62;
   --aura-orange: #ff8a34;
   --aura-ink: #24172b;

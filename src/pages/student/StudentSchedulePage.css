@@ -1,5 +1,5 @@
 .student-schedule-page {
-  --schedule-pink: #f62f82;
+  --schedule-pink: var(--aura-brand-pink);
   --schedule-orange: #ff8751;
   display: grid;
   gap: 18px;
@@ -188,6 +188,8 @@
     flex: initial;
   }
   .student-schedule-hero__controls { display: none; }
+  /* Without the controls row the bar can sit below the slide action. */
+  .student-schedule-hero__progress { bottom: 26px; }
 }
 
 .student-schedule-state {
@@ -240,9 +242,9 @@
 .student-schedule-legend { display: flex; flex-wrap: wrap; gap: 12px; padding: 0 22px 14px; color: #706873; font-size: 11px; font-weight: 700; }
 .student-schedule-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .student-schedule-legend i { width: 11px; height: 11px; border-radius: 4px; }
-.student-schedule-legend i.is-available { background: #ffe0ec; border: 1px solid #f62f82; }
+.student-schedule-legend i.is-available { background: #ffe0ec; border: 1px solid var(--aura-brand-pink); }
 .student-schedule-legend i.is-booked { background: #fff0e4; border: 1px solid #ff8751; }
-.student-schedule-legend i.is-linked { background: linear-gradient(135deg, #f62f82, #ff8751); }
+.student-schedule-legend i.is-linked { background: linear-gradient(135deg, var(--aura-brand-pink), #ff8751); }
 
 .student-schedule-matrix-scroll { overflow-x: auto; margin: 0 14px; padding-bottom: 4px; border: 1px solid #f1e6ea; border-radius: 18px; background: #fffafb; scrollbar-width: thin; }
 .student-schedule-matrix { width: 100%; min-width: 690px; border-collapse: separate; border-spacing: 5px; padding: 6px; table-layout: fixed; }
@@ -912,7 +914,7 @@
 .student-policy-sheet { position: relative; width: min(100%, 520px); max-height: min(88dvh, 760px); overflow: auto; padding: 10px 18px calc(20px + env(safe-area-inset-bottom,0px)); border: 1px solid rgba(246,47,130,.16); border-radius: 28px 28px 0 0; color: #251923; background: linear-gradient(155deg,#fff 0%,#fff8fb 58%,#fff4ec 100%); box-shadow: 0 -20px 60px rgba(34,17,30,.24); }
 .student-policy-sheet::before { content: ''; display: block; width: 44px; height: 5px; margin: 0 auto 12px; border-radius: 99px; background: #e3d8de; }
 .student-policy-sheet > header { display: grid; grid-template-columns: 42px minmax(0,1fr) 40px; align-items: center; gap: 10px; }
-.student-policy-sheet > header > span { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 14px; color: #fff; background: linear-gradient(135deg,#f62f82,#ff8751); box-shadow: 0 8px 20px rgba(246,47,130,.2); }
+.student-policy-sheet > header > span { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 14px; color: #fff; background: linear-gradient(135deg,var(--aura-brand-pink),#ff8751); box-shadow: 0 8px 20px rgba(246,47,130,.2); }
 .student-policy-sheet > header small { display: block; color: #e52b76; font-size: 10px; font-weight: 900; letter-spacing: .11em; }
 .student-policy-sheet > header h2 { margin: 3px 0 0; font-size: 21px; line-height: 1.18; }
 .student-policy-sheet > header > button { display: grid; width: 40px; height: 40px; place-items: center; border: 0; border-radius: 13px; color: #6a5a63; background: #f5edf1; cursor: pointer; }
@@ -927,7 +929,7 @@
 .student-policy-sheet form { margin-top: 14px; }
 .student-policy-segment { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 4px; padding: 4px; border-radius: 14px; background: #f5edf1; }
 .student-policy-segment button { min-height: 42px; border: 0; border-radius: 11px; color: #76656e; background: transparent; font-weight: 800; cursor: pointer; }
-.student-policy-segment button.active { color: #fff; background: linear-gradient(120deg,#f62f82,#ff8751); box-shadow: 0 7px 18px rgba(246,47,130,.19); }
+.student-policy-segment button.active { color: #fff; background: linear-gradient(120deg,var(--aura-brand-pink),#ff8751); box-shadow: 0 7px 18px rgba(246,47,130,.19); }
 .student-policy-fields { display: grid; gap: 10px; margin-top: 13px; }
 .student-policy-fields.two-columns { grid-template-columns: repeat(2,minmax(0,1fr)); }
 .student-policy-fields label,.student-policy-reason { display: grid; gap: 6px; }
@@ -944,7 +946,7 @@
 .student-policy-exception button { min-height:37px; padding:0 11px; border:1px solid #edb47f; border-radius:10px; color:#8b3f1e; background:#fff; font-size:11px; font-weight:850; cursor:pointer; }
 .student-policy-exception button:disabled { opacity:.55; cursor:wait; }
 .student-policy-sheet form > footer { position: sticky; bottom: -20px; display: grid; grid-template-columns: .7fr 1.3fr; gap: 9px; margin: 15px -2px 0; padding: 10px 2px calc(2px + env(safe-area-inset-bottom,0px)); background: linear-gradient(0deg,#fff8f7 72%,rgba(255,248,247,0)); }
-.student-policy-sheet form > footer button { min-height: 48px; border: 0; border-radius: 14px; color: #fff; background: linear-gradient(120deg,#f62f82,#ff8751); font-weight: 900; cursor: pointer; }
+.student-policy-sheet form > footer button { min-height: 48px; border: 0; border-radius: 14px; color: #fff; background: linear-gradient(120deg,var(--aura-brand-pink),#ff8751); font-weight: 900; cursor: pointer; }
 .student-policy-sheet form > footer button.secondary { border: 1px solid #eadde3; color: #66545e; background: #fff; }
 .student-policy-sheet form > footer button:disabled { opacity: .55; cursor: wait; }
 .student-change-suggestions { display:grid; gap:10px; margin-top:13px; }
@@ -961,7 +963,7 @@
 .student-change-suggestions__tab { display:flex; min-width:0; align-items:center; justify-content:space-between; gap:6px; padding:9px 10px; border:0; border-radius:10px; color:#806a76; background:transparent; font-size:10px; font-weight:850; line-height:1.25; text-align:left; cursor:pointer; }
 .student-change-suggestions__tab span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .student-change-suggestions__tab b { flex:0 0 auto; min-width:20px; padding:2px 5px; border-radius:999px; color:#8a7681; background:#fff; font-size:10px; font-weight:900; text-align:center; }
-.student-change-suggestions__tab.is-active { color:#fff; background:linear-gradient(120deg,#f62f82,#ff8751); }
+.student-change-suggestions__tab.is-active { color:#fff; background:linear-gradient(120deg,var(--aura-brand-pink),#ff8751); }
 .student-change-suggestions__tab.is-active b { color:#d12b6d; }
 .student-change-suggestions__tab:disabled { opacity:.48; cursor:not-allowed; }
 .student-change-suggestions__hint { margin:0; color:#806a76; font-size:10px; line-height:1.45; }
@@ -970,7 +972,7 @@
 .student-change-suggestions__list > button:focus-visible { outline:3px solid rgba(246,47,130,.22); outline-offset:2px; }
 .student-change-suggestions__list > button.is-selected { border-color:#f64b89; background:linear-gradient(145deg,#fff8fb,#fff4ed); box-shadow:0 8px 22px rgba(241,51,123,.13); }
 .student-change-suggestion__check { grid-area:check; display:grid; width:27px; height:27px; place-items:center; align-self:start; border:1px solid #f0d9e3; border-radius:9px; color:#fff; background:#fff7fa; font-size:10px; font-weight:900; }
-.student-change-suggestions__list > button.is-selected .student-change-suggestion__check { border-color:transparent; background:linear-gradient(135deg,#f62f82,#ff8751); }
+.student-change-suggestions__list > button.is-selected .student-change-suggestion__check { border-color:transparent; background:linear-gradient(135deg,var(--aura-brand-pink),#ff8751); }
 .student-change-suggestion__meta { grid-area:meta; display:flex; min-width:0; align-items:baseline; justify-content:space-between; gap:8px; }
 .student-change-suggestion__meta strong { overflow:hidden; color:#352831; font-size:13px; text-overflow:ellipsis; white-space:nowrap; }
 .student-change-suggestion__meta time { flex:0 0 auto; color:#d92070; font-size:15px; font-weight:900; }

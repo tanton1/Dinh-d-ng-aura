@@ -62,7 +62,7 @@
   justify-content: center;
   border-radius: 50%;
   background-color: #fff0f3;
-  color: #ff3f7d;
+  color: var(--aura-pink-text);
   border: none;
   cursor: pointer;
   transition: transform 0.15s ease, background-color 0.15s ease;
@@ -86,7 +86,7 @@
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background-color: #ff3f7d;
+  background-color: var(--aura-brand-pink);
   color: #ffffff;
   font-size: 10px;
   font-weight: 800;
@@ -99,7 +99,7 @@
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background-color: #ff3f7d;
+  background-color: var(--aura-brand-pink);
   border: 2px solid #ffffff;
 }
 
@@ -193,7 +193,7 @@
 }
 
 .meal-plan-filter-trigger--active {
-  background: linear-gradient(90deg, #ff3f7d, #ff7e40);
+  background: linear-gradient(90deg, var(--aura-brand-pink), #ff7e40);
   color: #ffffff;
   border-color: transparent;
 }
@@ -404,7 +404,7 @@
 
 .filter-chip--active {
   border-color: transparent;
-  background: linear-gradient(90deg, #ff3578, #ff8a33);
+  background: linear-gradient(90deg, var(--aura-brand-pink), #ff8a33);
   color: #ffffff;
   box-shadow: 0 4px 14px rgba(255, 73, 110, 0.25);
 }
@@ -623,7 +623,7 @@
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: linear-gradient(135deg, #ff3f7d, #ff7e40);
+  background: linear-gradient(135deg, var(--aura-brand-pink), #ff7e40);
   color: #ffffff;
   font-size: 12px;
   font-weight: 800;
@@ -675,7 +675,7 @@
 .plan-mini-meal__kcal {
   font-size: 10px;
   font-weight: 600;
-  color: #ff3f7d;
+  color: var(--aura-pink-text);
 }
 
 /* Modal Dialog Sheets */
@@ -790,7 +790,7 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  background: linear-gradient(90deg, #ff3f7d, #ff7e40);
+  background: linear-gradient(90deg, var(--aura-brand-pink), #ff7e40);
   box-shadow: 0 6px 20px rgba(255, 63, 125, 0.3);
   transition: transform 0.15s ease, opacity 0.15s ease;
 }
@@ -863,13 +863,13 @@
 }
 
 .plan-date-pill--active .day-name {
-  color: #ff3f7d;
+  color: var(--aura-pink-text);
   font-weight: 800;
 }
 
 .plan-date-pill--active .day-number-circle {
   border-color: transparent;
-  background: linear-gradient(135deg, #ff3578, #ff8c34);
+  background: linear-gradient(135deg, var(--aura-brand-pink), #ff8c34);
   color: #ffffff;
 }
 
@@ -924,7 +924,7 @@
 }
 
 .meal-plan-icon-btn.is-active {
-  background: linear-gradient(135deg, #ff3578, #ff8c34);
+  background: linear-gradient(135deg, var(--aura-brand-pink), #ff8c34);
   color: #fff;
 }
 

@@ -24,7 +24,7 @@
   border: 2px solid #fff;
   border-radius: 50%;
   color: #fff;
-  background: linear-gradient(135deg, #f62f82, #ff8751);
+  background: linear-gradient(135deg, var(--aura-brand-pink), #ff8751);
   box-shadow: 0 6px 15px rgba(246,47,130,.3);
   cursor: pointer;
 }

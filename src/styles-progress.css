@@ -1,7 +1,7 @@
 /* Styles for Progress Center (Trang Tiến Độ Aura) */
 
 :root {
-  --aura-pg-pink: #ec4899;
+  --aura-pg-pink: var(--aura-brand-pink);
   --aura-pg-pink-dark: #db1557;
   --aura-pg-pink-light: #fff0f5;
   --aura-pg-orange: #fb923c;
@@ -70,7 +70,7 @@
   padding: 10px 18px;
   border-radius: 9999px;
   border: none;
-  background: linear-gradient(110deg, #ec4899 0%, #fb923c 100%);
+  background: linear-gradient(110deg, var(--aura-brand-pink) 0%, #fb923c 100%);
   color: #ffffff;
   font-size: 14px;
   font-weight: 800;
@@ -113,7 +113,7 @@
 }
 
 .pg-period-btn.active {
-  background: linear-gradient(110deg, #ec4899 0%, #fb923c 100%);
+  background: linear-gradient(110deg, var(--aura-brand-pink) 0%, #fb923c 100%);
   color: #ffffff;
   box-shadow: 0 4px 14px rgba(247, 37, 103, 0.25);
 }
@@ -272,7 +272,7 @@
   flex-shrink: 0;
 }
 
-.pg-hero-stat-icon.pink { background: #fce7f3; color: #db2777; }
+.pg-hero-stat-icon.pink { background: #fce7f3; color: var(--aura-pink-text); }
 .pg-hero-stat-icon.green { background: #d1fae5; color: #059669; }
 .pg-hero-stat-icon.orange { background: #ffedd5; color: #ea580c; }
 .pg-hero-stat-icon.purple { background: #f3e8ff; color: #7e22ce; }
@@ -372,7 +372,7 @@
   justify-content: center;
 }
 
-.pg-action-icon.pink { background: #fce7f3; color: #db2777; }
+.pg-action-icon.pink { background: #fce7f3; color: var(--aura-pink-text); }
 .pg-action-icon.orange { background: #ffedd5; color: #ea580c; }
 .pg-action-icon.blue { background: #dbeafe; color: #2563eb; }
 .pg-action-icon.purple { background: #f3e8ff; color: #9333ea; }
@@ -428,7 +428,7 @@
   height: 48px;
   border-radius: 16px;
   border: none;
-  background: linear-gradient(110deg, #ec4899 0%, #fb923c 100%);
+  background: linear-gradient(110deg, var(--aura-brand-pink) 0%, #fb923c 100%);
   color: #ffffff;
   font-size: 15px;
   font-weight: 800;
@@ -497,7 +497,7 @@
   width: 50px;
   height: 50px;
   border-radius: 18px;
-  background: linear-gradient(135deg, #db2777 0%, #9333ea 100%);
+  background: linear-gradient(135deg, var(--aura-pink-text) 0%, #9333ea 100%);
   color: #ffffff;
   display: flex;
   align-items: center;
@@ -599,7 +599,7 @@
   width: 44px;
   height: 44px;
   border-radius: 14px;
-  background: linear-gradient(110deg, #ec4899 0%, #fb923c 100%);
+  background: linear-gradient(110deg, var(--aura-brand-pink) 0%, #fb923c 100%);
   color: #ffffff;
   display: flex;
   align-items: center;
@@ -639,7 +639,7 @@
 }
 
 .pg-coach-msg.user {
-  background: linear-gradient(110deg, #ec4899 0%, #fb923c 100%);
+  background: linear-gradient(110deg, var(--aura-brand-pink) 0%, #fb923c 100%);
   color: #ffffff;
   align-self: flex-end;
   border-bottom-right-radius: 4px;
@@ -770,7 +770,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #db2777;
+  color: var(--aura-pink-text);
   font-size: 12px;
   font-weight: 850;
   text-transform: uppercase;
@@ -815,7 +815,7 @@
 .pg-ai-review-stats svg {
   flex: 0 0 auto;
   margin-top: 1px;
-  color: #db2777;
+  color: var(--aura-pink-text);
 }
 
 .pg-ai-review-stats strong {
@@ -851,7 +851,7 @@
 .pg-ai-priority-box svg {
   flex: 0 0 auto;
   margin-top: 2px;
-  color: #ec4899;
+  color: var(--aura-pink-text);
 }
 
 .pg-ai-priority-box p {
@@ -866,7 +866,7 @@
   padding: 0;
   border: 0;
   background: transparent;
-  color: #db2777;
+  color: var(--aura-pink-text);
   font-size: 13px;
   font-weight: 850;
   cursor: pointer;
@@ -1298,7 +1298,7 @@
 }
 
 .pg-coach-composer textarea:focus {
-  border-color: #ec4899;
+  border-color: var(--aura-brand-pink);
   box-shadow: 0 0 0 3px rgba(236, 72, 153, 0.11);
 }
 
@@ -1311,7 +1311,7 @@
   place-items: center;
   border: 0;
   border-radius: 15px;
-  background: linear-gradient(110deg, #ec4899 0%, #fb923c 100%);
+  background: linear-gradient(110deg, var(--aura-brand-pink) 0%, #fb923c 100%);
   color: #fff;
   cursor: pointer;
 }
@@ -1365,7 +1365,7 @@
 
 /* Aura Progress refresh: calmer hierarchy, semantic colour and mobile-safe controls. */
 .progress-center-page {
-  --aura-pg-pink: #EC2C76;
+  --aura-pg-pink: var(--aura-brand-pink);
   --aura-pg-pink-dark: #B82850;
   --aura-pg-pink-light: #FFF4F8;
   --aura-pg-orange: #FF7A45;

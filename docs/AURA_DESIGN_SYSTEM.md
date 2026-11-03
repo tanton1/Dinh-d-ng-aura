@@ -7,7 +7,8 @@ black navigation. White keeps dense learning and coaching workflows readable,
 and the gradient identifies the next action.
 
 The gradient is not a page background. Reserve it for the brand mark, active
-navigation, progress and the primary call to action.
+navigation, progress, the primary call to action and at most one hero per
+screen. Secondary cards sit on `--aura-surface`.
 
 ## Canonical tokens
 

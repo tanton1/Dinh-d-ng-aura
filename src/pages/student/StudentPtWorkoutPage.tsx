@@ -231,8 +231,10 @@ function StudentWorkoutContent({ isDemo, ownerId }: { isDemo: boolean; ownerId: 
   return <main className="pt-workout-workspace pt-workout-learner">
     <section className="pt-workout-workspace__slides" aria-label="Tổng quan tập luyện">
       <article className="pt-workout-workspace__hero"><span>AURA PT · CỦA BẠN</span><h1>Tập luyện</h1><p>Giáo án, kỹ thuật và thư viện bài tập được thiết kế cho bạn.</p><Dumbbell /></article>
-      <article className="pt-workout-workspace__metric"><small>Giáo án hiện tại</small><strong>{program ? program.trainingDays.length : loading ? "—" : 0}</strong><span>Buổi trong giáo án</span><History /></article>
-      <article className="pt-workout-workspace__metric"><small>Bài tập được giao</small><strong>{program ? planExerciseIds.size : loading ? "—" : 0}</strong><span>Bài trong giáo án hiện tại</span><Weight /></article>
+      {(program || loading) && <>
+        <article className="pt-workout-workspace__metric"><small>Giáo án hiện tại</small><strong>{program ? program.trainingDays.length : "—"}</strong><span>Buổi trong giáo án</span><History /></article>
+        <article className="pt-workout-workspace__metric"><small>Bài tập được giao</small><strong>{program ? planExerciseIds.size : "—"}</strong><span>Bài trong giáo án hiện tại</span><Weight /></article>
+      </>}
     </section>
     {(error || notice) && <div className={`pt-workout-workspace__message ${error ? 'is-error' : 'is-success'}`} role={error ? 'alert' : 'status'}>{error || notice}</div>}
     {!selectedExercise && <nav className="student-library__tabs" aria-label="Khu vực tập luyện">

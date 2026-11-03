@@ -135,6 +135,58 @@ test('primary action keeps the accessible gradient', async ({ page }) => {
   expect(background).toContain('rgb(194, 65, 12)')
 })
 
+test('workout hides empty metrics until a program exists', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.goto('/#/pt-workout')
+  await expect(page.getByRole('heading', { name: 'Tập luyện', exact: true })).toBeVisible()
+  await expect(page.getByText('Chưa được phân giáo án')).toBeVisible()
+  await expect(page.locator('.pt-workout-workspace__metric')).toHaveCount(0)
+})
+
+for (const width of [375, 1440]) {
+  test(`eat clean copy stays readable over the photo at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/#/eat-clean')
+    await expect(page.locator('.eat-clean-hero h1')).toBeVisible()
+    await page.waitForTimeout(800)
+    const targets = await page.locator('.eat-clean-hero__copy > span, .eat-clean-hero h1, .eat-clean-hero__copy > p, .eat-clean-hero__copy small').evaluateAll((elements) => elements.map((element) => {
+      const rect = element.getBoundingClientRect()
+      const style = getComputedStyle(element)
+      return { text: (element.textContent ?? '').trim().slice(0, 24), x: rect.x + scrollX, y: rect.y + scrollY, width: rect.width, height: rect.height, color: style.color, large: parseFloat(style.fontSize) >= 24 }
+    }))
+    expect(targets.length).toBeGreaterThan(2)
+    // Measure the real backdrop: hide the copy, then test every sampled pixel behind it.
+    await page.addStyleTag({ content: '.eat-clean-hero__copy, .eat-clean-hero__copy * { color: transparent !important; text-shadow: none !important; } .eat-clean-hero__copy svg { opacity: 0; } .eat-clean-hero__copy button { visibility: hidden; }' })
+    await page.waitForTimeout(150)
+    const png = (await page.screenshot({ fullPage: true })).toString('base64')
+    const failures = await page.evaluate(async ({ png, targets }) => {
+      const image = new Image()
+      image.src = `data:image/png;base64,${png}`
+      await image.decode()
+      const canvas = document.createElement('canvas')
+      canvas.width = image.width
+      canvas.height = image.height
+      const context = canvas.getContext('2d') as CanvasRenderingContext2D
+      context.drawImage(image, 0, 0)
+      const scale = image.width / document.documentElement.scrollWidth
+      const channel = (value: number) => { const x = value / 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4 }
+      const luminance = (r: number, g: number, b: number) => 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+      return targets.flatMap((target) => {
+        const pixels = context.getImageData(Math.round(target.x * scale), Math.round(target.y * scale), Math.max(1, Math.round(target.width * scale)), Math.max(1, Math.round(target.height * scale))).data
+        const [r, g, b, alpha = 1] = (target.color.match(/[\d.]+/g) ?? []).map(Number)
+        let worst = Infinity
+        for (let index = 0; index < pixels.length; index += 16) {
+          const back = luminance(pixels[index], pixels[index + 1], pixels[index + 2])
+          const front = luminance(r * alpha + pixels[index] * (1 - alpha), g * alpha + pixels[index + 1] * (1 - alpha), b * alpha + pixels[index + 2] * (1 - alpha))
+          worst = Math.min(worst, (Math.max(front, back) + 0.05) / (Math.min(front, back) + 0.05))
+        }
+        return worst < (target.large ? 3 : 4.5) ? [`${target.text}: ${worst.toFixed(2)}`] : []
+      })
+    }, { png, targets })
+    expect(failures).toEqual([])
+  })
+}
+
 for (const width of [375, 1440]) {
   test(`schedule hero headline stays clear of its metric at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 })
