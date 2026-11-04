@@ -89,4 +89,9 @@ test('email remains available as an alternate sign-in method', async ({ page }) 
   await expect(page.getByPlaceholder('ban@aurafitness.com')).toBeVisible()
   await expect(page.getByPlaceholder('Tối thiểu 6 ký tự')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Quên mật khẩu?' })).toBeVisible()
+  // The signed-out screen loads before the app's token stylesheet; the white
+  // label must still sit on the brand gradient.
+  const submit = page.locator('.auth-primary-button')
+  await expect(submit).toHaveText('Đăng nhập')
+  expect(await submit.evaluate((button) => getComputedStyle(button).backgroundImage)).toContain('linear-gradient')
 })

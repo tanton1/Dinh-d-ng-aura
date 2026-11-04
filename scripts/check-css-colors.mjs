@@ -30,9 +30,19 @@ function stylesheets(dir) {
   })
 }
 
+// The entry stylesheet loads before the token sheet and may mirror a color
+// token, but only with the token's exact value.
+const preAppSheet = join(root, 'src', 'styles-bootstrap.css')
+const tokenValues = Object.fromEntries([...readFileSync(join(root, 'src', tokenFile), 'utf8')
+  .matchAll(/^\s*(--aura-[a-z0-9-]+)\s*:\s*(#[0-9a-fA-F]{6})\s*;/gm)].map((match) => [match[1], match[2].toLowerCase()]))
+
 const problems = []
 for (const file of stylesheets(join(root, 'src'))) {
   readFileSync(file, 'utf8').split(/\r?\n/).forEach((line, index) => {
+    const mirror = line.match(/^\s*(--aura-[a-z0-9-]+)\s*:\s*(#[0-9a-fA-F]{6})\s*;/)
+    if (file === preAppSheet && mirror && tokenValues[mirror[1]] && tokenValues[mirror[1]] !== mirror[2].toLowerCase()) {
+      problems.push(`${relative(root, file)}:${index + 1} ${mirror[1]} must equal ${tokenValues[mirror[1]]} from ${tokenFile}`)
+    }
     // Token definitions and image data are exempt.
     if (/^\s*--aura-/.test(line) || /url\(/i.test(line)) return
     for (const match of line.matchAll(/#[0-9a-fA-F]{6}\b/g)) {
