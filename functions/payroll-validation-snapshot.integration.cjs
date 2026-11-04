@@ -50,6 +50,53 @@ test('source change after review cannot be locked or create financial entries', 
   assert.equal((await db.collection('journalEntries').get()).size, 0)
 })
 
+test('draft exposes actionable evidence reviews and marks the run stale after a decision', async () => {
+  const db = await fixture()
+  await Promise.all([
+    db.doc(`payrollRuns/${periodId}`).update({
+      teachingEvidenceReviewRequiredCount: 1,
+      teachingEvidenceReviewRequiredSessionIds: ['s1'],
+    }),
+    db.doc('sessions/s1').update({
+      confirmationSource: 'manual_admin',
+      recognitionReviewRequired: true,
+    }),
+  ])
+  const handlers = createPayrollFunctions({ db, onCall: (_options, handler) => handler })
+  const detail = await handlers.getPayrollRun(request)
+  assert.equal(detail.run.teachingEvidenceReviews.length, 1)
+  assert.deepEqual(detail.run.teachingEvidenceReviews[0], {
+    sessionId: 's1',
+    kind: 'attendance_confirmation',
+    date: '2025-01-10',
+    hour: 10,
+    trainerId: 'pt',
+    studentId: 's',
+    branchId: 'a',
+    confirmationSource: 'manual_admin',
+    attendanceStatus: '',
+    status: 'review_required',
+    missingFields: [],
+    deadline: '',
+    amount: 0,
+    recognitionReviewRequired: true,
+    reviewDecision: '',
+    detail: 'Buổi đã xác nhận thủ công nhưng còn cờ xác minh. Mở lịch sử, kiểm tra ngày, giờ, PT và trạng thái Có tập rồi lưu điều chỉnh có audit.',
+  })
+
+  await handlers.reviewPayrollSessionEvidence({
+    ...request,
+    data: { sessionId: 's1', decision: 'approved', reason: 'Đã kiểm tra bằng chứng chấm công.' },
+  })
+  const [session, run] = await Promise.all([
+    db.doc('sessions/s1').get(),
+    db.doc(`payrollRuns/${periodId}`).get(),
+  ])
+  assert.equal(session.data().payrollEvidenceReview.status, 'approved')
+  assert.equal(run.data().sourceDataStale, true)
+  assert.equal(run.data().requiresRebuild, true)
+})
+
 test('live draft validation includes makeup flags and still detects real duplicate days', async () => {
   const db = await fixture()
   await db.doc('sessions/s2').set({ trainerId: 'pt', studentId: 's', date: '2025-01-10', hour: 11, status: 'completed', makeupSession: true })

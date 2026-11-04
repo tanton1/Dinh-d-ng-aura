@@ -11,6 +11,7 @@ for (const width of [360, 390, 430]) {
 
     await expect(page).toHaveURL(/#\/staff-payroll$/)
     await expect(page.getByTestId('staff-payroll-page')).toBeVisible()
+    await expect(page.getByRole('button', { name: /Xuất PDF/ })).toBeVisible()
     await expect(page.getByRole('navigation', { name: 'Điều hướng Staff' })).toBeVisible()
     await expect(page.getByRole('region', { name: 'Tổng quan bảng lương cá nhân' })).toBeVisible()
     await expect(page.getByRole('region', { name: 'Aura Performance Score và bằng chứng thương hiệu' })).toHaveCount(0)
@@ -40,6 +41,7 @@ test('staff payroll uses the full operations workspace on desktop', async ({ pag
 
   const payroll = page.getByTestId('staff-payroll-page')
   await expect(payroll).toBeVisible()
+  await expect(payroll.getByRole('button', { name: /Xuất PDF/ })).toBeVisible()
   await expect(payroll.getByRole('region', { name: 'Aura Performance Score và bằng chứng thương hiệu' })).toHaveCount(0)
   const geometry = await payroll.evaluate((element) => {
     const rect = element.getBoundingClientRect()

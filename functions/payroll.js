@@ -1277,6 +1277,55 @@ async function legacyPayrollPreview(db, runData, itemValues) {
   }
 }
 
+const PAYROLL_EVIDENCE_FIELD_LABELS = {
+  goal: 'mục tiêu buổi tập',
+  mainExercises: 'bài tập chính',
+  loadOrRpe: 'mức tạ, số lần hoặc RPE',
+  painResponse: 'phản hồi đau/mỏi',
+  nextSessionPlan: 'kế hoạch buổi tiếp theo',
+}
+
+function payrollEvidenceReviewRows(runData = {}, sessionRecords = []) {
+  const reviewIds = Array.isArray(runData.teachingEvidenceReviewRequiredSessionIds)
+    ? [...new Set(runData.teachingEvidenceReviewRequiredSessionIds.filter((id) => typeof id === 'string' && id.trim()))].slice(0, 500)
+    : []
+  const recordById = new Map(sessionRecords.map((record) => [record.id, record]))
+  const evidenceById = new Map((Array.isArray(runData.sessionEvidenceReviewRequired) ? runData.sessionEvidenceReviewRequired : [])
+    .filter((item) => item && typeof item.sessionId === 'string')
+    .map((item) => [item.sessionId, item]))
+  return reviewIds.map((sessionId) => {
+    const session = recordById.get(sessionId) || { id: sessionId }
+    const evidence = evidenceById.get(sessionId)
+    const rawHour = session.hour ?? evidence?.hour
+    const missingFields = Array.isArray(evidence?.missingFields) ? evidence.missingFields.filter((field) => typeof field === 'string') : []
+    const kind = evidence ? 'session_evidence' : 'attendance_confirmation'
+    const missingLabels = missingFields.map((field) => PAYROLL_EVIDENCE_FIELD_LABELS[field] || field)
+    const detail = kind === 'session_evidence'
+      ? `${evidence.status === 'pending_evidence' ? 'Hồ sơ tập đang trong thời hạn bổ sung' : evidence.status === 'rejected' ? 'Bằng chứng ca dạy đã bị từ chối' : 'Hồ sơ tập đã quá hạn nhưng chưa đủ bằng chứng'}${missingLabels.length ? `: thiếu ${missingLabels.join(', ')}` : ''}.`
+      : session.recognitionReviewRequired === true
+        ? 'Buổi đã xác nhận thủ công nhưng còn cờ xác minh. Mở lịch sử, kiểm tra ngày, giờ, PT và trạng thái Có tập rồi lưu điều chỉnh có audit.'
+        : 'Dữ liệu nguồn của buổi đã thay đổi sau khi lập kỳ. Hãy kiểm tra buổi và lập lại kỳ nháp.'
+    return {
+      sessionId,
+      kind,
+      date: session.date || evidence?.date || '',
+      hour: rawHour !== '' && rawHour !== null && rawHour !== undefined && Number.isInteger(Number(rawHour)) ? Number(rawHour) : null,
+      trainerId: session.trainerId || evidence?.trainerId || '',
+      studentId: session.studentId || (Array.isArray(evidence?.studentIds) ? evidence.studentIds[0] : '') || '',
+      branchId: session.branchId || '',
+      confirmationSource: session.confirmationSource || '',
+      attendanceStatus: session.attendanceStatus || '',
+      status: evidence?.status || (session.recognitionReviewRequired === true ? 'review_required' : 'source_changed'),
+      missingFields,
+      deadline: iso(evidence?.deadline),
+      amount: Number(evidence?.amount || 0),
+      recognitionReviewRequired: session.recognitionReviewRequired === true,
+      reviewDecision: session.payrollEvidenceReview?.status || '',
+      detail,
+    }
+  })
+}
+
 function createPayrollFunctions({ db, onCall, logger = console }) {
   // Payroll is a low-volume administrative workflow. Fractional CPU keeps
   // rolling revisions deployable even when the regional Cloud Run CPU quota
@@ -1648,6 +1697,9 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
       if (!snapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy ca tập cần duyệt bằng chứng.')
       const session = snapshot.data() || {}
       if (!['completed', 'attended'].includes(session.status)) throw new HttpsError('failed-precondition', 'Chỉ duyệt bằng chứng cho ca đã hoàn thành.')
+      const runId = typeof session.date === 'string' && /^\d{4}-\d{2}/.test(session.date) ? session.date.slice(0, 7) : ''
+      const runReference = runId ? db.doc(`payrollRuns/${runId}`) : null
+      const runSnapshot = runReference ? await transaction.get(runReference) : null
       const currentStatus = session.payrollEvidenceReview?.status || ''
       if (decision === 'reset') {
         transaction.update(reference, { payrollEvidenceReview: FieldValue.delete(), updatedAt: FieldValue.serverTimestamp() })
@@ -1667,6 +1719,13 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
         reason,
         createdAt: FieldValue.serverTimestamp(),
       })
+      if (runReference && runSnapshot?.exists && runSnapshot.data().status === 'draft') {
+        transaction.update(runReference, {
+          sourceDataStale: true,
+          requiresRebuild: true,
+          updatedAt: FieldValue.serverTimestamp(),
+        })
+      }
       return { sessionId, decision, unchanged: currentStatus === decision }
     })
   })
@@ -2007,6 +2066,16 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
     if (!run.exists) throw new HttpsError('not-found', 'Không tìm thấy kỳ lương.')
     const runData = run.data()
     const runPeriodId = period(runData.periodId || runId)
+    const evidenceSessionIds = Array.isArray(runData.teachingEvidenceReviewRequiredSessionIds)
+      ? [...new Set(runData.teachingEvidenceReviewRequiredSessionIds.filter((id) => typeof id === 'string' && id.trim()))].slice(0, 500)
+      : []
+    const evidenceSessionSnapshots = evidenceSessionIds.length
+      ? await db.getAll(...evidenceSessionIds.map((sessionId) => db.doc(`sessions/${sessionId}`)))
+      : []
+    const teachingEvidenceReviews = payrollEvidenceReviewRows(runData, evidenceSessionSnapshots.map((snapshot) => ({
+      id: snapshot.id,
+      ...(snapshot.exists ? snapshot.data() : {}),
+    })))
     // A verified locked snapshot is historical evidence, not a live monthly
     // query. Drafts and unverified legacy runs retain live validation.
     const validationViolations = closedPayrollValidation(runData) ? [] : (await readPayrollSessionValidation(db, runPeriodId)).violations
@@ -2036,6 +2105,7 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
         requiresRebuild,
         validationViolations,
         validationViolationCount: validationViolations.length,
+        teachingEvidenceReviews,
         attendanceReviewRequired: runData.attendanceReviewRequired === true || validationViolations.length > 0,
         storedTeachingSlotCount: Number(runData.teachingSlotCount ?? runData.attendanceCount ?? 0),
         createdAt: iso(runData.createdAt),
@@ -3000,6 +3070,7 @@ module.exports = {
   payrollPolicyProfiles,
   payrollProfile,
   policySupportsProfile,
+  payrollEvidenceReviewRows,
   duplicateLearnerDayViolations,
   closedPayrollValidation,
   readPayrollSessionValidation,
