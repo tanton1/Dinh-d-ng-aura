@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   CircleDollarSign,
   Dumbbell,
+  FileDown,
   Gift,
   MessageSquareText,
   RefreshCw,
@@ -20,6 +21,7 @@ import {
   type MyStaffPayroll,
   type WorkdayDisplayStatus,
 } from '../../services/staffPayrollService'
+import { downloadPayrollStatementPdf, payrollPdfFromStaffStatement } from '../../utils/payrollPdf'
 import '../../styles-staff-payroll.css'
 
 const statusMeta: Record<WorkdayDisplayStatus, { short: string; label: string; tone: string }> = {
@@ -102,6 +104,7 @@ export default function StaffPayrollPage() {
   const [inquiryCategory, setInquiryCategory] = useState<'attendance' | 'teaching' | 'commission' | 'deduction' | 'other'>('attendance')
   const [inquiryMessage, setInquiryMessage] = useState('')
   const [sending, setSending] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [notice, setNotice] = useState('')
 
   const load = useCallback(async () => {
@@ -173,11 +176,26 @@ export default function StaffPayrollPage() {
     }
   }
 
+  const exportPdf = async () => {
+    if (!data || exporting) return
+    setExporting(true)
+    setNotice('')
+    try {
+      const filename = await downloadPayrollStatementPdf(payrollPdfFromStaffStatement(data))
+      setNotice(`Đã xuất ${filename}.`)
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : 'Chưa thể xuất phiếu lương PDF.')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return <main className="staff-payroll" data-testid="staff-payroll-page">
     <h1 className="aura-visually-hidden">Bảng lương cá nhân</h1>
     <section className="staff-payroll__toolbar" aria-label="Bộ lọc kỳ lương">
       <label><span>Kỳ lương</span><input type="month" value={periodId} onChange={(event) => setPeriodId(event.target.value)} /></label>
       <button type="button" aria-label="Tải lại bảng lương" disabled={loading} onClick={() => void load()}><RefreshCw size={18} /></button>
+      <button type="button" disabled={!data || loading || exporting} onClick={() => void exportPdf()}><FileDown size={17} /> {exporting ? 'Đang tạo…' : 'Xuất PDF'}</button>
       <button className="is-primary" type="button" onClick={() => setShowInquiry((current) => !current)}><MessageSquareText size={17} /> Đối soát</button>
     </section>
 

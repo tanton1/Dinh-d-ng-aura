@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   CircleDollarSign,
   Dumbbell,
+  FileDown,
   Gift,
   RefreshCw,
   ShieldCheck,
@@ -19,6 +20,7 @@ import type {
   StaffTeachingSlot,
   WorkdayDisplayStatus,
 } from '../../../services/staffPayrollService'
+import { downloadPayrollStatementPdf, payrollPdfFromStaffStatement } from '../../../utils/payrollPdf'
 import AuraMetricCarousel, { type AuraMetricSlide } from './AuraMetricCarousel'
 import '../../../styles-staff-payroll.css'
 
@@ -27,6 +29,7 @@ interface Props {
   periodId: string
   loading: boolean
   error: string
+  branchName?: string
   onBack: () => void
   onRetry: () => void
 }
@@ -82,8 +85,10 @@ function tierLabel(tier: StaffTeachingSlot['tier']) {
   return 'Ca tiêu chuẩn'
 }
 
-export default function StaffPayrollStatementPanel({ data, periodId, loading, error, onBack, onRetry }: Props) {
+export default function StaffPayrollStatementPanel({ data, periodId, loading, error, branchName, onBack, onRetry }: Props) {
   const [teachingFilter, setTeachingFilter] = useState<TeachingFilter>('all')
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState('')
   const filteredTeaching = useMemo(() => data?.teachingSlots.filter((slot) => teachingFilter === 'all' || slot.tier === teachingFilter) || [], [data, teachingFilter])
   const referralGroups = useMemo(() => {
     const groups = new Map<string, { contractId: string; cashImpact: number; commissionImpact: number; rate: number; count: number }>()
@@ -130,14 +135,28 @@ export default function StaffPayrollStatementPanel({ data, periodId, loading, er
     },
   ], [amounts, data, periodId, workdays])
 
+  const exportPdf = async () => {
+    if (!data || exporting) return
+    setExporting(true)
+    setExportError('')
+    try {
+      await downloadPayrollStatementPdf(payrollPdfFromStaffStatement(data, { branchName }))
+    } catch (cause) {
+      setExportError(cause instanceof Error ? cause.message : 'Chưa thể xuất phiếu lương PDF.')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return <main className="staff-payroll staff-payroll--admin-statement" data-testid="admin-staff-payroll-statement">
     <header className="staff-payroll__statement-head">
       <button type="button" onClick={onBack}><ArrowLeft size={19} /> Danh sách lương</button>
       <div><small>SAO KÊ NHÂN VIÊN · {periodLabel(periodId).toUpperCase()}</small><strong>{data?.identity.name || 'Đang tải hồ sơ…'}</strong><span>{data ? `${data.identity.employeeCode || 'Chưa có mã NV'} · ${profileLabel(data)}` : 'Đang đối chiếu dữ liệu lương'}</span></div>
-      <em className={data?.run.official ? 'is-official' : ''}>{data?.run.official ? 'Chính thức' : 'Tạm tính'}</em>
+      <div className="staff-payroll__statement-actions"><em className={data?.run.official ? 'is-official' : ''}>{data?.run.official ? 'Chính thức' : 'Tạm tính'}</em><button type="button" disabled={!data || loading || exporting} onClick={() => void exportPdf()}><FileDown size={16} /> {exporting ? 'Đang tạo…' : 'Xuất PDF'}</button></div>
     </header>
 
     {error && <section className="staff-payroll__state is-error"><AlertCircle size={21} /><div><strong>Chưa tải được sao kê</strong><p>{error}</p></div><button type="button" onClick={onRetry}><RefreshCw size={15} /> Thử lại</button></section>}
+    {exportError && <section className="staff-payroll__state is-error"><AlertCircle size={21} /><div><strong>Chưa xuất được PDF</strong><p>{exportError}</p></div></section>}
     <AuraMetricCarousel slides={slides} label={`Bảng lương ${data?.identity.name || 'nhân viên'}`} loading={loading} />
 
     {data && <>

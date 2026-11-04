@@ -7,6 +7,8 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock3,
+  ClipboardCheck,
+  FileDown,
   FileCheck2,
   Eye,
   EyeOff,
@@ -51,6 +53,7 @@ import {
   savePayrollIntelligencePolicy,
   voidPayrollAdjustment,
   reviewPayrollEarningEvent,
+  reviewPayrollSessionEvidence,
   type PayrollAdjustment,
   type PayrollEarningEvent,
   type PayrollFailure,
@@ -61,14 +64,17 @@ import {
   type PayrollRankCode,
   type PayrollPolicyApplicationMode,
   type PayrollRunDetail,
+  type PayrollRunItem,
   type PayrollRunStatus,
   type PayrollRunSummary,
+  type PayrollTeachingEvidenceReview,
   type PayrollViolation,
 } from '../../../services/payrollService'
 import { listCashAccounts, type CashAccount } from '../../../services/cashbookService'
 import '../../../styles-payroll-canonical.css'
 import '../../../styles-payroll-theme.css'
 import '../../../styles-aura-workforce.css'
+import { downloadPayrollStatementPdf, payrollPdfFromRunItem } from '../../../utils/payrollPdf'
 const StaffWorkdayPayrollPanel = lazy(() => import('./StaffWorkdayPayrollPanel'))
 const StaffPayrollStatementPanel = lazy(() => import('./StaffPayrollStatementPanel'))
 const TrainingHistoryPanel = lazy(() => import('./TrainingHistoryPanel'))
@@ -113,6 +119,13 @@ function currentDateOnly() {
 
 function payrollPeriodEnded(value: string) {
   return /^\d{4}-\d{2}$/.test(value) && value < currentPeriod()
+}
+
+function payrollReconciliationCount(run: PayrollRunSummary) {
+  return run.attendanceReviewRequiredCount
+    + run.calendarReviewRequiredCount
+    + run.teachingEvidenceReviewRequiredCount
+    + run.validationViolationCount
 }
 
 function money(value: unknown) {
@@ -506,6 +519,7 @@ export default function TrainerPayroll({ profile }: Props) {
       setRuns((current) => current.map((run) => run.id === runId ? {
         ...run,
         requiresRebuild: loaded.run.requiresRebuild,
+        sourceDataStale: loaded.run.sourceDataStale,
         storedTeachingSlotCount: loaded.run.storedTeachingSlotCount,
         trainerCount: loaded.run.trainerCount,
         teachingSlotCount: loaded.run.teachingSlotCount,
@@ -517,6 +531,7 @@ export default function TrainerPayroll({ profile }: Props) {
         calendarReviewRequiredCount: loaded.run.calendarReviewRequiredCount,
         teachingEvidenceReviewRequiredCount: loaded.run.teachingEvidenceReviewRequiredCount,
         teachingEvidenceReviewRequiredSessionIds: loaded.run.teachingEvidenceReviewRequiredSessionIds,
+        teachingEvidenceReviews: loaded.run.teachingEvidenceReviews,
         validationViolationCount: loaded.run.validationViolationCount,
         validationViolations: loaded.run.validationViolations,
         attendanceReviewRequired: loaded.run.attendanceReviewRequired,
@@ -981,6 +996,81 @@ export default function TrainerPayroll({ profile }: Props) {
     else void refresh(true)
   }
 
+  const openTeachingEvidenceReview = (review: PayrollTeachingEvidenceReview) => {
+    const trainerName = trainerById.get(review.trainerId)?.name || 'Chưa xác định PT'
+    const studentName = students.find((student) => student.id === review.studentId)?.name || 'Chưa xác định học viên'
+    const branchName = branchById.get(review.branchId)?.name || ''
+    handleViolationAction({
+      code: 'PAYROLL_ATTENDANCE_REVIEW_REQUIRED',
+      severity: 'error',
+      title: `Xác minh buổi của ${studentName}`,
+      detail: review.detail,
+      remediation: 'teaching_history',
+      trainerId: review.trainerId,
+      trainerName,
+      studentId: review.studentId,
+      studentName,
+      branchId: review.branchId,
+      branchName,
+      sessionId: review.sessionId,
+      sessionIds: [review.sessionId],
+      date: review.date,
+      hour: review.hour ?? undefined,
+      periodId: detail?.run.periodId || periodId,
+      relatedSessions: [{
+        sessionId: review.sessionId,
+        trainerId: review.trainerId,
+        trainerName,
+        branchId: review.branchId,
+        branchName,
+        date: review.date,
+        hour: review.hour,
+      }],
+    })
+  }
+
+  const approveTeachingEvidence = async (review: PayrollTeachingEvidenceReview) => {
+    if (busyAction) return
+    const reason = window.prompt('Nhập căn cứ duyệt bằng chứng ca dạy (ít nhất 3 ký tự)', 'Đã kiểm tra hồ sơ buổi tập và xác nhận ca dạy hợp lệ.')?.trim() || ''
+    if (reason.length < 3) {
+      setError('Cần nhập căn cứ duyệt ít nhất 3 ký tự để lưu nhật ký đối soát.')
+      return
+    }
+    const runId = detail?.run.id || ''
+    setBusyAction(`evidence:${review.sessionId}`)
+    setError('')
+    setMessage('')
+    try {
+      await reviewPayrollSessionEvidence(review.sessionId, 'approved', reason)
+      setMessage('Đã duyệt bằng chứng ca dạy. Bản nháp được đánh dấu cần lập lại để nhận số liệu mới.')
+      await refresh(true)
+      if (runId) await openRun(runId)
+    } catch (cause) {
+      setError(friendlyError(cause))
+    } finally {
+      setBusyAction('')
+    }
+  }
+
+  const exportRunItemPdf = async (run: PayrollRunSummary, item: PayrollRunItem) => {
+    if (busyAction) return
+    const key = `pdf:${item.id}`
+    setBusyAction(key)
+    setError('')
+    setMessage('')
+    try {
+      const statement = payrollPdfFromRunItem(run, item, {
+        branchNameById: (branchId) => branchById.get(branchId)?.name || branchId,
+      })
+      const filename = await downloadPayrollStatementPdf(statement)
+      setMessage(`Đã xuất ${filename}.`)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Chưa thể xuất phiếu lương PDF.')
+    } finally {
+      setBusyAction('')
+    }
+  }
+
   const slides: AuraMetricSlide[] = liveRows.length ? liveRows.map((row, index) => ({
     id: `staff-${row.staffId}`,
     eyebrow: `${row.name}${row.employeeCode ? ` · ${row.employeeCode}` : ''} · ${periodLabel(periodId)}`,
@@ -1045,6 +1135,7 @@ export default function TrainerPayroll({ profile }: Props) {
     periodId={periodId}
     loading={staffStatementLoading}
     error={staffStatementError}
+    branchName={branchById.get(staffStatement?.identity.branchId || '')?.name}
     onBack={() => { staffStatementSequence.current += 1; setStaffStatementId(''); setStaffStatement(null); setStaffStatementError('') }}
     onRetry={() => void openStaffStatement(staffStatementId)}
   /></Suspense></div>
@@ -1093,19 +1184,22 @@ export default function TrainerPayroll({ profile }: Props) {
       <section className="payroll-page__runs" aria-label="Danh sách kỳ lương">
         <div className="payroll-page__section-title"><div><span>Kỳ lương chính thức</span><strong>{visibleRuns.length} kỳ</strong></div><small>Nguồn: ngày công + ca dạy đã điểm danh</small></div>
         {loading && !runs.length ? <div className="payroll-page__skeleton" aria-label="Đang tải kỳ lương" /> : visibleRuns.length ? <div className="payroll-page__run-grid">
-          {visibleRuns.map((run) => <article className="payroll-run-card" key={run.id}>
+          {visibleRuns.map((run) => {
+            const reconciliationCount = payrollReconciliationCount(run)
+            const opensReconciliation = run.requiresRebuild || reconciliationCount > 0
+            return <article className="payroll-run-card" key={run.id}>
             <button className="payroll-run-card__open" type="button" onClick={() => void openRun(run.id)} aria-label={`Mở ${periodLabel(run.periodId)}`}>
               <div className="payroll-run-card__head"><div><span>{periodLabel(run.periodId)}</span><strong>{money(run.finalAmount)}</strong></div><em className={`is-${run.status}`}>{run.requiresRebuild ? 'Cần lập lại' : statusMeta[run.status].label}</em></div>
-              <div className="payroll-run-card__metrics"><span><b>{run.staffCount}</b> nhân viên</span><span><b>{run.requiresRebuild ? run.storedTeachingSlotCount || run.attendanceEventCount : run.teachingSlotCount}</b> {run.requiresRebuild ? 'lượt dữ liệu cũ' : 'ca dạy'}</span><span><b>{run.attendanceReviewRequiredCount + run.calendarReviewRequiredCount + run.teachingEvidenceReviewRequiredCount + run.validationViolationCount}</b> cần đối soát</span></div>
+              <div className="payroll-run-card__metrics"><span><b>{run.staffCount}</b> nhân viên</span><span><b>{run.requiresRebuild ? run.storedTeachingSlotCount || run.attendanceEventCount : run.teachingSlotCount}</b> {run.requiresRebuild ? 'lượt dữ liệu cũ' : 'ca dạy'}</span><span><b>{reconciliationCount}</b> cần đối soát</span></div>
               <p>{run.policyName || `Chính sách v${run.policyVersion}`}<ChevronRight size={17} /></p>
             </button>
             <div className="payroll-run-card__actions">
-              {run.status === 'draft' && <><button className="is-danger-ghost" type="button" disabled={!!busyAction} onClick={() => setPendingConfirmation({ kind: 'delete-run', id: run.id, label: periodLabel(run.periodId) })}><Trash2 size={15} /> Xóa nháp</button><button type="button" disabled={!!busyAction || run.requiresRebuild || run.attendanceReviewRequired || !payrollPeriodEnded(run.periodId)} title={run.requiresRebuild ? 'Xóa kỳ nháp cũ và tạo lại trước khi gửi duyệt' : !payrollPeriodEnded(run.periodId) ? 'Chỉ gửi duyệt sau khi kỳ lương đã kết thúc' : run.attendanceReviewRequired ? 'Đối soát đủ ngày công, lịch làm việc và bằng chứng ca dạy trước khi gửi duyệt' : undefined} onClick={() => void runAction('review', run)}><FileCheck2 size={15} /> {run.requiresRebuild ? 'Cần tạo lại' : !payrollPeriodEnded(run.periodId) ? 'Chờ hết kỳ' : run.attendanceReviewRequired ? 'Chờ đối soát' : 'Gửi duyệt'}</button></>}
+              {run.status === 'draft' && <><button className="is-danger-ghost" type="button" disabled={!!busyAction} onClick={() => setPendingConfirmation({ kind: 'delete-run', id: run.id, label: periodLabel(run.periodId) })}><Trash2 size={15} /> Xóa nháp</button><button type="button" disabled={!!busyAction || (!opensReconciliation && !payrollPeriodEnded(run.periodId))} title={run.requiresRebuild ? 'Mở kỳ để lập lại theo dữ liệu vừa đối soát' : reconciliationCount > 0 ? `Mở danh sách ${reconciliationCount} mục cần đối soát` : !payrollPeriodEnded(run.periodId) ? 'Chỉ gửi duyệt sau khi kỳ lương đã kết thúc' : undefined} onClick={() => opensReconciliation ? void openRun(run.id) : void runAction('review', run)}>{opensReconciliation ? <ClipboardCheck size={15} /> : <FileCheck2 size={15} />} {run.requiresRebuild ? 'Lập lại kỳ' : reconciliationCount > 0 ? `Đối soát ${reconciliationCount} mục` : !payrollPeriodEnded(run.periodId) ? 'Chờ hết kỳ' : 'Gửi duyệt'}</button></>}
               {run.status === 'reviewed' && <button type="button" disabled={!!busyAction || run.targetStatus === 'provisional'} title={run.targetStatus === 'provisional' ? 'Manager cần duyệt target KPI trước khi khóa kỳ' : undefined} onClick={() => void runAction('lock', run)}><LockKeyhole size={15} /> {run.targetStatus === 'provisional' ? 'Chờ duyệt target' : 'Khóa kỳ'}</button>}
               {run.status === 'locked' && <button type="button" onClick={() => void openRun(run.id)}><WalletCards size={15} /> Chi lương</button>}
               {run.status === 'paid' && <span><CheckCircle2 size={15} /> Đã hoàn tất</span>}
             </div>
-          </article>)}
+          </article>})}
         </div> : <div className="payroll-page__empty"><UsersRound size={34} /><strong>Chưa có kỳ lương phù hợp</strong><p>Chọn kỳ khác hoặc tạo bản nháp từ dữ liệu điểm danh chính thức.</p></div>}
       </section>
     </> : view === 'adjustments' ? <section className="payroll-adjustments" aria-label="Thưởng và phạt theo kỳ">
@@ -1272,7 +1366,17 @@ export default function TrainerPayroll({ profile }: Props) {
             subjectName={violationDialog.studentName || violationDialog.studentNames?.[0] || violationDialog.trainerName || violationDialog.trainerNames?.[0] || 'Đối soát buổi tập'}
             focusSessionId={violationSessionId}
             focusDate={violationDialog.date}
-            onCorrectionSaved={() => { setPayrollFailure(null); setError(''); setMessage('Đã lưu điều chỉnh ca. Bấm lập kỳ để kiểm tra lại dữ liệu mới.'); void refresh(true) }}
+            onCorrectionSaved={() => {
+              const runId = detail?.run.id || ''
+              setPayrollFailure(null)
+              setError('')
+              setViolationDialog(null)
+              setMessage('Đã lưu điều chỉnh ca. Bản nháp cần được lập lại để nhận dữ liệu mới.')
+              void (async () => {
+                await refresh(true)
+                if (runId) await openRun(runId)
+              })()
+            }}
           /></Suspense>
         </div> : <div className="payroll-correction-modal__empty">Chưa có mã buổi hợp lệ để mở lịch sử. Hãy tải lại dữ liệu đối soát.</div>}
         <footer><button className="payroll-page__secondary" type="button" onClick={() => setViolationDialog(null)}>Đóng, giữ kỳ lương</button></footer>
@@ -1292,6 +1396,36 @@ export default function TrainerPayroll({ profile }: Props) {
             <div><span>Trạng thái</span><strong>{statusMeta[detail.run.status].label}</strong></div>
           </div>
           <p className="payroll-drawer__status"><ShieldCheck size={17} /> {statusMeta[detail.run.status].hint}</p>
+          <div className="payroll-drawer__flow" aria-label="Các bước hoàn tất kỳ lương">
+            <span className={payrollReconciliationCount(detail.run) === 0 && !detail.run.requiresRebuild ? 'is-done' : 'is-current'}><b>1</b> Đối soát</span>
+            <span className={detail.run.status !== 'draft' ? 'is-done' : payrollReconciliationCount(detail.run) === 0 && !detail.run.requiresRebuild ? 'is-current' : ''}><b>2</b> Gửi duyệt</span>
+            <span className={detail.run.status === 'locked' || detail.run.status === 'paid' ? 'is-done' : detail.run.status === 'reviewed' ? 'is-current' : ''}><b>3</b> Khóa kỳ</span>
+            <span className={detail.run.status === 'paid' ? 'is-done' : detail.run.status === 'locked' ? 'is-current' : ''}><b>4</b> Chi lương</span>
+          </div>
+          {detail.run.status === 'draft' && !detail.run.requiresRebuild && payrollReconciliationCount(detail.run) > 0 && <section className="payroll-reconciliation" aria-label="Danh sách cần đối soát trước khi duyệt">
+            <div className="payroll-reconciliation__head"><span><ClipboardCheck size={20} /></span><div><strong>Cần xử lý {payrollReconciliationCount(detail.run)} mục</strong><p>Bấm đúng nhóm bên dưới. Sau khi sửa dữ liệu nguồn, lập lại bản nháp rồi mới gửi duyệt.</p></div></div>
+            <div className="payroll-reconciliation__shortcuts">
+              {(detail.run.attendanceReviewRequiredCount > 0 || detail.run.calendarReviewRequiredCount > 0) && <button type="button" onClick={() => { setDetail(null); setView('workdays') }}><CalendarCheck2 size={17} /><span><strong>Ngày công & lịch làm việc</strong><small>{detail.run.attendanceReviewRequiredCount + detail.run.calendarReviewRequiredCount} nhân viên cần kiểm tra</small></span><ChevronRight size={16} /></button>}
+              {detail.run.validationViolations.length > 0 && <button type="button" onClick={() => handleViolationAction(detail.run.validationViolations[0])}><AlertTriangle size={17} /><span><strong>Buổi trùng cần xác minh</strong><small>{detail.run.validationViolations.length} trường hợp · mở lịch sử buổi</small></span><ChevronRight size={16} /></button>}
+            </div>
+            {detail.run.teachingEvidenceReviews.length > 0 && <div className="payroll-reconciliation__sessions">
+              {detail.run.teachingEvidenceReviews.map((review) => {
+                const studentName = students.find((student) => student.id === review.studentId)?.name || 'Học viên chưa xác định'
+                const trainerName = trainerById.get(review.trainerId)?.name || 'PT chưa xác định'
+                const branchName = branchById.get(review.branchId)?.name || 'Chưa gắn chi nhánh'
+                return <article key={review.sessionId}>
+                  <div><span>{review.kind === 'attendance_confirmation' ? 'Xác minh đã tập' : 'Bằng chứng ca dạy'}</span><strong>{studentName} · {dateLabel(review.date)}{review.hour === null ? '' : ` · ${String(review.hour).padStart(2, '0')}:00`}</strong><p>{review.detail}</p><small>{trainerName} · {branchName} · Mã {review.sessionId.slice(0, 10)}</small></div>
+                  {review.kind === 'attendance_confirmation'
+                    ? <button type="button" disabled={!!busyAction} onClick={() => openTeachingEvidenceReview(review)}>Mở buổi & xác nhận<ChevronRight size={15} /></button>
+                    : <button type="button" disabled={!!busyAction} onClick={() => void approveTeachingEvidence(review)}>{busyAction === `evidence:${review.sessionId}` ? 'Đang lưu…' : 'Duyệt bằng chứng'}<ChevronRight size={15} /></button>}
+                </article>
+              })}
+            </div>}
+            {detail.run.teachingEvidenceReviewRequiredCount > detail.run.teachingEvidenceReviews.length && <p className="payroll-reconciliation__missing"><AlertTriangle size={15} /> Có {detail.run.teachingEvidenceReviewRequiredCount - detail.run.teachingEvidenceReviews.length} mã buổi chưa tải được chi tiết. Tải lại kỳ trước khi xử lý.</p>}
+            <footer><b>Cách mở bảng lương:</b> xử lý hết mục cần đối soát → lập lại bản nháp nếu được yêu cầu → Gửi duyệt → Khóa kỳ → Chi lương.</footer>
+          </section>}
+          {detail.run.status === 'draft' && !detail.run.requiresRebuild && payrollReconciliationCount(detail.run) === 0 && <div className="payroll-drawer__ready"><CheckCircle2 size={20} /><div><strong>{payrollPeriodEnded(detail.run.periodId) ? 'Đã đủ điều kiện gửi duyệt' : 'Dữ liệu đã khớp'}</strong><p>{payrollPeriodEnded(detail.run.periodId) ? 'Gửi duyệt để chuyển sang bước khóa kỳ.' : 'Kỳ lương chỉ được gửi duyệt sau khi tháng kết thúc.'}</p></div><button type="button" disabled={!!busyAction || !payrollPeriodEnded(detail.run.periodId)} onClick={() => void runAction('review', detail.run)}><FileCheck2 size={16} /> Gửi duyệt</button></div>}
+          {detail.run.status === 'reviewed' && <div className="payroll-drawer__ready"><ShieldCheck size={20} /><div><strong>Kỳ đã duyệt</strong><p>Khóa kỳ để ghi nhận chi phí lương; bước này chưa giảm tiền quỹ.</p></div><button type="button" disabled={!!busyAction || detail.run.targetStatus === 'provisional'} title={detail.run.targetStatus === 'provisional' ? 'Manager cần duyệt target KPI trước khi khóa kỳ' : undefined} onClick={() => void runAction('lock', detail.run)}><LockKeyhole size={16} /> Khóa kỳ</button></div>}
           {detail.run.crossBranchWarningCount ? <p className="payroll-trainer-item__review"><AlertTriangle size={15} /> {detail.run.crossBranchWarningCount} ca có học viên tập khác cơ sở. Đây là cảnh báo đối soát, không chặn tính lương và mỗi PT + ngày + giờ vẫn chỉ tính một ca.</p> : null}
           {detail.run.validationViolations.length > 0 && <section className="payroll-violations payroll-violations--drawer" role="alert" aria-label="Cảnh báo trùng buổi trong kỳ lương">
             <header><AlertTriangle size={20} /><div><strong>Phát hiện {detail.run.validationViolations.length} học viên có nhiều buổi trong cùng ngày</strong><span>Đã rà soát các buổi hoàn thành trong {periodLabel(detail.run.periodId)}</span></div></header>
@@ -1316,6 +1450,7 @@ export default function TrainerPayroll({ profile }: Props) {
                   <ChevronRight className="payroll-trainer-item__chevron" size={18} />
                 </button>
                 {expanded && <div className="payroll-trainer-item__detail">
+                  <div className="payroll-trainer-item__detail-head"><span>Phiếu lương {name}</span><button type="button" disabled={!!busyAction} onClick={() => void exportRunItemPdf(detail.run, item)}><FileDown size={15} /> {busyAction === `pdf:${item.id}` ? 'Đang tạo PDF…' : 'Xuất PDF chi tiết'}</button></div>
                   <div className="payroll-trainer-item__components"><span>Lương cơ bản <b>{money(item.baseSalaryAmount)}</b></span><span>Ca dạy <b>{money(item.teachingPayAmount)}</b></span><span>Hoa hồng GT <b>{money(item.commissionAmount)}</b><small>{item.referralCommission ? `${item.referralCommission.rate}% trên ${money(item.referralCommission.netCashAmount)} thực thu` : 'Kỳ cũ chưa có bằng chứng dòng tiền'}</small></span><span>Thưởng <b>{money(item.bonusAmount)}</b><small>{item.manualBonusAmount ? `${money(item.recurringBonusAmount)} cố định + ${money(item.manualBonusAmount)} theo kỳ` : 'Thưởng tháng từ hồ sơ đội ngũ'}</small></span><span>Khấu trừ <b>{money(item.deductionAmount)}</b><small>{item.manualDeductionAmount ? `${money(item.manualDeductionAmount)} phạt theo kỳ` : 'Hoàn hoa hồng hoặc khoản đã duyệt'}</small></span></div>
                   <p className="payroll-trainer-item__formula"><ShieldCheck size={15} /> {item.attendanceEventCount} lượt điểm danh → <b>{item.sessionCount} ca tính tiền</b>. Hai học viên cùng ngày, giờ và PT chỉ tính một ca; ngày công không nhân thêm tiền ca.</p>
                   {item.kpiSummary && <div className="payroll-trainer-item__intelligence"><span><strong>KPI</strong><b>{item.kpiSummary.score === null ? '—' : `${item.kpiSummary.score}/100`}</b></span><span><strong>Gia hạn</strong><b>{item.renewSummary?.wonCount || 0}</b><small>{money(item.renewSummary?.attributedRevenue || 0)}</small></span><span><strong>Bằng chứng</strong><b>{item.evidenceLedgerSummary?.count || 0}</b><small>{item.evidenceLedgerSummary?.reviewCount ? `${item.evidenceLedgerSummary.reviewCount} chờ rà` : 'đã xác minh'}</small></span><span><strong>Xếp hạng</strong><b>{item.rankSummary?.label || 'Chưa xếp hạng'}</b><small>Không ảnh hưởng tiền lương</small></span></div>}

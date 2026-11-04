@@ -50,6 +50,25 @@ export interface PayrollViolation {
   }>
 }
 
+export interface PayrollTeachingEvidenceReview {
+  sessionId: string
+  kind: 'attendance_confirmation' | 'session_evidence'
+  date: string
+  hour: number | null
+  trainerId: string
+  studentId: string
+  branchId: string
+  confirmationSource: string
+  attendanceStatus: string
+  status: string
+  missingFields: string[]
+  deadline: string
+  amount: number
+  recognitionReviewRequired: boolean
+  reviewDecision: string
+  detail: string
+}
+
 export interface PayrollFailure {
   message: string
   code: string
@@ -114,6 +133,7 @@ export interface PayrollRunSummary {
   calendarReviewRequiredCount: number
   teachingEvidenceReviewRequiredCount: number
   teachingEvidenceReviewRequiredSessionIds: string[]
+  teachingEvidenceReviews: PayrollTeachingEvidenceReview[]
   validationViolationCount: number
   validationViolations: PayrollViolation[]
   attendanceReviewRequired: boolean
@@ -506,6 +526,32 @@ function normaliseRun(value: unknown): PayrollRunSummary {
     teachingEvidenceReviewRequiredCount: Math.max(0, Math.trunc(amount(raw.teachingEvidenceReviewRequiredCount))),
     teachingEvidenceReviewRequiredSessionIds: Array.isArray(raw.teachingEvidenceReviewRequiredSessionIds)
       ? raw.teachingEvidenceReviewRequiredSessionIds.filter((value): value is string => typeof value === 'string').slice(0, 500)
+      : [],
+    teachingEvidenceReviews: Array.isArray(raw.teachingEvidenceReviews)
+      ? raw.teachingEvidenceReviews.flatMap((reviewValue) => {
+        if (!reviewValue || typeof reviewValue !== 'object') return []
+        const review = reviewValue as Record<string, unknown>
+        const sessionId = typeof review.sessionId === 'string' ? review.sessionId : ''
+        if (!sessionId) return []
+        return [{
+          sessionId,
+          kind: review.kind === 'session_evidence' ? 'session_evidence' as const : 'attendance_confirmation' as const,
+          date: typeof review.date === 'string' ? review.date : '',
+          hour: review.hour !== '' && review.hour !== null && review.hour !== undefined && Number.isInteger(Number(review.hour)) ? Number(review.hour) : null,
+          trainerId: typeof review.trainerId === 'string' ? review.trainerId : '',
+          studentId: typeof review.studentId === 'string' ? review.studentId : '',
+          branchId: typeof review.branchId === 'string' ? review.branchId : '',
+          confirmationSource: typeof review.confirmationSource === 'string' ? review.confirmationSource : '',
+          attendanceStatus: typeof review.attendanceStatus === 'string' ? review.attendanceStatus : '',
+          status: typeof review.status === 'string' ? review.status : '',
+          missingFields: Array.isArray(review.missingFields) ? review.missingFields.filter((field): field is string => typeof field === 'string') : [],
+          deadline: typeof review.deadline === 'string' ? review.deadline : '',
+          amount: amount(review.amount),
+          recognitionReviewRequired: review.recognitionReviewRequired === true,
+          reviewDecision: typeof review.reviewDecision === 'string' ? review.reviewDecision : '',
+          detail: typeof review.detail === 'string' ? review.detail : '',
+        } satisfies PayrollTeachingEvidenceReview]
+      }).slice(0, 500)
       : [],
     validationViolationCount: Math.max(0, Math.trunc(amount(raw.validationViolationCount))),
     validationViolations: Array.isArray(raw.validationViolations)

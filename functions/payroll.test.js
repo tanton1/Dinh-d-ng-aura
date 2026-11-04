@@ -11,6 +11,7 @@ const {
   periodBounds,
   periodDateBounds,
   payrollPeriodClosed,
+  payrollEvidenceReviewRows,
   payrollPolicyConfiguration,
   teachingSlotsFromAttendance,
   teachingSlotsFromSessions,
@@ -163,6 +164,81 @@ test('automatic 48-hour attendance counts as completed teaching even while reven
   assert.equal(result.teachingEvidenceReviewRequiredCount, 0)
   assert.deepEqual(result.teachingEvidenceReviewRequiredSessionIds, [])
   assert.deepEqual(result.trainers.get('trainer-a').flatMap(slot => slot.sessionIds).sort(), ['automatic', 'manual'])
+})
+
+test('payroll reconciliation exposes each manually confirmed session as an actionable row', () => {
+  const rows = payrollEvidenceReviewRows({
+    teachingEvidenceReviewRequiredSessionIds: ['manual-session'],
+  }, [{
+    id: 'manual-session',
+    date: '2026-10-21',
+    hour: 10,
+    trainerId: 'trainer-a',
+    studentId: 'student-a',
+    branchId: 'branch-a',
+    status: 'completed',
+    attendanceStatus: 'present',
+    confirmationSource: 'manual',
+    recognitionReviewRequired: true,
+  }])
+
+  assert.equal(rows.length, 1)
+  assert.deepEqual({
+    sessionId: rows[0].sessionId,
+    kind: rows[0].kind,
+    date: rows[0].date,
+    hour: rows[0].hour,
+    trainerId: rows[0].trainerId,
+    studentId: rows[0].studentId,
+    branchId: rows[0].branchId,
+    status: rows[0].status,
+  }, {
+    sessionId: 'manual-session',
+    kind: 'attendance_confirmation',
+    date: '2026-10-21',
+    hour: 10,
+    trainerId: 'trainer-a',
+    studentId: 'student-a',
+    branchId: 'branch-a',
+    status: 'review_required',
+  })
+  assert.match(rows[0].detail, /Mở lịch sử/)
+})
+
+test('payroll reconciliation explains missing session evidence and its deadline', () => {
+  const deadline = { toDate: () => new Date('2026-10-24T05:00:00.000Z') }
+  const rows = payrollEvidenceReviewRows({
+    teachingEvidenceReviewRequiredSessionIds: ['evidence-session'],
+    sessionEvidenceReviewRequired: [{
+      sessionId: 'evidence-session',
+      status: 'overdue_missing_evidence',
+      missingFields: ['goal', 'nextSessionPlan'],
+      deadline,
+      amount: 70_000,
+      trainerId: 'trainer-b',
+      studentIds: ['student-b'],
+      date: '2026-10-23',
+      hour: 9,
+    }],
+  }, [{ id: 'evidence-session', status: 'completed', date: '2026-10-23', hour: 9 }])
+
+  assert.equal(rows[0].kind, 'session_evidence')
+  assert.deepEqual(rows[0].missingFields, ['goal', 'nextSessionPlan'])
+  assert.equal(rows[0].deadline, '2026-10-24T05:00:00.000Z')
+  assert.equal(rows[0].amount, 70_000)
+  assert.match(rows[0].detail, /mục tiêu buổi tập/)
+  assert.match(rows[0].detail, /kế hoạch buổi tiếp theo/)
+})
+
+test('reviewing session evidence marks the draft stale so it must be rebuilt', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'payroll.js'), 'utf8')
+  const start = source.indexOf('const reviewPayrollSessionEvidence = payrollCall')
+  const end = source.indexOf('const listPayrollEarningEvents', start)
+  const block = start >= 0 && end > start ? source.slice(start, end) : ''
+
+  assert.match(block, /payrollRuns\/\$\{runId\}/)
+  assert.match(block, /sourceDataStale: true/)
+  assert.match(block, /requiresRebuild: true/)
 })
 
 test('complimentary make-up sessions remain attendance history but do not create teaching commission', () => {
@@ -628,6 +704,10 @@ test('payroll UI uses canonical runs and cannot edit teaching sessions', () => {
   assert.match(source, /parsePayrollFailure/)
   assert.match(source, /Xem chi tiết trong popup/)
   assert.match(source, /payroll-correction-modal/)
+  assert.match(source, /Đối soát \$\{reconciliationCount\} mục/)
+  assert.match(source, /Mở buổi & xác nhận/)
+  assert.match(source, /Duyệt bằng chứng/)
+  assert.match(source, /Xuất PDF chi tiết/)
   assert.doesNotMatch(source, /window\.location\.hash = `#\/admin-training-history/)
   assert.match(styles, /:not\(\.payroll-correction-modal\)/)
   assert.doesNotMatch(source, /commissionPerSession\s*\|\|\s*20000/)
