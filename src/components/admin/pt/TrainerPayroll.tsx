@@ -1272,7 +1272,7 @@ export default function TrainerPayroll({ profile }: Props) {
             subjectName={violationDialog.studentName || violationDialog.studentNames?.[0] || violationDialog.trainerName || violationDialog.trainerNames?.[0] || 'Đối soát buổi tập'}
             focusSessionId={violationSessionId}
             focusDate={violationDialog.date}
-            onCorrectionSaved={() => { setMessage('Đã lưu điều chỉnh ca. Hãy tải lại/ lập lại kỳ nháp để cập nhật đối soát.'); void refresh(true) }}
+            onCorrectionSaved={() => { setPayrollFailure(null); setError(''); setMessage('Đã lưu điều chỉnh ca. Bấm lập kỳ để kiểm tra lại dữ liệu mới.'); void refresh(true) }}
           /></Suspense>
         </div> : <div className="payroll-correction-modal__empty">Chưa có mã buổi hợp lệ để mở lịch sử. Hãy tải lại dữ liệu đối soát.</div>}
         <footer><button className="payroll-page__secondary" type="button" onClick={() => setViolationDialog(null)}>Đóng, giữ kỳ lương</button></footer>

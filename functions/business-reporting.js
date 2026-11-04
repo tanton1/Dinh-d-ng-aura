@@ -290,7 +290,8 @@ function normaliseHistoryInput(data = {}) {
   const cursor = decodeHistoryCursor(data.cursor)
   // The first page always establishes fresh totals. New clients can retain
   // those totals while appending records; legacy clients keep the old result.
-  return { startDate, endDate, status, pageSize, cursor, allTime, includeSummary: !cursor || data.includeSummary !== false, includeContracts: data.includeContracts === true }
+  return { startDate, endDate, status, pageSize, cursor, allTime, includeSummary: !cursor || data.includeSummary !== false, includeContracts: data.includeContracts === true,
+    ...(data.focusSessionId ? { focusSessionId: documentId(data.focusSessionId, 'Mã buổi đối soát') } : {}) }
 }
 
 function matchesAssignment(contract, actor) {
@@ -650,6 +651,12 @@ function createBusinessReportingFunctions({ db, onCall }) {
     const subjectId = documentId(request.data?.[subjectType === 'student' ? 'studentId' : 'trainerId'], subjectType === 'student' ? 'Mã học viên' : 'Mã PT')
     const access = await assertHistoryAccess(request, db, subjectType, subjectId)
     const input = normaliseHistoryInput(request.data || {})
+    if (input.focusSessionId && access.scope !== 'admin') throw new HttpsError('permission-denied', 'Chỉ quản trị viên được mở bản ghi gốc để đối soát.')
+    // Payroll opens a specific source record. Daily canonicalisation would
+    // otherwise hide precisely the duplicate the admin needs to correct.
+    const canonicalize = input.focusSessionId
+      ? rows => rows.filter(row => row.id === input.focusSessionId)
+      : subjectType === 'student' ? canonicalStudentHistoryRows : canonicalHistoryRows
     const ownerField = subjectType === 'student' ? 'studentId' : 'trainerId'
     let query = db.collection('sessions').where(ownerField, '==', subjectId)
     if (!input.allTime) {
@@ -664,7 +671,7 @@ function createBusinessReportingFunctions({ db, onCall }) {
     const historyCutoff = subjectType === 'student' && input.allTime ? vietnamDateKey(new Date()) : ''
     const historyPage = await readCanonicalHistoryPage({
       query, input, scope: historyCursorScope({ subjectType, subjectId, input, access }),
-      canonicalize: subjectType === 'student' ? canonicalStudentHistoryRows : canonicalHistoryRows,
+      canonicalize,
       accepts: item => (!historyCutoff || item.status !== 'scheduled' || String(item.date || '').slice(0, 10) < historyCutoff)
         && (access.scope !== 'branch_manager' || access.actor.branchIds.includes(item.branchId))
         && (input.status === 'all' || item.status === input.status),
@@ -692,9 +699,7 @@ function createBusinessReportingFunctions({ db, onCall }) {
       const completeRangeInPage = !input.allTime && !input.cursor && historyPage.exhausted
       const summarySnapshot = completeRangeInPage ? snapshot : await summaryQuery.get()
       const summaryRows = summarySnapshot.docs.map((item) => ({ ...item.data(), id: item.id }))
-      const summaryRecords = (subjectType === 'student'
-        ? canonicalStudentHistoryRows(summaryRows)
-        : canonicalHistoryRows(summaryRows))
+      const summaryRecords = canonicalize(summaryRows)
         .filter((item) => !historyCutoff || item.status !== 'scheduled' || String(item.date || '').slice(0, 10) < historyCutoff)
         .filter((item) => (access.scope !== 'branch_manager' || access.actor.branchIds.includes(item.branchId)))
         .filter((item) => input.status === 'all' || item.status === input.status)

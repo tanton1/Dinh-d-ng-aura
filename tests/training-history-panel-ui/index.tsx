@@ -7,7 +7,9 @@ function App() {
   const [subjectId, setSubjectId] = useState('student-a')
   return <main style={{ maxWidth: 1000, margin: '0 auto', padding: 12 }}>
     <nav>{['student-a', 'student-b', 'trainer-1'].map((id) => <button key={id} onClick={() => { setSubjectId(id); setSubject(id.startsWith('trainer') ? 'trainer' : 'student') }}>{id}</button>)}</nav>
-    <TrainingHistoryPanel subject={subject} subjectId={subjectId} subjectName={subjectId} />
+    <TrainingHistoryPanel subject={subject} subjectId={subjectId} subjectName={subjectId}
+      focusSessionId={new URLSearchParams(window.location.search).get('focus') || ''}
+      focusDate={new URLSearchParams(window.location.search).get('focus') ? '2026-10-06' : ''} />
   </main>
 }
 createRoot(document.getElementById('root')!).render(<App />)

@@ -235,6 +235,38 @@ test('legacy payroll diagnostics can be shown without changing the stored run', 
   assert.equal(violations[0].remediation, 'teaching_history')
 })
 
+test('cancelled and reconciled duplicate evidence cannot block payroll or create paid slots', () => {
+  const original = { id: 'original', status: 'completed', trainerId: 'pt', studentId: 'student', date: '2026-10-06', hour: 18 }
+  for (const patch of [
+    { status: 'cancelled' }, { scheduleStatus: 'cancelled' }, { commissionEligible: false },
+    { duplicateOfSessionId: 'original', billingStatus: 'exempt', countsTowardContract: false },
+  ]) {
+    const duplicate = { ...original, id: 'duplicate', hour: 17, confirmationSource: 'auto_after_48h', ...patch }
+    assert.deepEqual(duplicateLearnerDayViolations([original, duplicate]), [])
+    const result = teachingSlotsFromSessions([original, duplicate], { ratePerSession: 20000 })
+    assert.equal(result.teachingSlotCount, 1)
+    assert.equal(result.teachingEvidenceReviewRequiredCount, 0)
+    const attendanceResult = teachingSlotsFromAttendance([
+      { id: 'a1', sessionId: 'original', type: 'attended' },
+      { id: 'a2', sessionId: 'duplicate', type: 'attended' },
+    ], new Map([['original', original], ['duplicate', duplicate]]), { ratePerSession: 20000 })
+    assert.equal(attendanceResult.teachingSlotCount, 1)
+  }
+})
+
+test('complimentary teaching and unproven duplicate markers still require real payroll review', () => {
+  const original = { id: 'original', status: 'completed', trainerId: 'pt', studentId: 'student', date: '2026-10-06', hour: 18 }
+  for (const patch of [
+    { billingStatus: 'exempt', countsTowardContract: false },
+    { duplicateOfSessionId: 'original', billingStatus: 'charged', countsTowardContract: true },
+    { duplicateOfSessionId: '', billingStatus: 'exempt', countsTowardContract: false },
+  ]) {
+    assert.equal(duplicateLearnerDayViolations([original, { ...original, id: 'other', hour: 17, ...patch }]).length, 1)
+  }
+  const free = { ...original, billingStatus: 'exempt', countsTowardContract: false }
+  assert.equal(teachingSlotsFromSessions([free], { ratePerSession: 20000 }).teachingSlotCount, 1)
+})
+
 test('payroll keeps every cross-branch slot as a non-blocking diagnostic', () => {
   const result = teachingSlotsFromSessions([
     { id: 'session-a', status: 'completed', trainerId: 'trainer-a', studentId: 'student-a', branchId: 'branch-a', date: '2026-08-25', hour: 6 },
@@ -382,7 +414,7 @@ test('payroll creation is one deterministic transaction per period', () => {
   assert.match(createBlock, /transaction\.create\(runReference/)
   assert.match(createBlock, /payrollRunItems\/\$\{periodId\}_\$\{staffId\}/)
   assert.match(createBlock, /teachingSlotsFromSessions\(sessionSnapshot\.docs/)
-  assert.match(createBlock, /\.select\('status', 'trainerId', 'studentId', 'date', 'hour', 'branchId', 'attendanceEventId', 'attendanceStatus', 'confirmationSource', 'recognitionReviewRequired', 'payrollEvidenceReview'\)/)
+  assert.match(createBlock, /\.select\(\.\.\.PAYROLL_SESSION_FIELDS\)/)
   assert.match(createBlock, /db\.collection\('ptWorkoutLogs'\)/)
   assert.doesNotMatch(createBlock, /Promise\.all\(sessionIds\.map/)
   assert.doesNotMatch(createBlock, /db\.collection\('payrollRuns'\)\.doc\(\)/)

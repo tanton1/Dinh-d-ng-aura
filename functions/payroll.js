@@ -653,7 +653,7 @@ function teachingSlotsFromAttendance(attendanceDocuments, sessionsById, policyVa
     // history but never creates a standalone teaching commission. When it is
     // paired with an existing shift, the existing shift's attendance already
     // supplies the single payable slot.
-    if (session.commissionEligible === false || session.makeupSession === true || session.sessionKind === 'makeup') continue
+    if (excludedFromTeachingPayroll(session) || excludedFromTeachingPayroll(attendance)) continue
     if (attendance.recognitionReviewRequired === true || attendance.confirmationSource === 'auto_after_48h'
       || session.recognitionReviewRequired === true || session.confirmationSource === 'auto_after_48h') {
       if (sessionId) reviewRequiredSessionIds.add(sessionId)
@@ -714,7 +714,18 @@ function teachingSlotsFromAttendance(attendanceDocuments, sessionsById, policyVa
   }
 }
 
-const PAYROLL_VALIDATION_FIELDS = ['status', 'trainerId', 'studentId', 'date', 'hour', 'branchId', 'commissionEligible', 'makeupSession', 'sessionKind']
+// Reconciliation can preserve completed attendance as audit evidence after
+// voiding its duplicate charge. It must not remain a payable teaching source.
+function excludedFromTeachingPayroll(session = {}) {
+  return session.commissionEligible === false || session.makeupSession === true || session.sessionKind === 'makeup'
+    || ['cancelled', 'canceled', 'student_cancelled', 'trainer_cancelled', 'canceled_by_student'].includes(session.status)
+    || session.scheduleStatus === 'cancelled'
+    || (typeof session.duplicateOfSessionId === 'string' && Boolean(session.duplicateOfSessionId.trim())
+      && ['exempt', 'void_duplicate'].includes(session.billingStatus) && session.countsTowardContract === false)
+}
+
+const PAYROLL_VALIDATION_FIELDS = ['status', 'trainerId', 'studentId', 'date', 'hour', 'branchId', 'commissionEligible', 'makeupSession', 'sessionKind', 'scheduleStatus', 'duplicateOfSessionId', 'billingStatus', 'countsTowardContract']
+const PAYROLL_SESSION_FIELDS = [...PAYROLL_VALIDATION_FIELDS, 'attendanceEventId', 'attendanceStatus', 'confirmationSource', 'recognitionReviewRequired', 'payrollEvidenceReview']
 
 async function readPayrollSessionValidation(db, runPeriodId, transaction) {
   const bounds = periodDateBounds(runPeriodId)
@@ -746,7 +757,7 @@ function duplicateLearnerDayViolations(sessionDocuments) {
   for (const item of sessionDocuments || []) {
     const session = typeof item?.data === 'function' ? item.data() : item || {}
     if (!['completed', 'attended'].includes(session.status)) continue
-    if (session.commissionEligible === false || session.makeupSession === true || session.sessionKind === 'makeup') continue
+    if (excludedFromTeachingPayroll(session)) continue
     const studentId = typeof session.studentId === 'string' ? session.studentId.trim() : ''
     const date = typeof session.date === 'string' ? session.date.slice(0, 10) : ''
     if (!studentId || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue
@@ -915,7 +926,7 @@ function teachingSlotsFromSessions(sessionDocuments, policyValue) {
     // Complimentary PT make-up sessions remain visible in attendance history,
     // but they never create a second payable teaching slot. A paired make-up
     // is already represented by the existing class's slot.
-    if (session.commissionEligible === false || session.makeupSession === true || session.sessionKind === 'makeup') continue
+    if (excludedFromTeachingPayroll(session)) continue
     const sessionId = typeof item?.id === 'string' && item.id
       ? item.id
       : typeof session.id === 'string' ? session.id : ''
@@ -2065,7 +2076,7 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
         transaction.get(db.collection('sessions')
           .where('date', '>=', dateBounds.start)
           .where('date', '<', dateBounds.end)
-          .select('status', 'trainerId', 'studentId', 'date', 'hour', 'branchId', 'attendanceEventId', 'attendanceStatus', 'confirmationSource', 'recognitionReviewRequired', 'payrollEvidenceReview')
+          .select(...PAYROLL_SESSION_FIELDS)
           .limit(3001)),
         transaction.get(db.collection('ptWorkoutLogs')
           .where('date', '>=', dateBounds.start)

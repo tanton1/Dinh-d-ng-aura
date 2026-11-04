@@ -104,6 +104,21 @@ test('real Firestore: status filtering, current corrections and canonical summar
   assert.equal(changed.summary.usage.chargedNoShowSessions, 1)
 })
 
+test('payroll remediation opens the exact hidden source without bypassing owner or admin scope', async () => {
+  const f = await fixture([
+    row('source', '2026-10-06', { hour: 18, revision: 2 }),
+    row('old-copy', '2026-10-06', { hour: 17, revision: 0, billingStatus: '', scheduleEntryId: 'old-entry' }),
+    row('other-student', '2026-10-06', { studentId: 'other' }),
+  ])
+  assert.deepEqual((await f.read()).records.map(r => r.id), ['source'])
+  const focused = await f.read({ focusSessionId: 'old-copy' })
+  assert.deepEqual(focused.records.map(r => r.id), ['old-copy'])
+  assert.equal(focused.records[0].hour, 17)
+  assert.equal(focused.summary.total, 1)
+  assert.deepEqual((await f.read({ focusSessionId: 'other-student' })).records, [])
+  await assert.rejects(f.read({ focusSessionId: 'old-copy' }, 'student', 'manager'), { code: 'permission-denied' })
+})
+
 test('real Firestore: cursor scope changes and revoked identities fail before session reads', async () => {
   const f = await fixture(Array.from({ length: 20 }, (_, index) => row('day-' + index, '2026-10-' + String(index + 1).padStart(2, '0'))))
   const first = await f.read()

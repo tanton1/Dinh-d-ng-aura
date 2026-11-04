@@ -28,6 +28,7 @@ function historyCursorScope({ subjectType, subjectId, input, access }) {
     subjectType, subjectId, access.actor.uid, access.scope,
     [...(access.actor.branchIds || [])].sort(), input.allTime,
     input.allTime ? '' : input.startDate, input.allTime ? '' : input.endDate, input.status,
+    ...(input.focusSessionId ? [input.focusSessionId] : []),
   ])).digest('hex')
 }
 

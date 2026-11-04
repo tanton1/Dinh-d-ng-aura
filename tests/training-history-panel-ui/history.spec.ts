@@ -7,6 +7,17 @@ const open = async (page: Page, hold = false) => {
 }
 const resolve = (page: Page, index: number, labels: string[], more = false) => page.evaluate(({ index, labels, more }) => (window as any).historyResolvers[index](labels, more), { index, labels, more })
 
+test('payroll focus requests the exact source row and opens its correction without contract reads', async ({ page }) => {
+  await page.addInitScript(() => { (window as any).holdHistory = true })
+  await page.goto('/tests/training-history-panel-ui/index.html?focus=old-copy')
+  await expect.poll(() => counts(page)).toEqual({ history: 1, usage: 0 })
+  expect(await page.evaluate(() => (window as any).historyCalls[0].query)).toMatchObject({ focusSessionId: 'old-copy', startDate: '2026-10-06', endDate: '2026-10-06' })
+  await resolve(page, 0, ['old-copy'])
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await expect(page.locator('[data-session-id="old-copy"]')).toHaveCount(1)
+  expect(await counts(page)).toEqual({ history: 1, usage: 0 })
+})
+
 test('admin can explicitly return one charged session with a required reason and a single audited call', async ({ page }) => {
   await open(page)
   await page.getByRole('button', { name: 'Điều chỉnh', exact: true }).click()
