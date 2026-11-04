@@ -153,16 +153,16 @@ test('canonical completed sessions produce the same paired teaching shifts witho
   assert.deepEqual(slots[0].sessionIds.sort(), ['session-a', 'session-b'])
 })
 
-test('automatic 48-hour attendance remains review evidence and never becomes teaching pay', () => {
+test('automatic 48-hour attendance counts as completed teaching even while revenue review remains open', () => {
   const result = teachingSlotsFromSessions([
     { id: 'manual', status: 'completed', trainerId: 'trainer-a', studentId: 'student-a', date: '2026-08-25', hour: 6, confirmationSource: 'manual', recognitionReviewRequired: false },
     { id: 'automatic', status: 'completed', trainerId: 'trainer-a', studentId: 'student-b', date: '2026-08-25', hour: 7, confirmationSource: 'auto_after_48h', recognitionReviewRequired: true },
   ], { ratePerSession: 20_000 })
 
-  assert.equal(result.teachingSlotCount, 1)
-  assert.equal(result.teachingEvidenceReviewRequiredCount, 1)
-  assert.deepEqual(result.teachingEvidenceReviewRequiredSessionIds, ['automatic'])
-  assert.deepEqual(result.trainers.get('trainer-a')[0].sessionIds, ['manual'])
+  assert.equal(result.teachingSlotCount, 2)
+  assert.equal(result.teachingEvidenceReviewRequiredCount, 0)
+  assert.deepEqual(result.teachingEvidenceReviewRequiredSessionIds, [])
+  assert.deepEqual(result.trainers.get('trainer-a').flatMap(slot => slot.sessionIds).sort(), ['automatic', 'manual'])
 })
 
 test('complimentary make-up sessions remain attendance history but do not create teaching commission', () => {
@@ -175,7 +175,7 @@ test('complimentary make-up sessions remain attendance history but do not create
   assert.equal((result.trainers.get('trainer-a') || []).length, 0)
 })
 
-test('legacy attendance rebuild excludes automatic review evidence', () => {
+test('legacy attendance rebuild counts automatic confirmed teaching', () => {
   const sessions = new Map([
     ['automatic', { trainerId: 'trainer-a', studentId: 'student-a', date: '2026-08-25', hour: 6, confirmationSource: 'auto_after_48h', recognitionReviewRequired: true }],
   ])
@@ -183,8 +183,18 @@ test('legacy attendance rebuild excludes automatic review evidence', () => {
     { id: 'automatic', type: 'attended', sessionId: 'automatic', studentId: 'student-a', confirmationSource: 'auto_after_48h', recognitionReviewRequired: true },
   ], sessions, { ratePerSession: 20_000 })
 
+  assert.equal(result.teachingSlotCount, 1)
+  assert.equal(result.teachingEvidenceReviewRequiredCount, 0)
+})
+
+test('manual attendance with unresolved recognition evidence still waits for review', () => {
+  const result = teachingSlotsFromSessions([
+    { id: 'manual-review', status: 'completed', trainerId: 'trainer-a', studentId: 'student-a', date: '2026-08-25', hour: 6,
+      confirmationSource: 'manual', recognitionReviewRequired: true },
+  ], { ratePerSession: 20_000 })
   assert.equal(result.teachingSlotCount, 0)
   assert.equal(result.teachingEvidenceReviewRequiredCount, 1)
+  assert.deepEqual(result.teachingEvidenceReviewRequiredSessionIds, ['manual-review'])
 })
 
 test('a learner attending another branch remains payable as one teaching slot', () => {

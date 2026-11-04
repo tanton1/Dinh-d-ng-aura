@@ -654,8 +654,7 @@ function teachingSlotsFromAttendance(attendanceDocuments, sessionsById, policyVa
     // paired with an existing shift, the existing shift's attendance already
     // supplies the single payable slot.
     if (excludedFromTeachingPayroll(session) || excludedFromTeachingPayroll(attendance)) continue
-    if (attendance.recognitionReviewRequired === true || attendance.confirmationSource === 'auto_after_48h'
-      || session.recognitionReviewRequired === true || session.confirmationSource === 'auto_after_48h') {
+    if (teachingPayrollReviewRequired(session, attendance)) {
       if (sessionId) reviewRequiredSessionIds.add(sessionId)
       continue
     }
@@ -722,6 +721,18 @@ function excludedFromTeachingPayroll(session = {}) {
     || session.scheduleStatus === 'cancelled'
     || (typeof session.duplicateOfSessionId === 'string' && Boolean(session.duplicateOfSessionId.trim())
       && ['exempt', 'void_duplicate'].includes(session.billingStatus) && session.countsTowardContract === false)
+}
+
+function automaticAttendanceConfirmed(session = {}, attendance = {}) {
+  return attendance.confirmationSource === 'auto_after_48h' || session.confirmationSource === 'auto_after_48h'
+}
+
+function teachingPayrollReviewRequired(session = {}, attendance = {}) {
+  const requiresReview = session.recognitionReviewRequired === true || attendance.recognitionReviewRequired === true
+  // The automatic job only confirms a charged, overdue session as present
+  // after the 48-hour response window. Revenue reconciliation can remain open,
+  // but that accounting review must not erase the PT's completed teaching slot.
+  return requiresReview && !automaticAttendanceConfirmed(session, attendance)
 }
 
 const PAYROLL_VALIDATION_FIELDS = ['status', 'trainerId', 'studentId', 'date', 'hour', 'branchId', 'commissionEligible', 'makeupSession', 'sessionKind', 'scheduleStatus', 'duplicateOfSessionId', 'billingStatus', 'countsTowardContract']
@@ -930,7 +941,7 @@ function teachingSlotsFromSessions(sessionDocuments, policyValue) {
     const sessionId = typeof item?.id === 'string' && item.id
       ? item.id
       : typeof session.id === 'string' ? session.id : ''
-    if (session.recognitionReviewRequired === true || session.confirmationSource === 'auto_after_48h') {
+    if (teachingPayrollReviewRequired(session)) {
       if (sessionId) reviewRequiredSessionIds.add(sessionId)
       continue
     }
