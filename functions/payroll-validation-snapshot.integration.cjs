@@ -61,3 +61,39 @@ test('live draft validation includes makeup flags and still detects real duplica
   const handlers = createPayrollFunctions({ db, onCall: (_options, handler) => handler })
   await assert.rejects(handlers.reviewPayrollRun(request), { code: 'failed-precondition' })
 })
+
+test('persisted duplicate exclusions are read by both run creation and validation', async () => {
+  const db = await fixture()
+  await db.doc(`payrollRuns/${periodId}`).delete()
+  await db.doc('sessions/s1').update({ confirmationSource: 'auto_after_48h', recognitionReviewRequired: true })
+  await db.doc('sessions/s2').set({ trainerId: 'pt', studentId: 's', date: '2025-01-10', hour: 11, status: 'completed',
+    duplicateOfSessionId: 's1', billingStatus: 'exempt', countsTowardContract: false })
+  const first = await readPayrollSessionValidation(db, periodId)
+  assert.deepEqual(first.violations, [])
+  // Intercept the creation query using real Firestore projection semantics.
+  // Stop before policy/payout writes; only the source filtering is under test.
+  let projected = null
+  const facade = { doc: path => db.doc(path), collection: name => db.collection(name), runTransaction: callback => db.runTransaction(tx => callback({
+    get: async query => {
+      const snap = await tx.get(query)
+      if (snap.docs?.some(doc => doc.ref.path === 'sessions/s2')) {
+        projected = snap.docs
+        throw Error('projection verified')
+      }
+      return snap
+    },
+  })) }
+  const handlers = createPayrollFunctions({ db: facade, onCall: (_options, handler) => handler })
+  await assert.rejects(handlers.createPayrollRun({ ...request, data: { periodId } }))
+  assert.ok(projected)
+  assert.equal(projected.find(doc => doc.id === 's2').data().duplicateOfSessionId, 's1')
+  assert.equal(projected.find(doc => doc.id === 's1').data().confirmationSource, 'auto_after_48h')
+  assert.equal(projected.find(doc => doc.id === 's1').data().recognitionReviewRequired, true)
+  const { teachingSlotsFromSessions } = require('./payroll')
+  assert.equal(teachingSlotsFromSessions(projected, { ratePerSession: 20000 }).teachingSlotCount, 1)
+  assert.equal((await db.doc(`payrollRuns/${periodId}`).get()).exists, false)
+  await db.doc('sessions/s2').update({ billingStatus: 'charged', countsTowardContract: true })
+  const changed = await readPayrollSessionValidation(db, periodId)
+  assert.equal(changed.violations.length, 1)
+  assert.notEqual(changed.fingerprint, first.fingerprint)
+})

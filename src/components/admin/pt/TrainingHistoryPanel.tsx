@@ -342,7 +342,8 @@ function TrainingHistoryContent({ subject, subjectId, subjectName, contractId, i
         setPage(demoPage(subjectId, initialSessions, startDate, endDate, status))
         return
       }
-      const query = { startDate, endDate, status, pageSize: 50, cursor: append ? nextCursorRef.current : null, includeSummary: !append }
+      const query = { startDate, endDate, status, pageSize: 50, cursor: append ? nextCursorRef.current : null, includeSummary: !append,
+        ...(focusSessionId && canCorrectTeachingShift ? { focusSessionId } : {}) }
       const response = subject === 'student'
         ? await listStudentTrainingHistory(subjectId, query)
         : await listTrainerTeachingHistory(subjectId, query)
@@ -359,7 +360,7 @@ function TrainingHistoryContent({ subject, subjectId, subjectName, contractId, i
         setLoading(false)
       }
     }
-  }, [endDate, initialSessionSignature, isDemo, startDate, status, subject, subjectId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [endDate, initialSessionSignature, isDemo, startDate, status, subject, subjectId, focusSessionId, canCorrectTeachingShift]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setPage(null)

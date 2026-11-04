@@ -153,16 +153,16 @@ test('canonical completed sessions produce the same paired teaching shifts witho
   assert.deepEqual(slots[0].sessionIds.sort(), ['session-a', 'session-b'])
 })
 
-test('automatic 48-hour attendance remains review evidence and never becomes teaching pay', () => {
+test('automatic 48-hour attendance counts as completed teaching even while revenue review remains open', () => {
   const result = teachingSlotsFromSessions([
     { id: 'manual', status: 'completed', trainerId: 'trainer-a', studentId: 'student-a', date: '2026-08-25', hour: 6, confirmationSource: 'manual', recognitionReviewRequired: false },
     { id: 'automatic', status: 'completed', trainerId: 'trainer-a', studentId: 'student-b', date: '2026-08-25', hour: 7, confirmationSource: 'auto_after_48h', recognitionReviewRequired: true },
   ], { ratePerSession: 20_000 })
 
-  assert.equal(result.teachingSlotCount, 1)
-  assert.equal(result.teachingEvidenceReviewRequiredCount, 1)
-  assert.deepEqual(result.teachingEvidenceReviewRequiredSessionIds, ['automatic'])
-  assert.deepEqual(result.trainers.get('trainer-a')[0].sessionIds, ['manual'])
+  assert.equal(result.teachingSlotCount, 2)
+  assert.equal(result.teachingEvidenceReviewRequiredCount, 0)
+  assert.deepEqual(result.teachingEvidenceReviewRequiredSessionIds, [])
+  assert.deepEqual(result.trainers.get('trainer-a').flatMap(slot => slot.sessionIds).sort(), ['automatic', 'manual'])
 })
 
 test('complimentary make-up sessions remain attendance history but do not create teaching commission', () => {
@@ -175,7 +175,7 @@ test('complimentary make-up sessions remain attendance history but do not create
   assert.equal((result.trainers.get('trainer-a') || []).length, 0)
 })
 
-test('legacy attendance rebuild excludes automatic review evidence', () => {
+test('legacy attendance rebuild counts automatic confirmed teaching', () => {
   const sessions = new Map([
     ['automatic', { trainerId: 'trainer-a', studentId: 'student-a', date: '2026-08-25', hour: 6, confirmationSource: 'auto_after_48h', recognitionReviewRequired: true }],
   ])
@@ -183,8 +183,18 @@ test('legacy attendance rebuild excludes automatic review evidence', () => {
     { id: 'automatic', type: 'attended', sessionId: 'automatic', studentId: 'student-a', confirmationSource: 'auto_after_48h', recognitionReviewRequired: true },
   ], sessions, { ratePerSession: 20_000 })
 
+  assert.equal(result.teachingSlotCount, 1)
+  assert.equal(result.teachingEvidenceReviewRequiredCount, 0)
+})
+
+test('manual attendance with unresolved recognition evidence still waits for review', () => {
+  const result = teachingSlotsFromSessions([
+    { id: 'manual-review', status: 'completed', trainerId: 'trainer-a', studentId: 'student-a', date: '2026-08-25', hour: 6,
+      confirmationSource: 'manual', recognitionReviewRequired: true },
+  ], { ratePerSession: 20_000 })
   assert.equal(result.teachingSlotCount, 0)
   assert.equal(result.teachingEvidenceReviewRequiredCount, 1)
+  assert.deepEqual(result.teachingEvidenceReviewRequiredSessionIds, ['manual-review'])
 })
 
 test('a learner attending another branch remains payable as one teaching slot', () => {
@@ -233,6 +243,38 @@ test('legacy payroll diagnostics can be shown without changing the stored run', 
   assert.equal(violations[0].code, 'STUDENT_MULTIPLE_COMPLETED_SESSIONS_PER_DAY')
   assert.deepEqual(violations[0].sessionIds, ['session-a', 'session-b'])
   assert.equal(violations[0].remediation, 'teaching_history')
+})
+
+test('cancelled and reconciled duplicate evidence cannot block payroll or create paid slots', () => {
+  const original = { id: 'original', status: 'completed', trainerId: 'pt', studentId: 'student', date: '2026-10-06', hour: 18 }
+  for (const patch of [
+    { status: 'cancelled' }, { scheduleStatus: 'cancelled' }, { commissionEligible: false },
+    { duplicateOfSessionId: 'original', billingStatus: 'exempt', countsTowardContract: false },
+  ]) {
+    const duplicate = { ...original, id: 'duplicate', hour: 17, confirmationSource: 'auto_after_48h', ...patch }
+    assert.deepEqual(duplicateLearnerDayViolations([original, duplicate]), [])
+    const result = teachingSlotsFromSessions([original, duplicate], { ratePerSession: 20000 })
+    assert.equal(result.teachingSlotCount, 1)
+    assert.equal(result.teachingEvidenceReviewRequiredCount, 0)
+    const attendanceResult = teachingSlotsFromAttendance([
+      { id: 'a1', sessionId: 'original', type: 'attended' },
+      { id: 'a2', sessionId: 'duplicate', type: 'attended' },
+    ], new Map([['original', original], ['duplicate', duplicate]]), { ratePerSession: 20000 })
+    assert.equal(attendanceResult.teachingSlotCount, 1)
+  }
+})
+
+test('complimentary teaching and unproven duplicate markers still require real payroll review', () => {
+  const original = { id: 'original', status: 'completed', trainerId: 'pt', studentId: 'student', date: '2026-10-06', hour: 18 }
+  for (const patch of [
+    { billingStatus: 'exempt', countsTowardContract: false },
+    { duplicateOfSessionId: 'original', billingStatus: 'charged', countsTowardContract: true },
+    { duplicateOfSessionId: '', billingStatus: 'exempt', countsTowardContract: false },
+  ]) {
+    assert.equal(duplicateLearnerDayViolations([original, { ...original, id: 'other', hour: 17, ...patch }]).length, 1)
+  }
+  const free = { ...original, billingStatus: 'exempt', countsTowardContract: false }
+  assert.equal(teachingSlotsFromSessions([free], { ratePerSession: 20000 }).teachingSlotCount, 1)
 })
 
 test('payroll keeps every cross-branch slot as a non-blocking diagnostic', () => {
@@ -382,7 +424,7 @@ test('payroll creation is one deterministic transaction per period', () => {
   assert.match(createBlock, /transaction\.create\(runReference/)
   assert.match(createBlock, /payrollRunItems\/\$\{periodId\}_\$\{staffId\}/)
   assert.match(createBlock, /teachingSlotsFromSessions\(sessionSnapshot\.docs/)
-  assert.match(createBlock, /\.select\('status', 'trainerId', 'studentId', 'date', 'hour', 'branchId', 'attendanceEventId', 'attendanceStatus', 'confirmationSource', 'recognitionReviewRequired', 'payrollEvidenceReview'\)/)
+  assert.match(createBlock, /\.select\(\.\.\.PAYROLL_SESSION_FIELDS\)/)
   assert.match(createBlock, /db\.collection\('ptWorkoutLogs'\)/)
   assert.doesNotMatch(createBlock, /Promise\.all\(sessionIds\.map/)
   assert.doesNotMatch(createBlock, /db\.collection\('payrollRuns'\)\.doc\(\)/)

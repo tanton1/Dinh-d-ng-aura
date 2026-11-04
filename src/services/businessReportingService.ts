@@ -212,6 +212,7 @@ export interface StudentContractUsageResponse {
 }
 
 export interface TrainingHistoryQuery {
+  focusSessionId?: string
   startDate?: string
   endDate?: string
   allTime?: boolean
