@@ -279,7 +279,7 @@ select { font-family: var(--aura-font); }
 .admin-dashboard__shortcuts--collapsed > div { padding: 0 14px 14px; }
 
 @media (min-width: 900px) {
-  .admin-dashboard--v4 .aura-metric-carousel__viewport { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); grid-auto-columns: unset; overflow: visible; }
+  .admin-dashboard--v4 .aura-metric-carousel__viewport { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); grid-auto-columns: unset; overflow: visible; }
   .admin-dashboard--v4 .aura-metric-carousel__slide { min-width: 0; }
 }
 

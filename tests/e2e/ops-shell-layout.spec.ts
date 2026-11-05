@@ -104,8 +104,24 @@ for (const width of [1440, 375]) {
     for (const right of metrics) expect(right).toBeLessThanOrEqual(width)
     const order = await page.locator('.admin-dashboard > *').evaluateAll((items) => items.map((item) => getComputedStyle(item).order))
     expect(new Set(order)).toEqual(new Set(['0']))
+    // One title per section: no uppercase eyebrow above the headings.
+    await expect(page.locator('.admin-dashboard > section > header small, .admin-dashboard__main-grid > section > header small')).toHaveCount(0)
   })
 }
+
+test('admin dashboard counts figures up to their exact values, at once under reduced motion', async ({ page }) => {
+  await openAdmin(page, 'admin-dashboard')
+  const total = page.locator('.admin-dashboard__attendance-metrics .is-total b')
+  await expect(total).toHaveText('42')
+  await expect(page.locator('.aura-metric-carousel__slide').first().locator('strong')).toHaveText('219.160.415đ')
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.getByRole('button', { name: 'Làm mới tổng quan' }).click()
+  await page.evaluate(() => { location.hash = '#/admin-pt-students' })
+  await page.evaluate(() => { location.hash = '#/admin-dashboard' })
+  await expect(total).toBeVisible()
+  // No animation frame has to run: the first painted value is already final.
+  expect(await total.innerText()).toBe('42')
+})
 
 const adminViews = ['admin-dashboard', 'admin-pt-students', 'admin-renewals', 'admin-loyalty', 'admin-pt-schedule', 'admin-training-history', 'admin-pt-workouts', 'admin-performance', 'admin-trainer-quality', 'admin-hr', 'admin-payroll', 'admin-finance', 'admin-eat-clean', 'admin-nutrition-reviews', 'admin-notifications']
 const staffViews = ['staff-dashboard', 'staff-students', 'staff-schedule', 'staff-availability', 'staff-requests', 'staff-workouts', 'staff-nutrition-reviews', 'staff-renewals', 'staff-performance', 'staff-payroll']

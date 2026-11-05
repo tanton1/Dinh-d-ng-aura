@@ -341,18 +341,18 @@ test(`Student 360 V4 stays immersive and defers timeline at ${width}px`, async (
 })
 }
 
-test('Admin Dashboard V4 shows all five KPI cards on desktop', async ({ page }) => {
+test('Admin Dashboard V4 shows all four KPI cards on desktop', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 960 })
   await enableAuraUiV4(page)
   await page.goto('/#/admin-dashboard')
 
   const carousel = page.getByRole('region', { name: 'Báo cáo nhanh theo kỳ' })
-  await expect(carousel.locator('.aura-metric-carousel__slide')).toHaveCount(5)
+  await expect(carousel.locator('.aura-metric-carousel__slide')).toHaveCount(4)
   const layout = await carousel.locator('.aura-metric-carousel__viewport').evaluate((element) => ({
     columns: getComputedStyle(element).gridTemplateColumns.split(' ').length,
     overflowX: getComputedStyle(element).overflowX,
   }))
-  expect(layout.columns).toBe(5)
+  expect(layout.columns).toBe(4)
   expect(layout.overflowX).toBe('visible')
 })
 
@@ -362,7 +362,7 @@ test('Admin Dashboard V4 keeps urgent work before attendance on mobile', async (
   await page.goto('/#/admin-dashboard')
 
   const tasks = page.getByRole('heading', { name: 'Hôm nay cần làm' }).locator('..').locator('..')
-  const attendance = page.getByRole('heading', { name: 'Ca tập trong ngày' }).locator('..').locator('..')
+  const attendance = page.getByRole('heading', { name: 'Ca tập hôm nay' }).locator('..').locator('..')
   await expect(tasks).toBeVisible()
   await expect(attendance).toBeVisible()
   const [tasksBox, attendanceBox] = await Promise.all([tasks.boundingBox(), attendance.boundingBox()])

@@ -5,6 +5,8 @@ export interface AuraMetricSlide {
   id: string
   eyebrow: string
   value: string
+  /** Visual form of `value`, such as an animated count; `value` stays the label. */
+  display?: ReactNode
   detail: string
   icon: ReactNode
   tone: 'pink' | 'orange' | 'sunset' | 'ink'
@@ -70,8 +72,8 @@ export default function AuraMetricCarousel({ slides, label, loading = false }: P
             <span className="aura-metric-carousel__number">{String(index + 1).padStart(2, '0')} / {String(slides.length).padStart(2, '0')}</span>
           </div>
           <span className="aura-metric-carousel__eyebrow">{slide.eyebrow}</span>
-          <strong className={loading ? 'is-loading' : ''}>{loading ? 'Đang tải…' : slide.value}</strong>
-          <small>{slide.detail}</small>
+          <strong className={loading ? 'is-loading' : ''}>{loading ? 'Đang tải…' : slide.display ?? slide.value}</strong>
+          {slide.detail && <small>{slide.detail}</small>}
           {slide.actionLabel && <span className="aura-metric-carousel__action">{slide.actionLabel} <b aria-hidden="true">→</b></span>}
         </>
         const className = `aura-metric-carousel__slide aura-metric-carousel__slide--${slide.tone}`

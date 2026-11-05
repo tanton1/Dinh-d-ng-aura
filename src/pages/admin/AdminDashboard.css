@@ -29,7 +29,7 @@
 /* Sections render in DOM order so reading, focus and visual order agree. */
 .admin-dashboard__syncbar{display:flex;min-width:0;align-items:center;justify-content:space-between;gap:12px;padding:2px 2px 0}
 .admin-dashboard__syncbar>div:first-of-type{display:grid;min-width:0;gap:2px}
-.admin-dashboard__syncbar small,.admin-dashboard__tasks header small,.admin-dashboard__glance header small,.admin-dashboard__shortcuts header small,.admin-dashboard__analytics>header small{color:var(--dashboard-pink);font-size:9px;font-weight:900;letter-spacing:.1em}
+.admin-dashboard__glance header small{color:var(--dashboard-pink);font-size:9px;font-weight:900;letter-spacing:.1em}
 .admin-dashboard__syncbar strong{overflow:hidden;font-size:16px;text-overflow:ellipsis;white-space:nowrap}
 .admin-dashboard__syncbar span{color:var(--dashboard-muted);font-size:10px}
 .admin-dashboard__data-state{display:flex!important;align-items:center;gap:5px}.admin-dashboard__data-state>i{width:6px;height:6px;flex:0 0 6px;border-radius:50%;background:#2dbd69;box-shadow:0 0 0 3px rgba(45,189,105,.1)}.admin-dashboard__data-state.is-loading>i{background:#ff9857;animation:dashboard-state-pulse .9s ease-in-out infinite alternate}.admin-dashboard__data-state.is-error>i{background:#e65367}@keyframes dashboard-state-pulse{to{opacity:.38}}
@@ -109,7 +109,6 @@
 .admin-dashboard__chart-card>header{display:flex;min-width:0;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:8px}
 .admin-dashboard__chart-card>header>div{display:grid;min-width:0;gap:2px}.admin-dashboard__chart-card>header small{color:#bd3f6d;font-size:8px;font-weight:900;letter-spacing:.08em}.admin-dashboard__chart-card>header strong{overflow:hidden;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.admin-dashboard__chart-card>header>span{border-radius:999px;padding:5px 8px;background:#fff0f5;color:#bf3d70;font-size:8.5px;font-weight:850;white-space:nowrap}
 .admin-dashboard__chart-card>header details{position:relative}.admin-dashboard__chart-card>header summary{display:grid;width:27px;height:27px;place-items:center;border-radius:9px;color:#a68a98;cursor:pointer;list-style:none}.admin-dashboard__chart-card>header summary::-webkit-details-marker{display:none}.admin-dashboard__chart-card>header details[open]{width:100%;flex:0 0 100%}.admin-dashboard__chart-card>header details[open]>summary{margin-left:auto}.admin-dashboard__chart-card>header details>p{width:100%;margin:4px 0 0;border:1px solid #f0dce5;border-radius:12px;padding:9px;background:#fff;color:#6d5864;font-size:9px;line-height:1.5;box-shadow:0 10px 24px rgba(54,26,43,.1)}
-.admin-dashboard__chart-totals{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.admin-dashboard__chart-totals>span{display:grid;min-width:0;gap:2px;border:1px solid #f3e3ea;border-radius:11px;padding:8px;background:rgba(255,255,255,.84)}.admin-dashboard__chart-totals small{overflow:hidden;color:#9a8290;font-size:7.5px;font-weight:800;text-overflow:ellipsis;white-space:nowrap}.admin-dashboard__chart-totals b{overflow:hidden;color:#4a3340;font-size:10px;text-overflow:ellipsis;white-space:nowrap}
 .admin-dashboard__chart-legend{display:flex;flex-wrap:wrap;gap:5px 10px}.admin-dashboard__chart-legend span{display:flex;align-items:center;gap:4px;color:#846f7a;font-size:8px;font-weight:750}.admin-dashboard__chart-legend span::before{width:13px;height:3px;border-radius:4px;background:var(--aura-brand-pink);content:""}.admin-dashboard__chart-legend .is-cash::before{height:7px;background:rgba(246,47,130,.22)}.admin-dashboard__chart-legend .is-revenue::before{background:#ff8751}.admin-dashboard__chart-legend .is-net::before{background:#604455}
 .admin-dashboard__revenue-chart{min-width:0;min-height:145px}.admin-dashboard__revenue-chart svg{display:block;width:100%;height:auto;max-height:205px;overflow:visible}.admin-dashboard__revenue-chart line{stroke:#f1e2e9;stroke-width:1}.admin-dashboard__revenue-chart line.is-zero{stroke:#d9c4ce;stroke-dasharray:4 4}.admin-dashboard__revenue-chart rect.is-cash-bar{fill:rgba(246,47,130,.2)}.admin-dashboard__revenue-chart path{fill:none;stroke:var(--aura-brand-pink);stroke-width:3;stroke-linecap:round;stroke-linejoin:round}.admin-dashboard__revenue-chart path.is-revenue-area{fill:url(#dashboardRevenueArea);stroke:none}.admin-dashboard__revenue-chart path.is-revenue{stroke:#ff8751}.admin-dashboard__revenue-chart path.is-net{stroke:#604455}.admin-dashboard__revenue-chart circle{stroke:#fff;stroke-width:2}.admin-dashboard__revenue-chart circle.is-sales{fill:var(--aura-brand-pink)}.admin-dashboard__revenue-chart circle.is-revenue{fill:#ff8751}.admin-dashboard__revenue-chart circle.is-net{fill:#604455}.admin-dashboard__revenue-chart text{fill:#927d88;font-size:9px;font-weight:700}.admin-dashboard__revenue-chart text.is-axis{font-size:8px;font-weight:750}
 .admin-dashboard__chart-empty{display:grid;min-height:145px;place-items:center;border-radius:13px;background:#fff;color:#9d8793;font-size:9.5px;text-align:center}
@@ -140,7 +139,6 @@
   .admin-dashboard__analytics>header{padding-right:12px}
   .admin-dashboard__analytics-grid{display:grid;grid-template-columns:1fr;gap:9px;overflow:visible;padding-right:12px;padding-bottom:5px}
   .admin-dashboard__chart-card{width:100%;min-width:0}.admin-dashboard__chart-card--revenue{grid-column:auto}
-  .admin-dashboard__chart-totals{gap:4px}.admin-dashboard__chart-totals>span{padding:7px 6px}
   .admin-dashboard__ratio-body{grid-template-columns:100px minmax(0,1fr)}.admin-dashboard__donut{width:98px}
   .admin-dashboard__task-list>button{padding:9px}.admin-dashboard__task-list small{white-space:normal;line-height:1.35}
   .admin-dashboard__attendance>header{align-items:flex-start;flex-direction:column}.admin-dashboard__attendance-summary{width:100%}.admin-dashboard__attendance-summary>span{min-width:72px;flex:1}
@@ -231,7 +229,6 @@
 .admin-dashboard__payroll{min-width:0;border:1px solid rgba(246,47,130,.14);border-radius:21px;padding:16px;background:rgba(255,255,255,.94);box-shadow:0 13px 34px rgba(91,39,64,.07);backdrop-filter:blur(12px)}
 .admin-dashboard__payroll>header{display:flex;min-width:0;align-items:flex-start;justify-content:space-between;gap:14px}
 .admin-dashboard__payroll>header>div{display:grid;min-width:0;gap:2px}
-.admin-dashboard__payroll>header small{color:var(--dashboard-pink);font-size:9px;font-weight:900;letter-spacing:.1em}
 .admin-dashboard__payroll>header h2{margin:0;color:#392832;font-size:18px;letter-spacing:-.025em}
 .admin-dashboard__payroll>header p{margin:2px 0 0;color:#8b7581;font-size:9.5px;line-height:1.45}
 .admin-dashboard__payroll>header>button{display:inline-flex;min-height:34px;flex:0 0 auto;align-items:center;justify-content:center;gap:5px;border:0;border-radius:11px;padding:0 12px;background:linear-gradient(110deg,var(--aura-brand-pink),#ff8751);color:#fff;font-size:9px;font-weight:900;cursor:pointer;white-space:nowrap}
@@ -305,3 +302,35 @@
   .admin-dashboard__payroll-bars>span{width:min(15px,39%)}
   .admin-dashboard__payroll-panel>footer small{width:100%;margin-left:0}
 }
+
+/* Headings stand alone: one title per section, no eyebrow above it. */
+.admin-dashboard__tasks h2,.admin-dashboard__attendance h2,.admin-dashboard__receivables h2{margin:0}
+.admin-dashboard__ratio-body>.admin-dashboard__package-bars{border-top:0;padding-top:0}
+.admin-dashboard__ratio-empty{margin:0;color:var(--dashboard-muted);font-size:12px}
+.admin-dashboard__payroll-state.is-compact{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:10px;padding:14px 16px;text-align:left}
+.admin-dashboard__payroll-state.is-compact strong{flex:1 1 180px;color:var(--dashboard-ink)}
+.admin-dashboard__payroll-state.is-compact button{margin-top:0}
+.admin-dashboard .aura-count-up{font-variant-numeric:tabular-nums}
+
+/* Motion, after React Bits: sections fade up in reading order on first paint
+   (FadeContent), tasks follow one by one, the hovered task carries a soft
+   spotlight (SpotlightCard) and a clear queue gets a small check pop.
+   `backwards` fill leaves no transform behind, so popovers keep their layer. */
+@keyframes admin-dashboard-rise{from{opacity:0;transform:translateY(10px)}}
+@keyframes admin-dashboard-pop{0%{opacity:0;transform:scale(.6)}70%{transform:scale(1.12)}}
+@media (prefers-reduced-motion:no-preference){
+  .admin-dashboard--v2>:not(.admin-dashboard__syncbar){animation:admin-dashboard-rise .45s cubic-bezier(.2,.75,.25,1) backwards}
+  .admin-dashboard--v2>:nth-child(3){animation-delay:50ms}
+  .admin-dashboard--v2>:nth-child(4){animation-delay:100ms}
+  .admin-dashboard--v2>:nth-child(5){animation-delay:150ms}
+  .admin-dashboard--v2>:nth-child(n+6){animation-delay:200ms}
+  .admin-dashboard__task-list>button{animation:admin-dashboard-rise .4s cubic-bezier(.2,.75,.25,1) backwards;animation-delay:calc(120ms + var(--i,0) * 55ms)}
+  .admin-dashboard__healthy>svg{animation:admin-dashboard-pop .5s cubic-bezier(.3,1.4,.5,1) .2s backwards}
+}
+@media (hover:hover){
+  .admin-dashboard__task-list>button{position:relative;overflow:hidden;isolation:isolate}
+  .admin-dashboard__task-list>button::before{content:'';position:absolute;inset:0;z-index:-1;background:radial-gradient(200px circle at var(--spot-x,50%) var(--spot-y,50%),rgba(236,44,118,.11),transparent 70%);opacity:0;transition:opacity .2s ease;pointer-events:none}
+  .admin-dashboard__task-list>button:hover::before{opacity:1}
+}
+/* All four cards are on screen here, so "01 / 04" says nothing. */
+@media (min-width:1180px){.admin-dashboard>.aura-metric-carousel .aura-metric-carousel__number{display:none}}
