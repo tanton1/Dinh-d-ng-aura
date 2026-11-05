@@ -166,7 +166,7 @@ test('automatic 48-hour attendance counts as completed teaching even while reven
   assert.deepEqual(result.trainers.get('trainer-a').flatMap(slot => slot.sessionIds).sort(), ['automatic', 'manual'])
 })
 
-test('payroll reconciliation exposes each manually confirmed session as an actionable row', () => {
+test('payroll reconciliation exposes an explicit attendance review as an actionable row', () => {
   const rows = payrollEvidenceReviewRows({
     teachingEvidenceReviewRequiredSessionIds: ['manual-session'],
   }, [{
@@ -179,7 +179,7 @@ test('payroll reconciliation exposes each manually confirmed session as an actio
     status: 'completed',
     attendanceStatus: 'present',
     confirmationSource: 'manual',
-    recognitionReviewRequired: true,
+    payrollAttendanceReviewRequired: true,
   }])
 
   assert.equal(rows.length, 1)
@@ -263,10 +263,37 @@ test('legacy attendance rebuild counts automatic confirmed teaching', () => {
   assert.equal(result.teachingEvidenceReviewRequiredCount, 0)
 })
 
-test('manual attendance with unresolved recognition evidence still waits for review', () => {
+test('legacy attendance rebuild pays manual teaching with a finance-only review', () => {
+  const sessions = new Map([
+    ['manual', { trainerId: 'trainer-a', studentId: 'student-a', date: '2026-08-25', hour: 6,
+      attendanceStatus: 'present', confirmationSource: 'manual', recognitionReviewRequired: true,
+      recognitionReviewIssueCode: 'RECOGNITION_ZERO_VALUE_REQUIRES_REVIEW' }],
+  ])
+  const result = teachingSlotsFromAttendance([
+    { id: 'manual', type: 'attended', sessionId: 'manual', studentId: 'student-a', attendanceStatus: 'present',
+      confirmationSource: 'manual', recognitionReviewRequired: true },
+  ], sessions, { ratePerSession: 20_000 })
+
+  assert.equal(result.teachingSlotCount, 1)
+  assert.equal(result.teachingEvidenceReviewRequiredCount, 0)
+})
+
+test('manual attendance remains payable while revenue recognition is reviewed by finance', () => {
   const result = teachingSlotsFromSessions([
     { id: 'manual-review', status: 'completed', trainerId: 'trainer-a', studentId: 'student-a', date: '2026-08-25', hour: 6,
-      confirmationSource: 'manual', recognitionReviewRequired: true },
+      attendanceStatus: 'present', billingStatus: 'charged', confirmationSource: 'manual', recognitionReviewRequired: true,
+      recognitionReviewIssueCode: 'RECOGNITION_ZERO_VALUE_REQUIRES_REVIEW' },
+  ], { ratePerSession: 20_000 })
+  assert.equal(result.teachingSlotCount, 1)
+  assert.equal(result.teachingEvidenceReviewRequiredCount, 0)
+  assert.deepEqual(result.teachingEvidenceReviewRequiredSessionIds, [])
+  assert.deepEqual(result.trainers.get('trainer-a').flatMap(slot => slot.sessionIds), ['manual-review'])
+})
+
+test('an explicit payroll attendance review still holds a manual teaching slot', () => {
+  const result = teachingSlotsFromSessions([
+    { id: 'manual-review', status: 'completed', trainerId: 'trainer-a', studentId: 'student-a', date: '2026-08-25', hour: 6,
+      attendanceStatus: 'present', confirmationSource: 'manual', payrollAttendanceReviewRequired: true },
   ], { ratePerSession: 20_000 })
   assert.equal(result.teachingSlotCount, 0)
   assert.equal(result.teachingEvidenceReviewRequiredCount, 1)
