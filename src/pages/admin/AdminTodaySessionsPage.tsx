@@ -123,7 +123,7 @@ export default function AdminTodaySessionsPage({ onNavigate }: { onNavigate: (vi
   return <main className="today-sessions-page">
     <header className="today-sessions-page__header">
       <button type="button" className="today-sessions-page__back" onClick={() => onNavigate('admin-dashboard')} aria-label="Quay lại Tổng quan"><ArrowLeft size={18} /></button>
-      <div><small>AURA OPERATIONS · HIỆN DIỆN</small><h1>Ca tập hôm nay</h1><p><CalendarDays size={14} /> {todayCaption()}</p></div>
+      <div><h1>Ca tập hôm nay</h1><p><CalendarDays size={14} /> {todayCaption()}</p></div>
       <div className="today-sessions-page__actions">
         {data && data.filters.branches.length > 1 ? <label><Building2 size={15} /><select value={branchId} onChange={(event) => setBranchId(event.target.value)} aria-label="Lọc ca theo chi nhánh"><option value="all">Tất cả cơ sở</option>{data.filters.branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label> : null}
         <button type="button" onClick={() => void load(true)} disabled={refreshing} aria-label="Làm mới ca tập"><RefreshCw size={17} className={refreshing ? 'is-spinning' : ''} /><span>Làm mới</span></button>

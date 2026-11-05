@@ -3,7 +3,6 @@ import {
   AlertCircle,
   AlertTriangle,
   Boxes,
-  ChefHat,
   ClipboardList,
   PackageCheck,
   RefreshCw,
@@ -244,9 +243,7 @@ function AdminEatCleanWorkspace({ accountId, currentRole, initialTab = 'dispatch
     <main className={`page admin-eat-clean-page ${className}`.trim()} aria-busy={needsAdminData && (loading || refreshing)}>
       <header className="eat-clean-hero">
         <div className="eat-clean-hero__content">
-          <span className="eat-clean-eyebrow"><ChefHat size={14} /> AURA · EAT CLEAN ADMIN</span>
-          <h1>Trung tâm vận hành Eat Clean</h1>
-          <p>Kiểm soát đơn hàng, món ăn, nguyên liệu và lịch giao trong một luồng rõ ràng.</p>
+          <h1>Vận hành Eat Clean</h1>
           {needsAdminData && <div className="eat-clean-hero__actions">
             {data && <span className={`eat-clean-live-state ${data.config.acceptingOrders ? 'is-open' : ''}`}>
               <span /> {data.config.acceptingOrders ? 'Đang nhận đơn' : 'Đang tạm dừng'}

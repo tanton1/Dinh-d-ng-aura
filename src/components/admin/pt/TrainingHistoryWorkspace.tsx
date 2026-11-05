@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
-import { CalendarClock, CalendarRange, Dumbbell, History, UsersRound } from 'lucide-react'
+import { CalendarClock, CalendarRange, Dumbbell, UsersRound } from 'lucide-react'
 import '../../../styles-training-history-workspace.css'
 
 const OperationsRequestCenter = lazy(() => import('./OperationsRequestCenter'))
@@ -42,7 +42,7 @@ export default function TrainingHistoryWorkspace({ initialView = 'changes' }: { 
 
   return <div className="training-history-workspace">
     <header className="training-history-workspace__hero">
-      <div><span><History size={16} /> AURA OPERATIONS · NHẬT KÝ PT</span><h1>Lịch sử tập & dạy</h1></div>
+      <div><h1>Lịch sử tập & dạy</h1></div>
     </header>
 
     <div className="training-history-workspace__switch" role="tablist" aria-label="Nhật ký và yêu cầu PT">

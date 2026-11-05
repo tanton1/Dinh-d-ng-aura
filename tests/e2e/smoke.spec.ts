@@ -70,7 +70,7 @@ test('demo Eat Clean admin uses its local snapshot without calling production', 
   })
 
   await page.goto('/#/admin-eat-clean')
-  await expect(page.getByRole('heading', { name: 'Trung tâm vận hành Eat Clean' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Vận hành Eat Clean' })).toBeVisible()
   for (const tabName of ['Điều phối', 'Đơn hàng', 'Thực đơn', 'Tồn kho', 'Vận hành']) {
     const tab = page.getByRole('tab', { name: tabName, exact: true })
     await tab.click()

@@ -802,9 +802,7 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
       <div className="schedule-workspace schedule-workspace--admin p-6 space-y-6 pb-24">
         <div className="schedule-workspace__header">
           <div className="schedule-workspace__heading">
-            <span>AURA PT OPERATIONS</span>
             <h1>Xếp lịch tập</h1>
-            <p>Điều phối lịch rảnh, ca PT và phiên bản publish trong một workspace.</p>
           </div>
 
           <div className="schedule-workspace__controlbar">

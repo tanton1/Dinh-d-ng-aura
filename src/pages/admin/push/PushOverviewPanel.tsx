@@ -195,7 +195,7 @@ export function PushOverviewPanel({
           </div>
 
           <p className="push-card__description">
-            Bật thông báo cho trình duyệt này, sau đó gửi một bản kiểm tra chỉ đến tài khoản quản trị hiện tại.
+            Bật thông báo trên trình duyệt này rồi gửi bản kiểm tra đến chính bạn.
           </p>
           <div className="push-device-actions">
             {!deviceReady && (

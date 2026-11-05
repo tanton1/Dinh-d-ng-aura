@@ -1,6 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  CalendarClock,
   CalendarRange,
   Check,
   CircleAlert,
@@ -170,17 +169,17 @@ export default function OperationsRequestCenter({ kind = 'all', initialFilter }:
       ? 'Đổi, hủy và thêm buổi'
       : 'OFF và bảo lưu'
   const subtitle = kind === 'all'
-    ? 'Theo dõi yêu cầu đổi, hủy, thêm/bù buổi, OFF và bảo lưu cùng lịch sử xử lý.'
+    ? 'Đổi, hủy, thêm/bù buổi, OFF và bảo lưu kèm lịch sử xử lý.'
     : kind === 'session'
-      ? 'Admin duyệt yêu cầu đổi, hủy, xếp thêm ca và bù buổi. Thông báo học viên vắng trước giờ được ghi nhận ngay, không cần Admin xác nhận.'
-      : 'Duyệt quyền lợi hợp đồng, thời gian nghỉ, số ngày cộng hạn và các ca được miễn.'
+      ? 'Báo vắng trước giờ được ghi nhận ngay, không cần duyệt.'
+      : 'Thời gian nghỉ, số ngày cộng hạn và ca được miễn.'
   const requiresExceptionReason = decision?.action === 'approve'
     && decision.record.kind === 'pause'
     && decision.record.requiresExceptionApproval === true
 
   return <section className="operations-requests" aria-busy={loading}>
     <header className="operations-requests__header">
-      <div><span>{kind === 'pause' ? <CalendarRange size={16} /> : <CalendarClock size={16} />} AURA PT · NHẬT KÝ YÊU CẦU</span><h2>{title}</h2><p>{subtitle}</p></div>
+      <div><h2>{title}</h2><p>{subtitle}</p></div>
       <button type="button" onClick={() => void load()} disabled={loading} aria-label="Tải lại yêu cầu"><RefreshCw className={loading ? 'is-spinning' : ''} size={18} /></button>
     </header>
 

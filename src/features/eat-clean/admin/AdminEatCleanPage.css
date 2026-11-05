@@ -56,6 +56,9 @@
 .eat-clean-hero h1 { max-width: 640px; margin: 10px 0 10px; color: #281422; font-size: clamp(28px, 3vw, 42px); line-height: 1.06; letter-spacing: -.04em; }
 .eat-clean-hero p { max-width: 650px; margin: 0; color: #74636f; font-size: 14px; line-height: 1.65; }
 .eat-clean-hero > img { width: 100%; height: 100%; min-height: 250px; object-fit: cover; }
+/* The hero now carries only the title and live state, so it stays a banner. */
+.admin-eat-clean-page > .eat-clean-hero { min-height: 0; }
+.admin-eat-clean-page > .eat-clean-hero > img { height: 168px; min-height: 0; }
 .eat-clean-hero__actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
 .eat-clean-live-state { min-height: 38px; display: inline-flex; align-items: center; gap: 8px; padding: 0 13px; border: 1px solid #ffd7e4; border-radius: 999px; color: #a74668; background: rgba(255, 255, 255, .82); font-size: 12px; font-weight: 800; }
 .eat-clean-live-state > span { width: 8px; height: 8px; border-radius: 50%; background: var(--ec-orange); box-shadow: 0 0 0 4px rgba(255, 124, 85, .15); }

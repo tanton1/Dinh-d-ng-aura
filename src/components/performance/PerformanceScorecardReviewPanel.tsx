@@ -168,7 +168,7 @@ export default function PerformanceScorecardReviewPanel({ periodId, staff, isDem
   const isFallback = metricDraft.source !== 'manager_review'
   return <section className="performance-scorecard-review" aria-label="Phiếu Aura PT Performance Score">
     <header className="performance-scorecard-review__header">
-      <span><ClipboardCheck /></span><div><small>Phiếu KPI 100 điểm</small><h2>Hiệu suất theo từng PT</h2><p>Chọn nhân sự để xem điểm, nguồn dữ liệu và bốn Gate bắt buộc.</p></div>
+      <span><ClipboardCheck /></span><div><small>Phiếu KPI 100 điểm</small><h2>Hiệu suất theo từng PT</h2></div>
       <label><span>Chọn PT</span><select value={staffId} onChange={(event) => setStaffId(event.target.value)}><option value="">Chọn nhân sự</option>{staff.map((item) => <option key={item.staffId} value={item.staffId}>{item.name}</option>)}</select></label>
       <button type="button" disabled={!staffId || loading} onClick={() => void load()} aria-label="Tải lại phiếu"><RefreshCw /></button>
     </header>

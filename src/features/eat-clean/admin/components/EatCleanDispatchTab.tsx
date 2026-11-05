@@ -227,7 +227,7 @@ export function EatCleanDispatchTab({ accountId, isDemo = false }: { accountId: 
   return (
     <section className="eat-clean-panel eat-clean-dispatch" aria-labelledby="eat-clean-dispatch-title">
       <div className="eat-clean-panel__heading eat-clean-panel__heading--action">
-        <div><span className="eat-clean-kicker">DISPATCH CENTER</span><h2 id="eat-clean-dispatch-title">Điều phối giao hàng theo SLA</h2><p>Theo dõi đơn, shipper và cấu hình phí quãng đường trong cùng một luồng.</p></div>
+        <div><h2 id="eat-clean-dispatch-title">Điều phối giao hàng theo SLA</h2></div>
         <button type="button" className="eat-clean-secondary-button" onClick={load} disabled={refreshing}><RefreshCw size={17} className={refreshing ? 'is-spinning' : ''} /> Làm mới</button>
       </div>
 

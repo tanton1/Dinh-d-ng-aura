@@ -543,11 +543,9 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
         <div className="flex items-center gap-3">
           <img src="/icons/aura-icon.svg" alt="" width="40" height="40" className="student-management__brand h-10 w-10 object-contain" />
           <div>
-            <p className="student-management__eyebrow">AURA OPERATIONS · CRM PT</p>
             <h1 className="student-management__title text-3xl md:text-4xl font-serif font-medium text-pink-500 tracking-tight">
               Học viên PT
             </h1>
-            <p className="student-management__subtitle text-zinc-400 mt-2 text-sm">Hồ sơ, tài khoản đăng nhập, hợp đồng và lịch trong một nơi.</p>
           </div>
         </div>
         <button
@@ -581,12 +579,12 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
         >
           {carouselOrder.map((slide) => slide === 'overview' ? (
             <article key={slide} className="student-management__carousel-slide is-overview">
-              <div><small>AURA CRM · TỔNG QUAN</small><h2>{studentOverview.total} học viên</h2><p>Đang tập được đối chiếu cùng quy tắc hợp đồng của Xếp lịch trong tuần hiện tại.</p></div>
+              <div><small>TỔNG QUAN</small><h2>{studentOverview.total} học viên</h2></div>
               <div className="student-management__carousel-metrics"><span><strong>{studentOverview.active}</strong>Đủ điều kiện tuần</span><span><strong>{studentOverview.unassigned}</strong>Chưa phân PT</span></div>
             </article>
           ) : slide === 'alerts' ? (
             <article key={slide} className="student-management__carousel-slide is-alerts">
-              <div><small>CẦN XỬ LÝ SỚM</small><h2>{studentOverview.expiring} hồ sơ</h2><p>Sắp hết hạn hoặc chỉ còn tối đa hai buổi tập.</p></div>
+              <div><small>CẦN XỬ LÝ SỚM</small><h2>{studentOverview.expiring} hồ sơ</h2><p>Sắp hết hạn hoặc còn tối đa 2 buổi.</p></div>
               <button type="button" onClick={() => { setContractFilter('expiring_week'); setStudentPage(1); }}>Lọc danh sách cảnh báo <ChevronRight size={16} /></button>
             </article>
           ) : (

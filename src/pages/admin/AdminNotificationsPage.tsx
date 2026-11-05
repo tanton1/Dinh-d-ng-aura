@@ -390,9 +390,7 @@ function AdminNotificationsSession({
     <main className="page admin-push-page">
       <div className="admin-push-page__header">
         <PageHeader
-          eyebrow="Vận hành & chăm sóc"
           title="Push Notifications"
-          description="Gửi đúng người, đúng thời điểm và theo dõi kết quả rõ ràng."
         />
       </div>
 

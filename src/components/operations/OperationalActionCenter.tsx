@@ -119,7 +119,7 @@ function ActionCenterPanel({ accountId, isDemo = false, onOpenStudent }: Props &
   const busy = Boolean(busyId) || loading || loadingMore
   return <section ref={visibility.ref} className="operational-action-center" aria-labelledby="operational-action-center-title">
     <header className="operational-action-center__header">
-      <div><small>AURA · ACTION CENTER</small><h2 id="operational-action-center-title">Tác vụ vận hành</h2><p>Việc cần xử lý được gom từ hợp đồng, lịch và chăm sóc học viên.</p></div>
+      <div><h2 id="operational-action-center-title">Tác vụ vận hành</h2></div>
       <div className="operational-action-center__header-actions"><span>{summary?.total ?? (isDemo ? 0 : '—')} việc</span><button type="button" onClick={() => { visibility.reveal(); void load() }} disabled={busy} aria-label="Làm mới Action Center"><RefreshCw className={loading ? 'is-spinning' : ''} size={16} /></button></div>
     </header>
     {error && <div className="operational-action-center__error" role="alert"><AlertTriangle size={16} />{error}</div>}

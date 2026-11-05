@@ -1088,7 +1088,7 @@ export default function TrainerPayroll({ profile }: Props) {
     onSelect: () => void openStaffStatement(row.staffId),
   })) : [{
     id: 'staff-empty', eyebrow: periodLabel(periodId), value: 'Chưa có số liệu',
-    detail: 'Chưa tìm thấy staff đang hoạt động trong phạm vi kỳ lương này.',
+    detail: 'Chưa có nhân sự trong kỳ lương này.',
     icon: <UsersRound size={20} />, tone: 'pink', actionLabel: 'Kiểm tra ngày công', onSelect: () => setView('workdays'),
   }]
 
@@ -1206,7 +1206,7 @@ export default function TrainerPayroll({ profile }: Props) {
               {run.status === 'paid' && <span><CheckCircle2 size={15} /> Đã hoàn tất</span>}
             </div>
           </article>})}
-        </div> : <div className="payroll-page__empty"><UsersRound size={34} /><strong>Chưa có kỳ lương phù hợp</strong><p>Chọn kỳ khác hoặc tạo bản nháp từ dữ liệu điểm danh chính thức.</p></div>}
+        </div> : <div className="payroll-page__empty"><UsersRound size={34} /><strong>Chưa có kỳ lương phù hợp</strong><p>Chọn kỳ khác hoặc tạo bản nháp.</p></div>}
       </section>
     </> : view === 'adjustments' ? <section className="payroll-adjustments" aria-label="Thưởng và phạt theo kỳ">
       <div className="payroll-adjustments__summary">

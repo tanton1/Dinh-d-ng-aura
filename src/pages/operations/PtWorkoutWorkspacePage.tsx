@@ -440,7 +440,7 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
   return (
     <main className="pt-workout-workspace">
       <section className="pt-workout-workspace__slides" aria-label="Tổng quan giáo án">
-        <article className="pt-workout-workspace__hero"><span>AURA PT · WORKOUT</span><h1>Giáo án & mức tạ</h1><p>Ghi chính xác từng hiệp ngay trong ca dạy.</p><Dumbbell /></article>
+        <article className="pt-workout-workspace__hero"><h1>Giáo án & mức tạ</h1><Dumbbell /></article>
         <article className="pt-workout-workspace__metric"><small>Ca trong ngày</small><strong>{distinctSessionCount}</strong><span>{visibleSessions.length} lượt học viên · {completedVisibleCount} đã ghi</span><CalendarDays /></article>
         <article className="pt-workout-workspace__metric"><small>Đã có giáo án</small><strong>{workspace.programs.length}</strong><span>{eligibleStudents.length} học viên còn hợp đồng</span><Target /></article>
       </section>
