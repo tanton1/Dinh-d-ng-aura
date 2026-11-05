@@ -16,9 +16,11 @@ test('operations dashboard separates contract sales from canonical cash collecti
   assert.match(source, /cashCollected/)
   assert.match(source, /collection\('ledgerEntries'\)/)
   assert.doesNotMatch(source, /collection\('payments'\)/)
-  assert.match(dashboard, /thu gộp/)
+  assert.match(dashboard, /Thu gộp/)
   assert.match(dashboard, /Thực thu ròng/)
-  assert.match(dashboard, /CÔNG NỢ QUÁ HẠN/)
+  // Overdue debt leads the receivables section rather than repeating as a KPI card.
+  assert.match(dashboard, /receivables\.summary\.overdue\.amount/)
+  assert.doesNotMatch(dashboard, /CÔNG NỢ QUÁ HẠN/)
 })
 
 test('dashboard and attendance queries are bounded and capability protected', () => {
@@ -267,8 +269,8 @@ test('staff dashboard scope fails closed for branch data but keeps explicitly as
 
 test('dashboard UI is one action-first page without legacy dashboard tabs', () => {
   assert.match(dashboard, /Hôm nay cần làm/)
-  assert.match(dashboard, /Ca tập trong ngày/)
-  assert.match(dashboard, /Lịch cần thu/)
+  assert.match(dashboard, /Ca tập hôm nay/)
+  assert.match(dashboard, /Công nợ cần thu/)
   assert.match(dashboard, /DOANH THU THỰC HIỆN/)
   assert.match(dashboard, /HỌC VIÊN MỚI/)
   assert.match(dashboard, /Có tập/)
@@ -280,11 +282,12 @@ test('dashboard UI is one action-first page without legacy dashboard tabs', () =
   assert.match(dashboard, /CƠ CẤU GÓI TẬP/)
   assert.match(dashboard, /TỶ LỆ ĐI TẬP/)
   assert.match(dashboard, /đang bảo lưu/)
-  assert.match(dashboard, /không ở trong thời gian bảo lưu/)
+  assert.match(dashboard, /không bảo lưu/)
   assert.match(dashboard, /allowAll=\{false\}/)
   assert.match(dashboard, /item\.metric\.available \|\| data\.scope\.unrestricted/)
   assert.match(dashboard, /Báo cáo nhanh theo kỳ/)
-  assert.match(dashboard, /Tổng quan không hiển thị trạng thái “ổn định” khi dữ liệu chưa tải thành công/)
+  // Without loaded data the task list shows an unavailable state, never the healthy one.
+  assert.match(dashboard, /: !data\s*\? <div className="admin-dashboard__unavailable"><AlertCircle size=\{22\} \/><strong>Chưa tải được công việc hôm nay/)
   assert.doesNotMatch(dashboard, /activeTab/)
   assert.doesNotMatch(dashboard, /admin-operations-tabs/)
 })
