@@ -2785,8 +2785,9 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
         transaction.get(db.collection('renewCohortSnapshots').where('periodId', '==', runId).limit(101)),
       ])
       if (!run.exists) return { runId, unchanged: true }
-      if (run.data().status !== 'draft') {
-        throw new HttpsError('failed-precondition', 'Chỉ kỳ lương chưa duyệt mới được xóa để lập lại.')
+      const fromStatus = run.data().status
+      if (!['draft', 'reviewed'].includes(fromStatus)) {
+        throw new HttpsError('failed-precondition', 'Chỉ kỳ lương bản nháp hoặc đã duyệt mới được xóa để lập lại. Kỳ đã khóa hoặc đã chi phải giữ nguyên chứng từ.')
       }
       if (items.size > 450) throw new HttpsError('resource-exhausted', 'Kỳ lương có quá nhiều dòng để xóa an toàn.')
       if (cohorts.size > 100) throw new HttpsError('resource-exhausted', 'Kỳ lương có quá nhiều mẫu Renew để xóa an toàn.')
@@ -2796,13 +2797,60 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
       transaction.create(db.collection('payrollAuditLogs').doc(), {
         schemaVersion: 4,
         runId,
-        action: 'payroll.draft.deleted',
+        action: fromStatus === 'reviewed' ? 'payroll.reviewed.deleted' : 'payroll.draft.deleted',
         actorUid: actor.uid,
+        fromStatus,
         deletedItemCount: items.size,
         deletedCohortCount: cohorts.size,
         createdAt: FieldValue.serverTimestamp(),
       })
       return { runId, unchanged: false }
+    })
+  })
+
+  const reopenPayrollRun = payrollCall(async (request) => {
+    const actor = await payrollActor(request, db)
+    const runId = period(request.data?.runId)
+    const runReference = db.doc(`payrollRuns/${runId}`)
+    return db.runTransaction(async (transaction) => {
+      const [run, cohorts] = await Promise.all([
+        transaction.get(runReference),
+        transaction.get(db.collection('renewCohortSnapshots').where('periodId', '==', runId).limit(101)),
+      ])
+      if (!run.exists) throw new HttpsError('not-found', 'Không tìm thấy kỳ lương.')
+      const fromStatus = run.data().status
+      if (fromStatus === 'draft') return { runId, status: 'draft', unchanged: true }
+      if (fromStatus !== 'reviewed') {
+        throw new HttpsError('failed-precondition', 'Chỉ kỳ lương đã duyệt mới được mở lại. Kỳ đã khóa hoặc đã chi phải giữ nguyên chứng từ.')
+      }
+      if (cohorts.size > 100) throw new HttpsError('resource-exhausted', 'Kỳ lương có quá nhiều mẫu Renew để mở lại an toàn.')
+      transaction.update(runReference, {
+        status: 'draft',
+        revision: FieldValue.increment(1),
+        reviewedAt: FieldValue.delete(),
+        reviewedBy: FieldValue.delete(),
+        sessionValidation: FieldValue.delete(),
+        reopenedAt: FieldValue.serverTimestamp(),
+        reopenedBy: actor.uid,
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+      cohorts.docs.forEach((cohort) => transaction.update(cohort.ref, {
+        status: 'draft',
+        lockedAt: FieldValue.delete(),
+        lockedBy: FieldValue.delete(),
+        updatedAt: FieldValue.serverTimestamp(),
+      }))
+      transaction.create(db.collection('payrollAuditLogs').doc(), {
+        schemaVersion: 1,
+        runId,
+        action: 'payroll.reopened',
+        actorUid: actor.uid,
+        fromStatus,
+        toStatus: 'draft',
+        reopenedCohortCount: cohorts.size,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      return { runId, status: 'draft', unchanged: false }
     })
   })
 
@@ -3064,6 +3112,7 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
     getPayrollRun,
     createPayrollRun,
     deleteDraftPayrollRun,
+    reopenPayrollRun,
     reviewPayrollRun,
     lockPayrollRun,
     markPayrollRunPaid,

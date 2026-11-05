@@ -1107,6 +1107,11 @@ export async function deleteDraftPayrollRun(runId: string) {
   return result.data
 }
 
+export async function reopenPayrollRun(runId: string) {
+  const result = await callable<{ runId: string }, { runId: string; status: 'draft'; unchanged: boolean }>('reopenPayrollRun')({ runId })
+  return result.data
+}
+
 async function transition(name: string, runId: string, paymentReference?: string) {
   const result = await callable<{ runId: string; paymentReference?: string }, { runId: string; status: PayrollRunStatus }>(name)({ runId, paymentReference })
   return result.data

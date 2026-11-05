@@ -636,15 +636,29 @@ test('payroll can apply selected policies by trainer, effective date or staff pr
   assert.equal(profilePriced.trainers.get('trainer-b')[0].policyId, 'policy-b')
 })
 
-test('only a draft payroll run can be deleted and its items are removed atomically', () => {
+test('draft and reviewed payroll runs can be deleted atomically while locked evidence stays protected', () => {
   const source = fs.readFileSync(path.join(__dirname, 'payroll.js'), 'utf8')
   const start = source.indexOf('const deleteDraftPayrollRun = payrollCall')
-  const end = source.indexOf('async function transition', start)
+  const end = source.indexOf('const reopenPayrollRun = payrollCall', start)
   const block = start >= 0 && end > start ? source.slice(start, end) : ''
-  assert.match(block, /status !== 'draft'/)
+  assert.match(block, /\['draft', 'reviewed'\]\.includes\(fromStatus\)/)
+  assert.match(block, /Kỳ đã khóa hoặc đã chi phải giữ nguyên chứng từ/)
   assert.match(block, /items\.docs\.forEach\(\(item\) => transaction\.delete\(item\.ref\)\)/)
   assert.match(block, /transaction\.delete\(runReference\)/)
   assert.match(block, /payroll\.draft\.deleted/)
+  assert.match(block, /payroll\.reviewed\.deleted/)
+})
+
+test('a reviewed payroll run can be reopened as a draft with review evidence reset', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'payroll.js'), 'utf8')
+  const start = source.indexOf('const reopenPayrollRun = payrollCall')
+  const end = source.indexOf('async function transition', start)
+  const block = start >= 0 && end > start ? source.slice(start, end) : ''
+  assert.match(block, /fromStatus !== 'reviewed'/)
+  assert.match(block, /status: 'draft'/)
+  assert.match(block, /sessionValidation: FieldValue\.delete\(\)/)
+  assert.match(block, /payroll\.reopened/)
+  assert.match(block, /cohorts\.docs\.forEach/)
 })
 
 test('payroll items snapshot trainer identity and attendance evidence source', () => {
@@ -723,6 +737,9 @@ test('payroll UI uses canonical runs and cannot edit teaching sessions', () => {
   assert.match(source, /Ca thứ 9\+ sau 20h/)
   assert.match(source, /Ca thứ 9\+ sau 20h/)
   assert.match(source, /deleteDraftPayrollRun/)
+  assert.match(source, /reopenPayrollRun/)
+  assert.match(source, /Mở chỉnh sửa/)
+  assert.match(source, /Xóa & tạo lại/)
   assert.match(source, /managePayrollPolicy/)
   assert.match(source, /Theo từng HLV/)
   assert.match(source, /Theo ngày hiệu lực/)

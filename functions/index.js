@@ -1278,6 +1278,7 @@ exports.listPayrollRunsV2 = payrollV2Functions.listPayrollRuns
 exports.getPayrollRunV2 = payrollV2Functions.getPayrollRun
 exports.createPayrollRunV2 = payrollV2Functions.createPayrollRun
 exports.deleteDraftPayrollRunV2 = payrollV2Functions.deleteDraftPayrollRun
+exports.reopenPayrollRunV2 = payrollV2Functions.reopenPayrollRun
 exports.reviewPayrollRunV2 = payrollV2Functions.reviewPayrollRun
 exports.lockPayrollRunV2 = payrollV2Functions.lockPayrollRun
 exports.markPayrollRunPaidV2 = payrollV2Functions.markPayrollRunPaid
