@@ -74,7 +74,7 @@ function dateLabel(value: string) {
 function profileLabel(data: MyStaffPayroll) {
   if (data.workdays.employmentType === 'collaborator') return 'Cộng tác viên'
   if (data.workdays.employmentType === 'part_time') return 'Nhân viên Part-time'
-  if (data.workdays.employmentLevel === 'probation') return 'Nhân viên thử việc'
+  if (data.workdays.employmentLevel === 'probation') return 'Nhân viên thử việc · 85% lương cơ bản'
   if (data.workdays.employmentLevel === 'senior') return 'Nhân viên Senior'
   return 'Nhân viên chính thức'
 }
@@ -191,7 +191,7 @@ export default function StaffPayrollStatementPanel({ data, periodId, loading, er
         <p className="staff-payroll__intelligence-note">Lớp này chỉ phân tích KPI, gia hạn và nguồn dữ liệu; không tự thay đổi lương cơ bản, tiền ca hoặc hoa hồng hiện hữu.</p>
       </section>}
 
-      <section className="staff-payroll__calendar" aria-label="Chi tiết ngày công nhân viên">
+      {data.workdays.employmentType !== 'collaborator' && <section className="staff-payroll__calendar" aria-label="Chi tiết ngày công nhân viên">
         <div className="staff-payroll__section-title"><div><span>Ngày công đã ghi nhận</span><strong>{workdays?.paidDays || 0}/{workdays?.eligibleWorkdays || 0} ngày</strong></div><small>Dự tính toàn kỳ {workdays?.estimatedPaidDays || 0}/{workdays?.eligibleWorkdays || 0} · {workdays?.autoPaidDays || 0} ngày tự tính từ ≥5 ca</small></div>
         <div className="staff-payroll__weekday"><span>T2</span><span>T3</span><span>T4</span><span>T5</span><span>T6</span><span>T7</span><span>CN</span></div>
         <div className="staff-payroll__days">
@@ -199,7 +199,7 @@ export default function StaffPayrollStatementPanel({ data, periodId, loading, er
           {workdays?.days.map((day) => { const meta = workdayStatus[day.status]; return <article className={`is-${meta.tone}`} key={day.date} title={`${dateLabel(day.date)} · ${meta.label}`}><time>{Number(day.date.slice(-2))}</time><b>{meta.short}</b></article> })}
         </div>
         <div className="staff-payroll__legend"><span className="is-paid">Đủ công</span><span className="is-review">Chờ duyệt</span><span className="is-unpaid">Không lương</span><span className="is-rest">Nghỉ/Lễ</span></div>
-      </section>
+      </section>}
 
       <section className="staff-payroll__teaching" aria-label="Chi tiết ca dạy nhân viên">
         <div className="staff-payroll__section-title"><div><span>Ca dạy PT</span><strong>{filteredTeaching.length}/{data.teachingSlots.length} ca</strong></div><small>Hai học viên cùng giờ chỉ tính một ca</small></div>

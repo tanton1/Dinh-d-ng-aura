@@ -319,6 +319,7 @@ export interface PayrollRunItem {
   trainerId: string
   staffId: string
   employmentType: 'full_time' | 'part_time' | 'collaborator'
+  employmentLevel: 'probation' | 'official' | 'senior'
   staffSnapshot?: {
     name?: string
     employeeCode?: string
@@ -740,6 +741,7 @@ export async function getPayrollRun(runId: string): Promise<PayrollRunDetail> {
       trainerId: typeof raw.trainerId === 'string' ? raw.trainerId : '',
       staffId: typeof raw.staffId === 'string' ? raw.staffId : typeof raw.trainerId === 'string' ? raw.trainerId : '',
       employmentType: raw.employmentType === 'collaborator' || raw.employmentType === 'part_time' ? raw.employmentType : 'full_time',
+      employmentLevel: raw.employmentLevel === 'probation' || raw.employmentLevel === 'senior' ? raw.employmentLevel : 'official',
       staffSnapshot,
       trainerSnapshot,
       sessionCount: teachingSlots.length || Math.max(0, Math.trunc(amount(raw.sessionCount))),

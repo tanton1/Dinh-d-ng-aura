@@ -53,6 +53,7 @@ export interface PayrollPdfStatement {
     employeeCode: string
     branchName: string
     profileLabel: string
+    employmentType: 'full_time' | 'part_time' | 'collaborator'
   }
   policyName: string
   amounts: {
@@ -162,7 +163,7 @@ function dateLabel(value: string) {
 function profileLabel(employmentType: string, employmentLevel = '') {
   if (employmentType === 'collaborator') return 'Cộng tác viên'
   if (employmentType === 'part_time') return 'Nhân viên Part-time'
-  if (employmentLevel === 'probation') return 'Nhân viên thử việc'
+  if (employmentLevel === 'probation') return 'Nhân viên thử việc · 85% lương cơ bản'
   if (employmentLevel === 'senior') return 'Nhân viên Senior'
   return 'Nhân viên chính thức'
 }
@@ -243,7 +244,8 @@ export function payrollPdfFromRunItem(
       name: employeeName,
       employeeCode,
       branchName: branchLabel(branchId, options),
-      profileLabel: profileLabel(item.employmentType),
+      profileLabel: profileLabel(item.employmentType, item.employmentLevel),
+      employmentType: item.employmentType,
     },
     policyName: [...new Set(item.teachingSlots.map((slot) => slot.policyName).filter(Boolean))].join(', ') || run.policyName || 'Chưa cập nhật chính sách',
     amounts: {
@@ -304,6 +306,7 @@ export function payrollPdfFromStaffStatement(
       employeeCode: data.identity.employeeCode,
       branchName: branchLabel(data.identity.branchId, options),
       profileLabel: profileLabel(data.workdays.employmentType, data.workdays.employmentLevel),
+      employmentType: data.workdays.employmentType,
     },
     policyName: data.compensationPolicy.name,
     amounts: { ...data.amounts },
@@ -393,7 +396,6 @@ export async function createPayrollStatementPdf(statement: PayrollPdfStatement, 
   const muted: [number, number, number] = [119, 107, 114]
   const line: [number, number, number] = [229, 222, 226]
   const soft: [number, number, number] = [250, 247, 249]
-  const green: [number, number, number] = [31, 112, 78]
   let y = 13
 
   const ensureSpace = (height: number) => {
@@ -493,16 +495,25 @@ export async function createPayrollStatementPdf(statement: PayrollPdfStatement, 
   doc.setFontSize(7.5)
   doc.setFont('Roboto', 'normal')
   doc.setTextColor(220, 207, 215)
-  doc.text(`${statement.workdays.paidDays}/${statement.workdays.eligibleWorkdays} ngày công  ·  ${statement.teaching.slots.length} ca dạy`, pageWidth - margin - 6, y + 15, { align: 'right' })
+  const collaborator = statement.employee.employmentType === 'collaborator'
+  doc.text(collaborator
+    ? `${statement.teaching.slots.length} ca dạy`
+    : `${statement.workdays.paidDays}/${statement.workdays.eligibleWorkdays} ngày công  ·  ${statement.teaching.slots.length} ca dạy`, pageWidth - margin - 6, y + 15, { align: 'right' })
   y += 28
 
   const metricGap = 3
   const metricWidth = (contentWidth - metricGap * 2) / 3
-  const metrics = [
-    ['Ngày công', `${statement.workdays.paidDays}/${statement.workdays.eligibleWorkdays}`],
-    ['Ca dạy', `${statement.teaching.slots.length}`],
-    ['Hoa hồng', money(statement.amounts.commissionAmount)],
-  ]
+  const metrics = collaborator
+    ? [
+        ['Ca dạy', `${statement.teaching.slots.length}`],
+        ['Tiền ca', money(statement.amounts.teachingPayAmount)],
+        ['Thực nhận', money(statement.amounts.finalAmount)],
+      ]
+    : [
+        ['Ngày công', `${statement.workdays.paidDays}/${statement.workdays.eligibleWorkdays}`],
+        ['Ca dạy', `${statement.teaching.slots.length}`],
+        ['Hoa hồng', money(statement.amounts.commissionAmount)],
+      ]
   metrics.forEach(([label, value], index) => {
     const x = margin + index * (metricWidth + metricGap)
     doc.setFillColor(...soft)
@@ -519,7 +530,7 @@ export async function createPayrollStatementPdf(statement: PayrollPdfStatement, 
   y += 22
 
   const incomeRows: Array<[string, string]> = [
-    ['Lương cơ bản', money(statement.amounts.baseSalaryAmount)],
+    ...(!collaborator ? [['Lương cơ bản', money(statement.amounts.baseSalaryAmount)] as [string, string]] : []),
     ['Ca dạy', money(statement.amounts.teachingPayAmount)],
     ...(statement.amounts.commissionAmount || statement.referral.contractCount ? [['Hoa hồng', money(statement.amounts.commissionAmount)] as [string, string]] : []),
     ...(statement.amounts.bonusAmount ? [['Thưởng', money(statement.amounts.bonusAmount)] as [string, string]] : []),
@@ -539,12 +550,11 @@ export async function createPayrollStatementPdf(statement: PayrollPdfStatement, 
   const daysInPeriod = validPeriod ? new Date(periodYear, periodMonth, 0).getDate() : statement.workdays.rows.length
   const leadingDays = validPeriod ? (new Date(periodYear, periodMonth - 1, 1).getDay() + 6) % 7 : 0
   const calendarRows = Math.max(1, Math.ceil((leadingDays + daysInPeriod) / 7))
-  const workdayByDate = new Map(statement.workdays.rows.map((day) => [day.date.slice(0, 10), day]))
   const slotsByDate = new Map<string, number>()
   statement.teaching.slots.forEach((slot) => slotsByDate.set(slot.date, (slotsByDate.get(slot.date) || 0) + 1))
   const calendarHeight = 12 + calendarRows * 13.5
   ensureSpace(calendarHeight + 12)
-  sectionTitle('Lịch công & ca dạy', `${statement.workdays.pendingDays} ngày chờ chốt`)
+  sectionTitle('Lịch ca dạy', `${slotsByDate.size} ngày có ca`)
   const weekdays = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']
   const calendarCellWidth = contentWidth / 7
   doc.setFont('Roboto', 'bold')
@@ -553,40 +563,14 @@ export async function createPayrollStatementPdf(statement: PayrollPdfStatement, 
   weekdays.forEach((label, index) => doc.text(label, margin + calendarCellWidth * index + calendarCellWidth / 2, y + 3, { align: 'center' }))
   y += 5
 
-  const paidStatuses = new Set(['auto_present_teaching', 'present', 'remote', 'business_trip', 'training', 'paid_leave'])
-  const pendingStatuses = new Set(['pending', 'sick_leave', 'maternity_leave'])
-  const unpaidStatuses = new Set(['unpaid_leave', 'unexcused_absence'])
   for (let day = 1; day <= daysInPeriod; day += 1) {
     const position = leadingDays + day - 1
     const row = Math.floor(position / 7)
     const column = position % 7
     const date = validPeriod ? `${periodYearText}-${periodMonthText}-${String(day).padStart(2, '0')}` : statement.workdays.rows[day - 1]?.date || ''
-    const workday = workdayByDate.get(date)
-    const slotCount = slotsByDate.get(date) || workday?.teachingSlotCount || 0
-    const status = workday?.status || ''
-    let fill: [number, number, number] = [251, 249, 250]
-    let accent: [number, number, number] = muted
-    let short = ''
-    if (paidStatuses.has(status)) {
-      fill = [237, 248, 243]
-      accent = green
-      short = status === 'auto_present_teaching' ? 'Tự động' : 'Đủ công'
-    } else if (pendingStatuses.has(status)) {
-      fill = [255, 247, 231]
-      accent = [168, 100, 24]
-      short = 'Chờ'
-    } else if (unpaidStatuses.has(status)) {
-      fill = [255, 239, 244]
-      accent = [183, 51, 88]
-      short = 'Không lương'
-    } else if (status === 'paid_holiday') {
-      fill = [241, 246, 252]
-      accent = [65, 96, 132]
-      short = 'Nghỉ lễ'
-    } else if (status === 'weekly_rest') {
-      fill = [245, 243, 245]
-      short = 'Nghỉ'
-    }
+    const slotCount = slotsByDate.get(date) || 0
+    const fill: [number, number, number] = slotCount ? [255, 240, 247] : [248, 246, 247]
+    const accent: [number, number, number] = slotCount ? pink : muted
     const x = margin + column * calendarCellWidth + 0.6
     const cellY = y + row * 13.5
     const cellWidth = calendarCellWidth - 1.2
@@ -598,18 +582,13 @@ export async function createPayrollStatementPdf(statement: PayrollPdfStatement, 
     doc.text(String(day), x + 2.2, cellY + 4)
     doc.setFontSize(5.8)
     doc.setFont('Roboto', 'normal')
-    if (short) doc.text(short, x + 2.2, cellY + 10, { maxWidth: cellWidth - 12 })
     if (slotCount) {
       doc.setFont('Roboto', 'bold')
-      doc.text(`${slotCount} ca`, x + cellWidth - 2.2, cellY + 10, { align: 'right' })
+      doc.text(`${slotCount} ca`, x + 2.2, cellY + 10)
     }
   }
   y += calendarRows * 13.5 + 4
-  doc.setFont('Roboto', 'normal')
-  doc.setFontSize(6.4)
-  doc.setTextColor(...muted)
-  doc.text('Xanh: đủ công   ·   Vàng: chờ chốt   ·   Hồng: không lương   ·   Xám: nghỉ', margin, y)
-  y += 7
+  y += 3
 
   if (y > 205 || statement.teaching.slots.length > 8) {
     doc.addPage()

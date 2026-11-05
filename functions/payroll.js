@@ -2666,7 +2666,12 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
           teachingSlots,
           tierSummary,
           ratePerSession: teachingSlots[0]?.rate || defaultPolicy.configuration.ratePerSession,
-          baseSalarySnapshot: { monthlyAmount: workdays.baseSalary, dailyRate: workdays.dailyRate },
+          baseSalarySnapshot: {
+            contractualMonthlyAmount: workdays.contractualBaseSalary,
+            rate: workdays.baseSalaryRate,
+            monthlyAmount: workdays.baseSalary,
+            dailyRate: workdays.dailyRate,
+          },
           workCalendarSnapshot: { periodId, branchId: identity.branchId || '', weeklyRestDays: calendar.weeklyRestDays, holidays: calendar.holidays, revision: calendar.revision, approved: calendar.approved },
           workdaySummary: {
             employmentType: workdays.employmentType,

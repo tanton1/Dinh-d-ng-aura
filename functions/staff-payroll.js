@@ -217,7 +217,9 @@ function calculateWorkdayPayroll({ periodId, calendar, attendance = [], teaching
   const employment = employmentWindow(staff)
   const employmentType = normalizedEmploymentType(staff.employmentType)
   const employmentLevel = normalizedEmploymentLevel(staff.employmentLevel)
-  const baseSalary = employmentType === 'collaborator' ? 0 : safeMoney(staff.baseSalary)
+  const contractualBaseSalary = employmentType === 'collaborator' ? 0 : safeMoney(staff.baseSalary)
+  const baseSalaryRate = employmentType === 'collaborator' ? 0 : employmentLevel === 'probation' ? 0.85 : 1
+  const baseSalary = Math.round(contractualBaseSalary * baseSalaryRate)
   const fixedBonus = employmentType === 'collaborator' ? 0 : safeMoney(staff.bonusMonthly)
   const standardDates = monthDateKeys(normalizedPeriod).filter((date) => !weeklyRestDays.includes(weekday(date)) && !holidayMap.has(date))
   const eligibleDates = standardDates.filter((date) => (!employment.start || date >= employment.start) && (!employment.end || date <= employment.end))
@@ -274,6 +276,8 @@ function calculateWorkdayPayroll({ periodId, calendar, attendance = [], teaching
     benefitReviewDays,
     estimatedPaidDays,
     dailyRate: Math.round(dailyRate),
+    contractualBaseSalary,
+    baseSalaryRate,
     baseSalary,
     baseSalaryEarned,
     fixedBonus,

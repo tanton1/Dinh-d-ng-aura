@@ -23,6 +23,7 @@ function statementFixture(): PayrollPdfStatement {
       employeeCode: 'AURA-017',
       branchName: 'CS2 Hải Châu',
       profileLabel: 'Nhân viên chính thức',
+      employmentType: 'full_time',
     },
     policyName: 'Chính sách lương PT tháng 10',
     amounts: {
@@ -93,6 +94,7 @@ test('payroll PDF converter keeps the canonical employee totals and audit detail
     staffId: 'trainer-a',
     trainerId: 'trainer-a',
     employmentType: 'full_time',
+    employmentLevel: 'probation',
     staffSnapshot: { name: 'Nguyễn Thị Ánh Đào', employeeCode: 'AURA-017', branchId: 'branch-2' },
     baseSalaryAmount: 8_000_000,
     teachingPayAmount: 2_000_000,
@@ -122,6 +124,7 @@ test('payroll PDF converter keeps the canonical employee totals and audit detail
 
   assert.equal(statement.employee.name, 'Nguyễn Thị Ánh Đào')
   assert.equal(statement.employee.branchName, 'CS2 Hải Châu')
+  assert.equal(statement.employee.profileLabel, 'Nhân viên thử việc · 85% lương cơ bản')
   assert.equal(statement.amounts.finalAmount, 10_830_000)
   assert.equal(statement.teaching.slots[0].studentCount, 2)
   assert.deepEqual(statement.teaching.slots[0].studentNames, ['Thanh Trần', 'Hoàng Yến'])

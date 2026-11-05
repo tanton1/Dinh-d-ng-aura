@@ -148,6 +148,23 @@ test('collaborator has no base salary and does not require workday approval', ()
   assert.equal(result.reviewRequired, false)
 })
 
+test('probation staff receives 85 percent of the configured base salary', () => {
+  const calendar = mergeWorkCalendar('2026-08', {
+    periodId: '2026-08', weeklyRestDays: [0], holidays: [], status: 'approved', revision: 1,
+  })
+  const result = calculateWorkdayPayroll({
+    periodId: '2026-08', calendar,
+    attendance: monthDateKeys('2026-08').map((date) => ({ date, status: 'present', revision: 1 })),
+    staff: { baseSalary: 8_000_000, employmentType: 'full_time', employmentLevel: 'probation' },
+    today: '2026-08-31',
+  })
+  assert.equal(result.contractualBaseSalary, 8_000_000)
+  assert.equal(result.baseSalaryRate, 0.85)
+  assert.equal(result.baseSalary, 6_800_000)
+  assert.equal(result.baseSalaryEarned, 6_800_000)
+  assert.equal(result.reviewRequired, false)
+})
+
 test('base salary, teaching pay, bonus and deductions remain separate in payroll totals', () => {
   const amounts = payrollAmounts({ baseSalaryEarned: 11_000_000, fixedBonus: 500_000 }, {
     grossAmount: 3_000_000,

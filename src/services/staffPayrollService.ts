@@ -63,6 +63,8 @@ export interface StaffWorkdaySummary {
   estimatedPaidDays: number
   dailyRate: number
   baseSalary: number
+  contractualBaseSalary: number
+  baseSalaryRate: number
   baseSalaryEarned: number
   fixedBonus: number
   employmentType: 'full_time' | 'part_time' | 'collaborator'
@@ -370,6 +372,8 @@ function normalizeWorkdays(value: unknown): StaffWorkdaySummary {
     estimatedPaidDays: integer(raw.estimatedPaidDays),
     dailyRate: number(raw.dailyRate),
     baseSalary: number(raw.baseSalary),
+    contractualBaseSalary: number(raw.contractualBaseSalary || raw.baseSalary),
+    baseSalaryRate: number(raw.baseSalaryRate || (raw.employmentType === 'collaborator' ? 0 : 1)),
     baseSalaryEarned: number(raw.baseSalaryEarned),
     fixedBonus: number(raw.fixedBonus),
     employmentType: raw.employmentType === 'collaborator' || raw.employmentType === 'part_time' ? raw.employmentType : 'full_time',
