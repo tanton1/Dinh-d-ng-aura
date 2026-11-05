@@ -59,7 +59,7 @@ test('draft exposes actionable evidence reviews and marks the run stale after a 
     }),
     db.doc('sessions/s1').update({
       confirmationSource: 'manual_admin',
-      recognitionReviewRequired: true,
+      payrollAttendanceReviewRequired: true,
     }),
   ])
   const handlers = createPayrollFunctions({ db, onCall: (_options, handler) => handler })

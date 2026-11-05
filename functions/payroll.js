@@ -728,15 +728,20 @@ function automaticAttendanceConfirmed(session = {}, attendance = {}) {
 }
 
 function teachingPayrollReviewRequired(session = {}, attendance = {}) {
-  const requiresReview = session.recognitionReviewRequired === true || attendance.recognitionReviewRequired === true
-  // The automatic job only confirms a charged, overdue session as present
-  // after the 48-hour response window. Revenue reconciliation can remain open,
-  // but that accounting review must not erase the PT's completed teaching slot.
+  // Revenue recognition and PT teaching evidence are separate controls. A
+  // completed, charged session can still have an open accounting review (for
+  // example a zero-value legacy contract) while the schedule and attendance
+  // already prove that the trainer taught the class. Finance continues to use
+  // recognitionReviewRequired in its own reconciliation queue.
+  const requiresReview = session.payrollAttendanceReviewRequired === true
+    || attendance.payrollAttendanceReviewRequired === true
+  // Automatic confirmation after the response window is canonical attendance
+  // and remains payable even if stale data carries the payroll-specific flag.
   return requiresReview && !automaticAttendanceConfirmed(session, attendance)
 }
 
 const PAYROLL_VALIDATION_FIELDS = ['status', 'trainerId', 'studentId', 'date', 'hour', 'branchId', 'commissionEligible', 'makeupSession', 'sessionKind', 'scheduleStatus', 'duplicateOfSessionId', 'billingStatus', 'countsTowardContract']
-const PAYROLL_SESSION_FIELDS = [...PAYROLL_VALIDATION_FIELDS, 'attendanceEventId', 'attendanceStatus', 'confirmationSource', 'recognitionReviewRequired', 'payrollEvidenceReview']
+const PAYROLL_SESSION_FIELDS = [...PAYROLL_VALIDATION_FIELDS, 'attendanceEventId', 'attendanceStatus', 'confirmationSource', 'recognitionReviewRequired', 'payrollAttendanceReviewRequired', 'payrollEvidenceReview']
 
 async function readPayrollSessionValidation(db, runPeriodId, transaction) {
   const bounds = periodDateBounds(runPeriodId)
@@ -1299,10 +1304,11 @@ function payrollEvidenceReviewRows(runData = {}, sessionRecords = []) {
     const rawHour = session.hour ?? evidence?.hour
     const missingFields = Array.isArray(evidence?.missingFields) ? evidence.missingFields.filter((field) => typeof field === 'string') : []
     const kind = evidence ? 'session_evidence' : 'attendance_confirmation'
+    const attendanceReviewRequired = session.payrollAttendanceReviewRequired === true
     const missingLabels = missingFields.map((field) => PAYROLL_EVIDENCE_FIELD_LABELS[field] || field)
     const detail = kind === 'session_evidence'
       ? `${evidence.status === 'pending_evidence' ? 'Hồ sơ tập đang trong thời hạn bổ sung' : evidence.status === 'rejected' ? 'Bằng chứng ca dạy đã bị từ chối' : 'Hồ sơ tập đã quá hạn nhưng chưa đủ bằng chứng'}${missingLabels.length ? `: thiếu ${missingLabels.join(', ')}` : ''}.`
-      : session.recognitionReviewRequired === true
+      : attendanceReviewRequired
         ? 'Buổi đã xác nhận thủ công nhưng còn cờ xác minh. Mở lịch sử, kiểm tra ngày, giờ, PT và trạng thái Có tập rồi lưu điều chỉnh có audit.'
         : 'Dữ liệu nguồn của buổi đã thay đổi sau khi lập kỳ. Hãy kiểm tra buổi và lập lại kỳ nháp.'
     return {
@@ -1315,11 +1321,11 @@ function payrollEvidenceReviewRows(runData = {}, sessionRecords = []) {
       branchId: session.branchId || '',
       confirmationSource: session.confirmationSource || '',
       attendanceStatus: session.attendanceStatus || '',
-      status: evidence?.status || (session.recognitionReviewRequired === true ? 'review_required' : 'source_changed'),
+      status: evidence?.status || (attendanceReviewRequired ? 'review_required' : 'source_changed'),
       missingFields,
       deadline: iso(evidence?.deadline),
       amount: Number(evidence?.amount || 0),
-      recognitionReviewRequired: session.recognitionReviewRequired === true,
+      recognitionReviewRequired: attendanceReviewRequired,
       reviewDecision: session.payrollEvidenceReview?.status || '',
       detail,
     }
