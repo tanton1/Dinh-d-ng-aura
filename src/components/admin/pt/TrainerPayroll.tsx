@@ -329,6 +329,7 @@ export default function TrainerPayroll({ profile }: Props) {
   const canManage = profile?.role === 'admin' || profile?.role === 'super_admin'
   const trainerById = useMemo(() => new Map(trainers.map((trainer) => [trainer.id, trainer])), [trainers])
   const branchById = useMemo(() => new Map(branches.map((branch) => [branch.id, branch])), [branches])
+  const studentById = useMemo(() => new Map(students.map((student) => [student.id, student])), [students])
   const activePolicies = useMemo(() => policies.filter((policy) => policy.status === 'active'), [policies])
 
   const openPolicyEditor = () => {
@@ -1061,6 +1062,7 @@ export default function TrainerPayroll({ profile }: Props) {
     try {
       const statement = payrollPdfFromRunItem(run, item, {
         branchNameById: (branchId) => branchById.get(branchId)?.name || branchId,
+        studentNameById: (studentId) => studentById.get(studentId)?.name || '',
       })
       const filename = await downloadPayrollStatementPdf(statement)
       setMessage(`Đã xuất ${filename}.`)

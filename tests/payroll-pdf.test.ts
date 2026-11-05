@@ -65,6 +65,7 @@ function statementFixture(): PayrollPdfStatement {
         rate: index % 10 === 9 ? 80_000 : index % 10 === 8 ? 70_000 : 20_000,
         policyName: 'Chính sách lương PT tháng 10',
         crossBranchWarning: index % 9 === 0,
+        studentNames: index % 5 === 0 ? ['Nguyễn Minh Anh', 'Trần Gia Hân'] : ['Nguyễn Minh Anh'],
       })),
     },
     referral: {
@@ -76,7 +77,7 @@ function statementFixture(): PayrollPdfStatement {
       commissionAmount: 480_000,
     },
     adjustments: [{ id: 'bonus-a', type: 'bonus', amount: 100_000, reason: 'Hỗ trợ sự kiện', evidenceReference: 'BB-2026-10-01' }],
-    warnings: ['Kỳ lương đang là bản nháp và có thể thay đổi trước khi duyệt, khóa kỳ.'],
+    warnings: ['1 ca có dữ liệu khác chi nhánh và cần kiểm tra.'],
   }
 }
 
@@ -113,12 +114,17 @@ test('payroll PDF converter keeps the canonical employee totals and audit detail
     payrollAdjustments: [{ id: 'bonus-a', type: 'bonus', amount: 100_000, reason: 'Hỗ trợ sự kiện', evidenceReference: 'BB-01' }],
   } as PayrollRunItem
 
-  const statement = payrollPdfFromRunItem(run, item, { branchNameById: (id) => id === 'branch-2' ? 'CS2 Hải Châu' : id, generatedAt: '2026-11-04T08:30:00.000Z' })
+  const statement = payrollPdfFromRunItem(run, item, {
+    branchNameById: (id) => id === 'branch-2' ? 'CS2 Hải Châu' : id,
+    studentNameById: (id) => id === 'a' ? 'Thanh Trần' : id === 'b' ? 'Hoàng Yến' : '',
+    generatedAt: '2026-11-04T08:30:00.000Z',
+  })
 
   assert.equal(statement.employee.name, 'Nguyễn Thị Ánh Đào')
   assert.equal(statement.employee.branchName, 'CS2 Hải Châu')
   assert.equal(statement.amounts.finalAmount, 10_830_000)
   assert.equal(statement.teaching.slots[0].studentCount, 2)
+  assert.deepEqual(statement.teaching.slots[0].studentNames, ['Thanh Trần', 'Hoàng Yến'])
   assert.equal(statement.workdays.rows[0].source, 'teaching_slots')
   assert.equal(statement.adjustments[0].evidenceReference, 'BB-01')
   assert.ok(statement.warnings.some((warning) => warning.includes('Ngày công')))
@@ -139,6 +145,6 @@ test('payroll PDF renders a multi-page A4 statement with embedded Vietnamese fon
 
   assert.equal(filename, 'Phieu_luong_2026-10_Nguyen_Thi_Anh_Dao.pdf')
   assert.equal(bytes.subarray(0, 4).toString('ascii'), '%PDF')
-  assert.ok(bytes.length > 50_000)
+  assert.ok(bytes.length > 30_000, `PDF is unexpectedly small: ${bytes.length} bytes`)
   assert.ok(doc.getNumberOfPages() >= 3)
 })

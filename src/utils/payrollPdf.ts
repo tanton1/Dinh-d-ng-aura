@@ -29,6 +29,7 @@ export interface PayrollPdfTeachingSlot {
   rate: number
   policyName: string
   crossBranchWarning: boolean
+  studentNames: string[]
 }
 
 export interface PayrollPdfWorkday {
@@ -99,6 +100,7 @@ export interface PayrollPdfStatement {
 interface PayrollPdfBuildOptions {
   branchName?: string
   branchNameById?: (branchId: string) => string
+  studentNameById?: (studentId: string) => string
   generatedAt?: string
 }
 
@@ -157,13 +159,6 @@ function dateLabel(value: string) {
   return match ? `${match[3]}/${match[2]}/${match[1]}` : value || 'Chưa cập nhật'
 }
 
-function timeLabel(value: string) {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime())
-    ? 'Chưa cập nhật'
-    : date.toLocaleString('vi-VN', { hour12: false })
-}
-
 function profileLabel(employmentType: string, employmentLevel = '') {
   if (employmentType === 'collaborator') return 'Cộng tác viên'
   if (employmentType === 'part_time') return 'Nhân viên Part-time'
@@ -178,6 +173,9 @@ function branchLabel(branchId: string, options: PayrollPdfBuildOptions) {
 
 function runTeachingSlot(slot: PayrollTeachingSlot, options: PayrollPdfBuildOptions): PayrollPdfTeachingSlot {
   const observedBranches = (slot.branchIds || []).map((id) => options.branchNameById?.(id) || id).filter(Boolean)
+  const studentNames = (slot.studentIds || [])
+    .map((id) => options.studentNameById?.(id) || '')
+    .filter(Boolean)
   return {
     key: slot.key,
     date: slot.date,
@@ -189,6 +187,7 @@ function runTeachingSlot(slot: PayrollTeachingSlot, options: PayrollPdfBuildOpti
     rate: slot.rate,
     policyName: slot.policyName,
     crossBranchWarning: slot.crossBranchWarning === true,
+    studentNames,
   }
 }
 
@@ -204,6 +203,7 @@ function staffTeachingSlot(slot: StaffTeachingSlot, options: PayrollPdfBuildOpti
     rate: slot.rate,
     policyName: slot.policyName,
     crossBranchWarning: false,
+    studentNames: [],
   }
 }
 
@@ -231,7 +231,6 @@ export function payrollPdfFromRunItem(
     item.calendarReviewRequired ? 'Lịch làm việc chuẩn của chi nhánh chưa được duyệt.' : '',
     number(item.sessionEvidencePendingAmount) > 0 ? `Có bằng chứng ca dạy đang chờ duyệt, giá trị ${money(item.sessionEvidencePendingAmount)}.` : '',
     number(item.crossBranchWarningCount) > 0 ? `${item.crossBranchWarningCount} ca có dữ liệu khác chi nhánh và cần kiểm tra.` : '',
-    run.status === 'draft' ? 'Kỳ lương đang là bản nháp và có thể thay đổi trước khi duyệt, khóa kỳ.' : '',
   ].filter(Boolean)
   return {
     reference: `${run.id}/${item.id}`,
@@ -292,7 +291,6 @@ export function payrollPdfFromStaffStatement(
     data.workdays.attendanceReviewRequired ? 'Ngày công còn thiếu hoặc cần xác minh.' : '',
     data.workdays.calendarReviewRequired ? 'Lịch làm việc chuẩn của chi nhánh chưa được duyệt.' : '',
     data.teachingEvidence?.truncated ? 'Danh sách bằng chứng ca dạy đã chạm giới hạn tải an toàn.' : '',
-    !data.run.official ? 'Số liệu đang tạm tính và có thể thay đổi trước khi kỳ lương được khóa.' : '',
   ].filter(Boolean)
   return {
     reference: `${data.periodId}/${data.staffId}`,
@@ -372,12 +370,6 @@ async function loadDefaultFonts(): Promise<PayrollPdfFontBundle> {
   return defaultFontPromise
 }
 
-function sourceLabel(source: PayrollPdfWorkday['source']) {
-  if (source === 'admin_override') return 'Admin chốt'
-  if (source === 'teaching_slots') return 'Ca dạy'
-  return 'Lịch chuẩn'
-}
-
 export async function createPayrollStatementPdf(statement: PayrollPdfStatement, options: PayrollPdfCreateOptions = {}) {
   const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
     import('jspdf'),
@@ -395,49 +387,50 @@ export async function createPayrollStatementPdf(statement: PayrollPdfStatement, 
   const pageHeight = 297
   const margin = 14
   const contentWidth = pageWidth - margin * 2
-  const footerY = pageHeight - 10
-  const pink: [number, number, number] = [236, 45, 118]
-  const ink: [number, number, number] = [52, 38, 48]
-  const muted: [number, number, number] = [120, 104, 114]
-  const line: [number, number, number] = [232, 222, 228]
-  const soft: [number, number, number] = [252, 247, 250]
-  let y = 16
+  const footerY = pageHeight - 9
+  const pink: [number, number, number] = [226, 35, 105]
+  const ink: [number, number, number] = [43, 35, 41]
+  const muted: [number, number, number] = [119, 107, 114]
+  const line: [number, number, number] = [229, 222, 226]
+  const soft: [number, number, number] = [250, 247, 249]
+  const green: [number, number, number] = [31, 112, 78]
+  let y = 13
 
   const ensureSpace = (height: number) => {
     if (y + height <= footerY - 7) return
     doc.addPage()
-    y = 20
+    y = 18
   }
 
   const sectionTitle = (title: string, meta = '') => {
-    ensureSpace(14)
+    ensureSpace(12)
     doc.setFont('Roboto', 'bold')
-    doc.setFontSize(11)
+    doc.setFontSize(10.5)
     doc.setTextColor(...ink)
     doc.text(title, margin, y)
     if (meta) {
       doc.setFont('Roboto', 'normal')
-      doc.setFontSize(8)
+      doc.setFontSize(7.5)
       doc.setTextColor(...muted)
       doc.text(meta, pageWidth - margin, y, { align: 'right' })
     }
     doc.setDrawColor(...line)
-    doc.line(margin, y + 3, pageWidth - margin, y + 3)
-    y += 8
+    doc.line(margin, y + 2.5, pageWidth - margin, y + 2.5)
+    y += 7
   }
 
-  const table = (body: Array<Array<string | number>>, config: Record<string, unknown> = {}) => {
+  const table = (body: unknown[], config: Record<string, unknown> = {}) => {
     autoTable(doc, {
-      margin: { left: margin, right: margin, bottom: 17 },
+      margin: { left: margin, right: margin, bottom: 15 },
       startY: y,
       theme: 'plain',
       styles: {
         font: 'Roboto',
-        fontSize: 8,
-        cellPadding: { top: 2.2, right: 2.2, bottom: 2.2, left: 2.2 },
+        fontSize: 7.6,
+        cellPadding: { top: 1.7, right: 2, bottom: 1.7, left: 2 },
         textColor: ink,
         lineColor: line,
-        lineWidth: { bottom: 0.15 },
+        lineWidth: { bottom: 0.12 },
         overflow: 'linebreak',
         valign: 'middle',
       },
@@ -449,160 +442,254 @@ export async function createPayrollStatementPdf(statement: PayrollPdfStatement, 
         lineColor: line,
         lineWidth: { bottom: 0.35 },
       },
-      alternateRowStyles: { fillColor: [254, 252, 253] },
-      body,
+      alternateRowStyles: { fillColor: [253, 251, 252] },
+      body: body as never[],
       ...config,
     })
-    y = ((doc as typeof doc & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || y) + 6
+    y = ((doc as typeof doc & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || y) + 4
   }
 
   doc.setFillColor(...pink)
-  doc.rect(0, 0, pageWidth, 4, 'F')
-  doc.setTextColor(...pink)
-  doc.setFont('Roboto', 'bold')
-  doc.setFontSize(8)
-  doc.text('AURA OPERATIONS', margin, y)
+  doc.rect(0, 0, pageWidth, 3, 'F')
   doc.setTextColor(...ink)
-  doc.setFontSize(22)
-  doc.text('PHIẾU LƯƠNG', margin, y + 10)
+  doc.setFont('Roboto', 'bold')
+  doc.setFontSize(18)
+  doc.text('Phiếu lương', margin, y)
   doc.setFont('Roboto', 'normal')
-  doc.setFontSize(9)
+  doc.setFontSize(8)
   doc.setTextColor(...muted)
-  doc.text(`${periodLabel(statement.periodId)} | Xuất lúc ${timeLabel(statement.generatedAt)}`, margin, y + 17)
+  doc.text(`${statement.employee.name}  ·  ${periodLabel(statement.periodId)}`, margin, y + 6)
 
   const statusLabel = STATUS_LABELS[statement.status]
-  doc.setFillColor(statement.official ? 232 : 255, statement.official ? 248 : 244, statement.official ? 240 : 230)
-  doc.roundedRect(162, y - 4, 34, 10, 4, 4, 'F')
+  doc.setFillColor(statement.official ? 232 : 255, statement.official ? 248 : 245, statement.official ? 240 : 234)
+  doc.roundedRect(166, y - 6, 30, 9, 4, 4, 'F')
   doc.setFont('Roboto', 'bold')
-  doc.setFontSize(8)
+  doc.setFontSize(7.5)
   doc.setTextColor(statement.official ? 24 : 157, statement.official ? 112 : 82, statement.official ? 72 : 37)
-  doc.text(statusLabel, 179, y + 2.2, { align: 'center' })
-  y += 26
+  doc.text(statusLabel, 181, y - 0.3, { align: 'center' })
+  y += 12
 
   doc.setFillColor(...soft)
-  doc.roundedRect(margin, y, contentWidth, 27, 4, 4, 'F')
-  doc.setFont('Roboto', 'bold')
-  doc.setTextColor(...ink)
-  doc.setFontSize(15)
-  doc.text(statement.employee.name, margin + 6, y + 8)
+  doc.roundedRect(margin, y, contentWidth, 16, 3, 3, 'F')
   doc.setFont('Roboto', 'normal')
-  doc.setFontSize(8.5)
+  doc.setFontSize(7.4)
   doc.setTextColor(...muted)
-  const employeeMeta = [statement.employee.employeeCode || 'Chưa có mã NV', statement.employee.profileLabel, statement.employee.branchName]
-  doc.text(employeeMeta.join(' | '), margin + 6, y + 15)
-  doc.text(`Chính sách: ${statement.policyName}`, margin + 6, y + 21.5, { maxWidth: contentWidth - 12 })
-  y += 33
+  const employeeMeta = [statement.employee.employeeCode, statement.employee.profileLabel, statement.employee.branchName].filter(Boolean)
+  doc.text(employeeMeta.join('  ·  '), margin + 5, y + 6)
+  doc.setTextColor(...ink)
+  doc.text(statement.policyName, margin + 5, y + 11.5, { maxWidth: contentWidth - 10 })
+  y += 20
 
   doc.setFillColor(...ink)
-  doc.roundedRect(margin, y, contentWidth, 28, 4, 4, 'F')
+  doc.roundedRect(margin, y, contentWidth, 24, 3, 3, 'F')
   doc.setFont('Roboto', 'normal')
-  doc.setTextColor(244, 233, 239)
-  doc.setFontSize(8.5)
-  doc.text(statement.official ? 'TỔNG THỰC NHẬN' : 'TỔNG TẠM TÍNH', margin + 7, y + 8)
+  doc.setTextColor(230, 218, 225)
+  doc.setFontSize(7.5)
+  doc.text(statement.official ? 'Thực nhận' : 'Tạm tính', margin + 6, y + 7)
   doc.setFont('Roboto', 'bold')
   doc.setTextColor(255, 255, 255)
-  doc.setFontSize(22)
-  doc.text(money(statement.amounts.finalAmount), margin + 7, y + 19.5)
-  doc.setFontSize(8)
+  doc.setFontSize(18)
+  doc.text(money(statement.amounts.finalAmount), margin + 6, y + 18)
+  doc.setFontSize(7.5)
   doc.setFont('Roboto', 'normal')
-  doc.setTextColor(231, 214, 224)
-  doc.text(`${statement.teaching.slots.length} ca dạy | ${statement.workdays.paidDays}/${statement.workdays.eligibleWorkdays} ngày công | ${statement.referral.contractCount} hợp đồng giới thiệu`, pageWidth - margin - 7, y + 18, { align: 'right', maxWidth: 88 })
-  y += 35
+  doc.setTextColor(220, 207, 215)
+  doc.text(`${statement.workdays.paidDays}/${statement.workdays.eligibleWorkdays} ngày công  ·  ${statement.teaching.slots.length} ca dạy`, pageWidth - margin - 6, y + 15, { align: 'right' })
+  y += 28
 
-  sectionTitle('Cấu phần thu nhập', `${statement.teaching.attendanceEventCount} lượt điểm danh -> ${statement.teaching.slots.length} ca tính tiền`)
-  table([
-    ['Lương cơ bản', `${statement.workdays.paidDays} ngày đã ghi nhận | dự tính ${statement.workdays.estimatedPaidDays}/${statement.workdays.eligibleWorkdays} ngày`, money(statement.amounts.baseSalaryAmount)],
-    ['Tiền ca dạy', `${statement.teaching.slots.length} ca duy nhất theo PT + ngày + giờ`, money(statement.amounts.teachingPayAmount)],
-    ['Hoa hồng giới thiệu', `${statement.referral.rate || 0}% trên ${money(statement.referral.netCashAmount)} thực thu`, money(statement.amounts.commissionAmount)],
-    ['Thưởng', 'Khoản thưởng đã đủ điều kiện trong kỳ', money(statement.amounts.bonusAmount)],
-    ['Điều chỉnh', 'Điều chỉnh khác đã ghi nhận', money(statement.amounts.adjustmentAmount)],
-    ['Khấu trừ', 'Khấu trừ và khoản hoàn/đảo đã duyệt', `-${money(statement.amounts.deductionAmount)}`],
-    ['Tổng thực nhận', 'Tổng sau thưởng, điều chỉnh và khấu trừ', money(statement.amounts.finalAmount)],
-  ], {
-    head: [['Khoản', 'Căn cứ', 'Số tiền']],
-    columnStyles: { 0: { cellWidth: 39, fontStyle: 'bold' }, 1: { cellWidth: 95 }, 2: { cellWidth: 48, halign: 'right', fontStyle: 'bold' } },
-    didParseCell: (hook: { row: { index: number }; cell: { styles: { fillColor?: [number, number, number]; textColor?: [number, number, number]; fontStyle?: string } } }) => {
-      if (hook.row.index === 6) {
-        hook.cell.styles.fillColor = [255, 240, 247]
-        hook.cell.styles.textColor = pink
-        hook.cell.styles.fontStyle = 'bold'
-      }
-    },
-  })
-
-  sectionTitle('Ngày công', `${statement.workdays.autoPaidDays} ngày tự tính từ ca dạy | ${statement.workdays.pendingDays} ngày chờ chốt`)
-  if (statement.workdays.rows.length) {
-    table(statement.workdays.rows.map((day) => [
-      dateLabel(day.date),
-      day.holidayName || WORKDAY_LABELS[day.status] || day.status,
-      `${day.teachingSlotCount} ca`,
-      sourceLabel(day.source),
-      day.note || '',
-    ]), {
-      head: [['Ngày', 'Tình trạng', 'Ca dạy', 'Nguồn', 'Ghi chú']],
-      columnStyles: { 0: { cellWidth: 25 }, 1: { cellWidth: 45 }, 2: { cellWidth: 20, halign: 'center' }, 3: { cellWidth: 27 }, 4: { cellWidth: 65 } },
-    })
-  } else {
-    doc.setFontSize(8.5)
+  const metricGap = 3
+  const metricWidth = (contentWidth - metricGap * 2) / 3
+  const metrics = [
+    ['Ngày công', `${statement.workdays.paidDays}/${statement.workdays.eligibleWorkdays}`],
+    ['Ca dạy', `${statement.teaching.slots.length}`],
+    ['Hoa hồng', money(statement.amounts.commissionAmount)],
+  ]
+  metrics.forEach(([label, value], index) => {
+    const x = margin + index * (metricWidth + metricGap)
+    doc.setFillColor(...soft)
+    doc.roundedRect(x, y, metricWidth, 17, 2.5, 2.5, 'F')
+    doc.setFont('Roboto', 'normal')
+    doc.setFontSize(6.8)
     doc.setTextColor(...muted)
-    doc.text('Kỳ này chưa lưu bảng ngày công theo ngày.', margin, y)
-    y += 8
-  }
-
-  sectionTitle('Hoa hồng và điều chỉnh', `${statement.referral.contractCount} hợp đồng giới thiệu`)
-  table([
-    ['Dòng tiền đã thu', money(statement.referral.cashCollectedAmount)],
-    ['Hoàn/đảo dòng tiền', `-${money(statement.referral.cashReversedAmount)}`],
-    ['Dòng tiền tính hoa hồng', money(statement.referral.netCashAmount)],
-    [`Hoa hồng ${statement.referral.rate || 0}%`, money(statement.referral.commissionAmount)],
-  ], {
-    head: [['Nội dung', 'Giá trị']],
-    columnStyles: { 0: { cellWidth: 132 }, 1: { cellWidth: 50, halign: 'right', fontStyle: 'bold' } },
+    doc.text(label, x + 4, y + 5.5)
+    doc.setFont('Roboto', 'bold')
+    doc.setFontSize(10.5)
+    doc.setTextColor(...ink)
+    doc.text(value, x + 4, y + 12.8, { maxWidth: metricWidth - 8 })
   })
-  if (statement.adjustments.length) {
-    table(statement.adjustments.map((adjustment) => [
-      adjustment.type === 'bonus' ? 'Thưởng' : 'Khấu trừ',
-      adjustment.reason || 'Chưa ghi lý do',
-      adjustment.evidenceReference || 'Không có',
-      `${adjustment.type === 'bonus' ? '+' : '-'}${money(adjustment.amount)}`,
-    ]), {
-      head: [['Loại', 'Lý do', 'Bằng chứng', 'Số tiền']],
-      columnStyles: { 0: { cellWidth: 25 }, 1: { cellWidth: 70 }, 2: { cellWidth: 45 }, 3: { cellWidth: 42, halign: 'right', fontStyle: 'bold' } },
-    })
-  }
+  y += 22
 
-  sectionTitle('Chi tiết ca dạy', 'Hai học viên cùng PT, ngày và giờ chỉ tính một ca')
+  const incomeRows: Array<[string, string]> = [
+    ['Lương cơ bản', money(statement.amounts.baseSalaryAmount)],
+    ['Ca dạy', money(statement.amounts.teachingPayAmount)],
+    ...(statement.amounts.commissionAmount || statement.referral.contractCount ? [['Hoa hồng', money(statement.amounts.commissionAmount)] as [string, string]] : []),
+    ...(statement.amounts.bonusAmount ? [['Thưởng', money(statement.amounts.bonusAmount)] as [string, string]] : []),
+    ...(statement.amounts.adjustmentAmount ? [['Điều chỉnh', money(statement.amounts.adjustmentAmount)] as [string, string]] : []),
+    ...(statement.amounts.deductionAmount ? [['Khấu trừ', `-${money(statement.amounts.deductionAmount)}`] as [string, string]] : []),
+  ]
+  sectionTitle('Thu nhập')
+  table(incomeRows, {
+    showHead: 'never',
+    columnStyles: { 0: { cellWidth: 124 }, 1: { cellWidth: 58, halign: 'right', fontStyle: 'bold' } },
+  })
+
+  const [periodYearText, periodMonthText] = statement.periodId.split('-')
+  const periodYear = Number(periodYearText)
+  const periodMonth = Number(periodMonthText)
+  const validPeriod = Number.isInteger(periodYear) && Number.isInteger(periodMonth) && periodMonth >= 1 && periodMonth <= 12
+  const daysInPeriod = validPeriod ? new Date(periodYear, periodMonth, 0).getDate() : statement.workdays.rows.length
+  const leadingDays = validPeriod ? (new Date(periodYear, periodMonth - 1, 1).getDay() + 6) % 7 : 0
+  const calendarRows = Math.max(1, Math.ceil((leadingDays + daysInPeriod) / 7))
+  const workdayByDate = new Map(statement.workdays.rows.map((day) => [day.date.slice(0, 10), day]))
+  const slotsByDate = new Map<string, number>()
+  statement.teaching.slots.forEach((slot) => slotsByDate.set(slot.date, (slotsByDate.get(slot.date) || 0) + 1))
+  const calendarHeight = 12 + calendarRows * 13.5
+  ensureSpace(calendarHeight + 12)
+  sectionTitle('Lịch công & ca dạy', `${statement.workdays.pendingDays} ngày chờ chốt`)
+  const weekdays = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']
+  const calendarCellWidth = contentWidth / 7
+  doc.setFont('Roboto', 'bold')
+  doc.setFontSize(6.5)
+  doc.setTextColor(...muted)
+  weekdays.forEach((label, index) => doc.text(label, margin + calendarCellWidth * index + calendarCellWidth / 2, y + 3, { align: 'center' }))
+  y += 5
+
+  const paidStatuses = new Set(['auto_present_teaching', 'present', 'remote', 'business_trip', 'training', 'paid_leave'])
+  const pendingStatuses = new Set(['pending', 'sick_leave', 'maternity_leave'])
+  const unpaidStatuses = new Set(['unpaid_leave', 'unexcused_absence'])
+  for (let day = 1; day <= daysInPeriod; day += 1) {
+    const position = leadingDays + day - 1
+    const row = Math.floor(position / 7)
+    const column = position % 7
+    const date = validPeriod ? `${periodYearText}-${periodMonthText}-${String(day).padStart(2, '0')}` : statement.workdays.rows[day - 1]?.date || ''
+    const workday = workdayByDate.get(date)
+    const slotCount = slotsByDate.get(date) || workday?.teachingSlotCount || 0
+    const status = workday?.status || ''
+    let fill: [number, number, number] = [251, 249, 250]
+    let accent: [number, number, number] = muted
+    let short = ''
+    if (paidStatuses.has(status)) {
+      fill = [237, 248, 243]
+      accent = green
+      short = status === 'auto_present_teaching' ? 'Tự động' : 'Đủ công'
+    } else if (pendingStatuses.has(status)) {
+      fill = [255, 247, 231]
+      accent = [168, 100, 24]
+      short = 'Chờ'
+    } else if (unpaidStatuses.has(status)) {
+      fill = [255, 239, 244]
+      accent = [183, 51, 88]
+      short = 'Không lương'
+    } else if (status === 'paid_holiday') {
+      fill = [241, 246, 252]
+      accent = [65, 96, 132]
+      short = 'Nghỉ lễ'
+    } else if (status === 'weekly_rest') {
+      fill = [245, 243, 245]
+      short = 'Nghỉ'
+    }
+    const x = margin + column * calendarCellWidth + 0.6
+    const cellY = y + row * 13.5
+    const cellWidth = calendarCellWidth - 1.2
+    doc.setFillColor(...fill)
+    doc.roundedRect(x, cellY, cellWidth, 12.3, 2, 2, 'F')
+    doc.setFont('Roboto', 'bold')
+    doc.setFontSize(7)
+    doc.setTextColor(...accent)
+    doc.text(String(day), x + 2.2, cellY + 4)
+    doc.setFontSize(5.8)
+    doc.setFont('Roboto', 'normal')
+    if (short) doc.text(short, x + 2.2, cellY + 10, { maxWidth: cellWidth - 12 })
+    if (slotCount) {
+      doc.setFont('Roboto', 'bold')
+      doc.text(`${slotCount} ca`, x + cellWidth - 2.2, cellY + 10, { align: 'right' })
+    }
+  }
+  y += calendarRows * 13.5 + 4
+  doc.setFont('Roboto', 'normal')
+  doc.setFontSize(6.4)
+  doc.setTextColor(...muted)
+  doc.text('Xanh: đủ công   ·   Vàng: chờ chốt   ·   Hồng: không lương   ·   Xám: nghỉ', margin, y)
+  y += 7
+
+  if (y > 205 || statement.teaching.slots.length > 8) {
+    doc.addPage()
+    y = 18
+  }
+  sectionTitle('Chi tiết ca dạy', `${statement.teaching.slots.length} ca`)
   if (statement.teaching.slots.length) {
-    table(statement.teaching.slots.map((slot, index) => [
-      index + 1,
-      `${dateLabel(slot.date)}\n${String(slot.hour).padStart(2, '0')}:00`,
-      slot.branchName,
-      `${slot.studentCount} HV`,
-      `${TIER_LABELS[slot.tier]}\n${slot.policyName || 'Chính sách kỳ lương'}${slot.crossBranchWarning ? '\nCần kiểm tra chi nhánh' : ''}`,
-      money(slot.rate),
-    ]), {
-      head: [['#', 'Ngày / giờ', 'Chi nhánh', 'Số HV', 'Loại ca / chính sách', 'Đơn giá']],
+    const groupedSlots = new Map<string, PayrollPdfTeachingSlot[]>()
+    statement.teaching.slots
+      .slice()
+      .sort((left, right) => left.date.localeCompare(right.date) || left.hour - right.hour)
+      .forEach((slot) => groupedSlots.set(slot.date, [...(groupedSlots.get(slot.date) || []), slot]))
+    const teachingRows: unknown[] = []
+    groupedSlots.forEach((slots, date) => {
+      const dailyAmount = slots.reduce((total, slot) => total + slot.rate, 0)
+      slots.forEach((slot, slotIndex) => {
+        const knownStudents = slot.studentNames.filter(Boolean)
+        const missingStudents = Math.max(0, slot.studentCount - knownStudents.length)
+        const studentLabel = knownStudents.length
+          ? `${knownStudents.join(', ')}${missingStudents ? ` + ${missingStudents} học viên` : ''}`
+          : `${slot.studentCount} học viên`
+        const branch = slot.branchName && slot.branchName !== statement.employee.branchName ? `\n${slot.branchName}` : ''
+        const row: unknown[] = [
+          `${String(slot.hour).padStart(2, '0')}:00`,
+          studentLabel,
+          `${TIER_LABELS[slot.tier]}${branch}${slot.crossBranchWarning ? '\nKiểm tra cơ sở' : ''}`,
+          money(slot.rate),
+        ]
+        if (slotIndex === 0) {
+          row.unshift({
+            content: `${dateLabel(date)}\n${slots.length} ca · ${money(dailyAmount)}`,
+            rowSpan: slots.length,
+            styles: { fillColor: soft, textColor: ink, fontStyle: 'bold', valign: 'top' },
+          })
+        }
+        teachingRows.push(row)
+      })
+    })
+    table(teachingRows, {
+      head: [['Ngày', 'Giờ', 'Học viên', 'Loại ca', 'Tiền ca']],
       showHead: 'everyPage',
       rowPageBreak: 'avoid',
       columnStyles: {
-        0: { cellWidth: 8, halign: 'center' },
-        1: { cellWidth: 29 },
-        2: { cellWidth: 29 },
-        3: { cellWidth: 17, halign: 'center' },
-        4: { cellWidth: 69 },
-        5: { cellWidth: 30, halign: 'right', fontStyle: 'bold' },
+        0: { cellWidth: 31 },
+        1: { cellWidth: 17, fontStyle: 'bold' },
+        2: { cellWidth: 62 },
+        3: { cellWidth: 44 },
+        4: { cellWidth: 28, halign: 'right', fontStyle: 'bold' },
       },
     })
   } else {
-    doc.setFontSize(8.5)
+    doc.setFontSize(8)
     doc.setTextColor(...muted)
-    doc.text('Chưa có ca dạy đủ điều kiện tính lương trong kỳ.', margin, y)
+    doc.text('Không có ca dạy tính lương trong kỳ.', margin, y)
     y += 8
+  }
+
+  const hasReferralDetail = statement.referral.contractCount > 0 || statement.referral.cashCollectedAmount !== 0 || statement.referral.cashReversedAmount !== 0
+  if (hasReferralDetail || statement.adjustments.length) {
+    sectionTitle('Khoản khác')
+    const otherRows: Array<Array<string>> = []
+    if (hasReferralDetail) {
+      otherRows.push(
+        [`Hoa hồng ${statement.referral.rate || 0}% · ${statement.referral.contractCount} hợp đồng`, money(statement.referral.commissionAmount)],
+        ['Dòng tiền tính hoa hồng', money(statement.referral.netCashAmount)],
+      )
+    }
+    statement.adjustments.forEach((adjustment) => otherRows.push([
+      `${adjustment.type === 'bonus' ? 'Thưởng' : 'Khấu trừ'} · ${adjustment.reason || 'Điều chỉnh lương'}`,
+      `${adjustment.type === 'bonus' ? '+' : '-'}${money(adjustment.amount)}`,
+    ]))
+    table(otherRows, {
+      showHead: 'never',
+      columnStyles: { 0: { cellWidth: 138 }, 1: { cellWidth: 44, halign: 'right', fontStyle: 'bold' } },
+    })
   }
 
   if (statement.warnings.length) {
     ensureSpace(13 + statement.warnings.length * 7)
-    sectionTitle('Mục cần lưu ý')
+    sectionTitle('Cần kiểm tra')
     doc.setFillColor(255, 247, 235)
     const warningHeight = 8 + statement.warnings.reduce((total, warning) => total + doc.splitTextToSize(`- ${warning}`, contentWidth - 12).length * 4.2, 0)
     doc.roundedRect(margin, y - 2, contentWidth, warningHeight, 3, 3, 'F')
@@ -610,7 +697,7 @@ export async function createPayrollStatementPdf(statement: PayrollPdfStatement, 
     doc.setFontSize(8.2)
     doc.setTextColor(137, 84, 24)
     for (const warning of statement.warnings) {
-      const lines = doc.splitTextToSize(`- ${warning}`, contentWidth - 12)
+      const lines = doc.splitTextToSize(`• ${warning}`, contentWidth - 12)
       doc.text(lines, margin + 6, y + 4)
       y += lines.length * 4.2 + 2
     }
@@ -623,7 +710,7 @@ export async function createPayrollStatementPdf(statement: PayrollPdfStatement, 
       doc.setFont('Roboto', 'bold')
       doc.setFontSize(7.5)
       doc.setTextColor(...pink)
-      doc.text('AURA OPERATIONS', margin, 10)
+      doc.text('Phiếu lương', margin, 10)
       doc.setFont('Roboto', 'normal')
       doc.setTextColor(...muted)
       doc.text(`${statement.employee.name} | ${periodLabel(statement.periodId)}`, pageWidth - margin, 10, { align: 'right' })
@@ -635,8 +722,8 @@ export async function createPayrollStatementPdf(statement: PayrollPdfStatement, 
     doc.setFont('Roboto', 'normal')
     doc.setFontSize(7)
     doc.setTextColor(...muted)
-    doc.text(statement.official ? 'Phiếu lương đã khóa số liệu.' : 'Bản tạm tính - không dùng làm chứng từ chi lương.', margin, footerY)
-    doc.text(`Mã: ${statement.reference}`, pageWidth / 2, footerY, { align: 'center', maxWidth: 72 })
+    doc.text(statement.official ? 'Số liệu đã khóa' : 'Số liệu tạm tính', margin, footerY)
+    doc.text(statement.reference, pageWidth / 2, footerY, { align: 'center', maxWidth: 72 })
     doc.text(`Trang ${page}/${pages}`, pageWidth - margin, footerY, { align: 'right' })
   }
 
