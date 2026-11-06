@@ -37,7 +37,7 @@ export async function saveSopKnowledgeDraft(input: {
   expectedRevision: number
   idempotencyKey: string
   note: string
-  resource: Pick<SopKnowledgeResource, 'kind' | 'code' | 'title' | 'summary' | 'ownerRole' | 'audiences' | 'branchScope' | 'tags' | 'payload'>
+  resource: Pick<SopKnowledgeResource, 'kind' | 'code' | 'title' | 'summary' | 'ownerRole' | 'audiences' | 'branchScope' | 'tags' | 'relatedSopIds' | 'relatedSkillIds' | 'contentMetrics' | 'payload'>
 }) {
   const callable = httpsCallable<typeof input, { schemaVersion: 1; resource: SopKnowledgeResource }>(
     functionsOrThrow(), 'saveSopKnowledgeDraft', { timeout: 30_000 },
@@ -70,4 +70,3 @@ export async function restoreSopKnowledgeVersion(input: {
   )
   return (await callable(input)).data
 }
-

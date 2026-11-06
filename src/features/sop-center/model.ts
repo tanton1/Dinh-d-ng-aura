@@ -17,6 +17,9 @@ export const kindLabels: Record<SopKnowledgeKind, string> = {
   variable: 'Biến chính sách',
   kpi: 'KPI',
   escalation: 'Escalation',
+  price: 'Bảng giá',
+  promotion: 'Ưu đãi',
+  voice: 'Giọng Aura',
 }
 
 export const statusLabels: Record<SopKnowledgeStatus, string> = {
@@ -26,11 +29,11 @@ export const statusLabels: Record<SopKnowledgeStatus, string> = {
   live: 'Đang áp dụng',
 }
 
-export const sectionKinds: Record<Exclude<SopCenterSection, 'overview' | 'training' | 'approvals'>, SopKnowledgeKind[]> = {
+export const sectionKinds: Record<Exclude<SopCenterSection, 'overview' | 'lookup' | 'training' | 'approvals'>, SopKnowledgeKind[]> = {
   sops: ['sop'],
   skills: ['skill'],
   scripts: ['script', 'dialogue', 'objection'],
-  policies: ['policy', 'variable', 'kpi', 'escalation'],
+  policies: ['policy', 'variable', 'kpi', 'escalation', 'price', 'promotion', 'voice'],
 }
 
 export function normalizeSopSearch(value: string) {
@@ -53,7 +56,7 @@ export function filterSopResources(
   const tokens = normalizedQuery.split(' ').filter(Boolean)
   return resources.filter((resource) => {
     if (section === 'approvals' && resource.status !== 'review') return false
-    if (section !== 'overview' && section !== 'training' && section !== 'approvals') {
+    if (section !== 'overview' && section !== 'lookup' && section !== 'training' && section !== 'approvals') {
       if (!sectionKinds[section].includes(resource.kind)) return false
     }
     if (!tokens.length) return true
@@ -109,4 +112,3 @@ export function statusActionLabel(from: SopKnowledgeStatus, to: SopKnowledgeStat
   if (to === 'draft') return 'Tạo bản nháp mới'
   return statusLabels[to]
 }
-

@@ -111,10 +111,13 @@ function SkillContent({ resource }: { resource: SopKnowledgeResource }) {
 
 function ScriptContent({ resource }: { resource: SopKnowledgeResource }) {
   const payload = resource.payload
+  const variants = records(payload.variants)
+  const branches = records(payload.branches)
   return <div className="sop-center-document">
     <div className="sop-center-document-heading"><span>{resource.kind === 'script' ? 'Kịch bản dùng ngay' : 'Hội thoại mẫu'}</span><h2>{resource.title}</h2><p>{text(payload.trigger || payload.situation || resource.summary)}</p></div>
     {text(payload.goal) && <div className="sop-center-callout"><span>Mục tiêu</span><strong>{text(payload.goal)}</strong></div>}
     {text(payload.body) && <section className="sop-center-script-body"><span>Nội dung</span><p>{text(payload.body)}</p></section>}
+    {variants.length > 0 && <section className="sop-center-content-section"><div className="sop-center-section-title"><MessageSquareQuote size={18} /><h3>Biến thể theo kênh / nhóm khách</h3><span className="sop-center-count-pill">{variants.length}</span></div><div className="sop-center-case-list">{variants.map((variant, index) => <article key={`${index}-${text(variant.channel || variant.audience)}`}><span>{text(variant.channel || variant.audience) || `Biến thể ${index + 1}`}</span><p>{text(variant.body)}</p>{text(variant.note) && <small>{text(variant.note)}</small>}</article>)}</div></section>}
     {records(payload.turns).length > 0 && <section className="sop-center-dialogue">
       {records(payload.turns).map((turn, index) => {
         const who = text(turn.who)
@@ -125,6 +128,7 @@ function ScriptContent({ resource }: { resource: SopKnowledgeResource }) {
         </div>
       })}
     </section>}
+    {branches.length > 0 && <section className="sop-center-content-section"><div className="sop-center-section-title"><h3>Nếu khách phản hồi khác</h3><span className="sop-center-count-pill">{branches.length}</span></div><div className="sop-center-case-list">{branches.map((branch, index) => <article key={`${index}-${text(branch.if)}`}><span>{text(branch.if)}</span><p>{text(branch.say)}</p></article>)}</div></section>}
     {text(payload.guidance) && <section className="sop-center-content-section"><div className="sop-center-section-title"><h3>Hướng dẫn sử dụng</h3></div><p>{text(payload.guidance)}</p></section>}
     {text(payload.crm) && <section className="sop-center-note-grid"><div><span>Ghi nhận hệ thống</span><p>{text(payload.crm)}</p></div></section>}
     <TextList items={texts(payload.avoid)} empty="" />
@@ -147,6 +151,21 @@ const policyLabels: Record<string, string> = {
   group: 'Nhóm', appliesTo: 'Áp dụng cho', rule: 'Quy định', source: 'Nguồn', key: 'Khóa', value: 'Giá trị', note: 'Ghi chú',
   name: 'Tên KPI', formula: 'Công thức', target: 'Mục tiêu', owner: 'Owner', freq: 'Tần suất', situation: 'Tình huống',
   trigger: 'Điều kiện kích hoạt', handler: 'Người xử lý', approver: 'Người duyệt', deadline: 'Thời hạn',
+  service: 'Dịch vụ', label: 'Tên gói', months: 'Số tháng', monthly: 'Giá / tháng', bonus: 'Quyền lợi thêm',
+  condition: 'Điều kiện', start: 'Bắt đầu', end: 'Kết thúc', review: 'Nội dung cần rà soát',
+}
+
+function VoiceContent({ resource }: { resource: SopKnowledgeResource }) {
+  const type = text(resource.payload.type)
+  const items = records(resource.payload.items)
+  const rules = records(resource.payload.rules)
+  const stringItems = texts(resource.payload.items)
+  return <div className="sop-center-document">
+    <div className="sop-center-document-heading"><span>Chuẩn giọng Aura</span><h2>{resource.title}</h2><p>{resource.summary}</p></div>
+    {rules.length > 0 && <div className="sop-center-voice-list">{rules.map((rule, index) => <article key={`${index}-${text(rule.label)}`}><span>{text(rule.group)}</span><strong>{text(rule.label)}</strong><p>{text(rule.why)}</p><small>Mẫu nhận diện: {text(rule.pattern)}</small></article>)}</div>}
+    {items.length > 0 && <div className="sop-center-voice-list">{items.map((item, index) => <article key={`${index}-${text(item.from || item.who || item.label || item.id)}`}><span>{text(item.id || item.channel || item.audience || type)}</span><strong>{text(item.label || item.who || item.from)}</strong>{text(item.to) && <p className="is-good">Nên dùng: {text(item.to)}</p>}{text(item.call) && <p>Gọi “{text(item.call)}” · xưng “{text(item.self)}”</p>}{text(item.when) && <p>{text(item.when)}</p>}{texts(item.rules).length > 0 && <TextList items={texts(item.rules)} />}{texts(item.approach).length > 0 && <TextList items={texts(item.approach)} />}{text(item.note) && <small>{text(item.note)}</small>}</article>)}</div>}
+    {stringItems.length > 0 && <section className="sop-center-content-section"><TextList items={stringItems} /></section>}
+  </div>
 }
 
 function PolicyContent({ resource }: { resource: SopKnowledgeResource }) {
@@ -168,6 +187,6 @@ export default function ResourceContent({ resource, activeStep }: { resource: So
   if (resource.kind === 'skill') return <SkillContent resource={resource} />
   if (resource.kind === 'script' || resource.kind === 'dialogue') return <ScriptContent resource={resource} />
   if (resource.kind === 'objection') return <ObjectionContent resource={resource} />
+  if (resource.kind === 'voice') return <VoiceContent resource={resource} />
   return <PolicyContent resource={resource} />
 }
-

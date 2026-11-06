@@ -12,7 +12,7 @@ const AUDIT_COLLECTION = 'sopAuditLogs'
 const MAX_PAGE_SIZE = 100
 const MAX_SCAN = 500
 const MAX_PAYLOAD_BYTES = 850_000
-const KINDS = new Set(['sop', 'skill', 'script', 'dialogue', 'objection', 'policy', 'variable', 'kpi', 'escalation'])
+const KINDS = new Set(['sop', 'skill', 'script', 'dialogue', 'objection', 'policy', 'variable', 'kpi', 'escalation', 'price', 'promotion', 'voice'])
 const STATUSES = new Set(['draft', 'review', 'approved', 'live'])
 const TRANSITIONS = {
   draft: new Set(['review']),
@@ -30,6 +30,15 @@ function clean(value, maximum = 240, required = false, label = 'Giá trị') {
 function cleanArray(value, maximumItems = 30, maximumLength = 120) {
   if (!Array.isArray(value)) return []
   return [...new Set(value.map((item) => clean(item, maximumLength)).filter(Boolean))].slice(0, maximumItems)
+}
+
+function cleanMetrics(value) {
+  const metric = (key) => Math.max(0, Math.min(100_000, Math.floor(Number(value?.[key]) || 0)))
+  return {
+    phraseCount: metric('phraseCount'),
+    situationCount: metric('situationCount'),
+    variantCount: metric('variantCount'),
+  }
 }
 
 function timestampIso(value) {
@@ -78,6 +87,9 @@ function contentHash(resource) {
     audiences: resource.audiences,
     branchScope: resource.branchScope,
     tags: resource.tags,
+    relatedSopIds: resource.relatedSopIds,
+    relatedSkillIds: resource.relatedSkillIds,
+    contentMetrics: resource.contentMetrics,
     payload: resource.payload,
   })).digest('hex')
 }
@@ -117,6 +129,9 @@ function publicResource(id, value) {
     audiences: cleanArray(value.audiences),
     branchScope: branchScope.length ? branchScope : ['all'],
     tags: cleanArray(value.tags, 40),
+    relatedSopIds: cleanArray(value.relatedSopIds, 20, 80),
+    relatedSkillIds: cleanArray(value.relatedSkillIds, 30, 40),
+    contentMetrics: cleanMetrics(value.contentMetrics),
     searchText: clean(value.searchText, 45_000),
     sortKey: clean(value.sortKey, 360),
     sourceSystem: clean(value.sourceSystem, 120) || 'aura-admin',
@@ -157,6 +172,9 @@ function normalizeDraftInput(input, existing = {}) {
   const cleanBranchScope = cleanArray(input?.branchScope)
   const branchScope = cleanBranchScope.length ? cleanBranchScope : ['all']
   const tags = cleanArray(input?.tags, 40)
+  const relatedSopIds = cleanArray(input?.relatedSopIds, 20, 80)
+  const relatedSkillIds = cleanArray(input?.relatedSkillIds, 30, 40)
+  const contentMetrics = cleanMetrics(input?.contentMetrics)
   const payload = validatedPayload(input?.payload)
   const searchable = normalizeSearch([code, title, summary, ownerRole, ...audiences, ...tags, JSON.stringify(payload)].join(' ')).slice(0, 45_000)
   return {
@@ -170,6 +188,9 @@ function normalizeDraftInput(input, existing = {}) {
     audiences,
     branchScope,
     tags,
+    relatedSopIds,
+    relatedSkillIds,
+    contentMetrics,
     searchText: searchable,
     sortKey: `${kind}:${normalizeSearch(title)}`.slice(0, 360),
     sourceSystem: clean(existing.sourceSystem, 120) || 'aura-admin',
@@ -402,6 +423,9 @@ function createSopCenterFunctions({ db, onCall, logger = console }) {
         audiences: restored.audiences,
         branchScope: restored.branchScope,
         tags: restored.tags,
+        relatedSopIds: restored.relatedSopIds,
+        relatedSkillIds: restored.relatedSkillIds,
+        contentMetrics: restored.contentMetrics,
         searchText: restored.searchText,
         sortKey: restored.sortKey,
         payload: validatedPayload(restored.payload),

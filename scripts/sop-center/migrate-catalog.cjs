@@ -20,8 +20,8 @@ function digest(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex')
 }
 
-function versionId(resource) {
-  return resource.publishedVersionId || `migration-${String(resource.version || '1').replace(/[^a-zA-Z0-9_-]+/g, '-')}`
+function migrationActor(catalog) {
+  return `migration:${catalog.source.migrationBatchId}`
 }
 
 let cachedGcloudToken = null
@@ -64,30 +64,60 @@ function firestoreFields(record) {
     .map(([key, value]) => [key, firestoreValue(value)]))
 }
 
-function migrationDocuments(resource, catalog) {
-  const publishedVersionId = versionId(resource)
+function plainFirestoreValue(value) {
+  if (!value || typeof value !== 'object') return null
+  if ('nullValue' in value) return null
+  if ('stringValue' in value) return value.stringValue
+  if ('timestampValue' in value) return value.timestampValue
+  if ('booleanValue' in value) return value.booleanValue
+  if ('integerValue' in value) return Number(value.integerValue)
+  if ('doubleValue' in value) return Number(value.doubleValue)
+  if ('arrayValue' in value) return (value.arrayValue.values || []).map(plainFirestoreValue)
+  if ('mapValue' in value) return plainFirestoreFields(value.mapValue.fields || {})
+  return null
+}
+
+function plainFirestoreFields(fields) {
+  return Object.fromEntries(Object.entries(fields || {}).map(([key, value]) => [key, plainFirestoreValue(value)]))
+}
+
+function isManagedMigrationDocument(value) {
+  return value?.sourceSystem === 'sop-aura-reference'
+    && /^migration:sop-aura-v\d+$/.test(String(value?.createdBy || ''))
+    && /^migration:sop-aura-v\d+$/.test(String(value?.updatedBy || ''))
+}
+
+function migrationDocuments(resource, catalog, existing = null) {
+  const actor = migrationActor(catalog)
+  const revision = existing ? Math.max(1, Number(existing.revision || 1)) + 1 : Math.max(1, Number(resource.revision || 1))
+  const version = existing ? `2.${revision}` : String(resource.version || '1.0')
+  const publishedVersionId = `migration-${catalog.source.migrationBatchId}-r${String(revision).padStart(6, '0')}`
   const importedAt = new Date(resource.updatedAt || catalog.generatedAt)
   if (Number.isNaN(importedAt.getTime())) throw new Error(`Ngày cập nhật không hợp lệ: ${resource.id}`)
+  const current = {
+    ...resource,
+    version,
+    revision,
+    publishedVersionId: resource.status === 'live' ? publishedVersionId : (existing?.publishedVersionId || publishedVersionId),
+    updatedAt: importedAt,
+    updatedBy: actor,
+    createdAt: existing?.createdAt ? new Date(existing.createdAt) : importedAt,
+    createdBy: existing?.createdBy || actor,
+    migrationBatchId: catalog.source.migrationBatchId,
+    migrationDigest: digest(resource),
+  }
   return [
     {
       path: `${RESOURCE_COLLECTION}/${resource.id}`,
-      data: {
-        ...resource,
-        publishedVersionId,
-        updatedAt: importedAt,
-        createdAt: importedAt,
-        createdBy: 'migration:sop-aura-v1',
-        migrationBatchId: catalog.source.migrationBatchId,
-        migrationDigest: digest(resource),
-      },
+      data: current,
     },
     {
       path: `${RESOURCE_COLLECTION}/${resource.id}/versions/${publishedVersionId}`,
       data: {
         resourceId: resource.id,
         versionId: publishedVersionId,
-        version: resource.version,
-        revision: resource.revision,
+        version,
+        revision,
         status: resource.status,
         note: 'Nhập có kiểm soát từ SOP aura',
         contentHash: digest({
@@ -102,8 +132,8 @@ function migrationDocuments(resource, catalog) {
           payload: resource.payload,
         }),
         createdAt: importedAt,
-        createdBy: 'migration:sop-aura-v1',
-        snapshot: resource,
+        createdBy: actor,
+        snapshot: current,
         migrationBatchId: catalog.source.migrationBatchId,
       },
     },
@@ -113,12 +143,12 @@ function migrationDocuments(resource, catalog) {
         schemaVersion: 1,
         resourceId: resource.id,
         resourceKind: resource.kind,
-        revision: resource.revision,
+        revision,
         versionId: publishedVersionId,
-        action: 'migration.created',
+        action: existing ? 'migration.refreshed' : 'migration.created',
         status: resource.status,
         note: 'Nhập có kiểm soát từ SOP aura',
-        actorUid: 'migration:sop-aura-v1',
+        actorUid: actor,
         actorName: 'SOP aura migration',
         createdAt: importedAt,
         migrationBatchId: catalog.source.migrationBatchId,
@@ -147,12 +177,12 @@ async function gcloudFirestoreRequest(url, options) {
   return text ? JSON.parse(text) : null
 }
 
-async function applyCatalogWithGcloud(catalog, projectId, databaseId) {
+async function applyCatalogWithGcloud(catalog, projectId, databaseId, { planOnly = false } = {}) {
   if (!projectId) throw new Error('--project là bắt buộc khi dùng --gcloud-auth.')
   const databaseName = `projects/${projectId}/databases/${databaseId}`
   const documentsRoot = `${databaseName}/documents`
   const endpoint = `https://firestore.googleapis.com/v1/${databaseName}`
-  const existingNames = new Set()
+  const existingDocuments = new Map()
 
   for (let offset = 0; offset < catalog.resources.length; offset += 200) {
     const documents = catalog.resources.slice(offset, offset + 200)
@@ -163,41 +193,82 @@ async function applyCatalogWithGcloud(catalog, projectId, databaseId) {
     })
     const responses = Array.isArray(result) ? result : [result]
     responses.forEach((item) => {
-      if (item?.found?.name) existingNames.add(item.found.name)
+      if (!item?.found?.name) return
+      const id = item.found.name.split('/').pop()
+      existingDocuments.set(id, {
+        data: plainFirestoreFields(item.found.fields),
+        updateTime: item.found.updateTime,
+      })
     })
   }
 
-  const createResources = catalog.resources.filter((resource) => (
-    !existingNames.has(`${documentsRoot}/${RESOURCE_COLLECTION}/${resource.id}`)
+  const refreshManaged = process.argv.includes('--refresh-managed')
+  const createResources = catalog.resources.filter((resource) => !existingDocuments.has(resource.id))
+  const updateResources = refreshManaged
+    ? catalog.resources.filter((resource) => isManagedMigrationDocument(existingDocuments.get(resource.id)?.data))
+    : []
+  const skippedResources = catalog.resources.length - createResources.length - updateResources.length
+  const verifiedResources = catalog.resources.filter((resource) => (
+    existingDocuments.get(resource.id)?.data?.migrationDigest === digest(resource)
   ))
-  const skippedResources = catalog.resources.length - createResources.length
+  const driftedManagedResources = catalog.resources.filter((resource) => {
+    const value = existingDocuments.get(resource.id)?.data
+    return value && isManagedMigrationDocument(value) && value.migrationDigest !== digest(resource)
+  })
+  const summary = {
+    created: createResources.length,
+    updated: updateResources.length,
+    skipped: skippedResources,
+    verified: verifiedResources.length,
+    driftedManaged: driftedManagedResources.length,
+    deleteCount: 0,
+    databaseId,
+    projectId,
+    auth: 'gcloud-rest',
+  }
+  if (planOnly) return summary
   let created = 0
+  let updated = 0
 
-  for (let offset = 0; offset < createResources.length; offset += 120) {
-    const chunk = createResources.slice(offset, offset + 120)
-    const writes = chunk.flatMap((resource) => migrationDocuments(resource, catalog)).map((document) => ({
-      update: {
-        name: `${documentsRoot}/${document.path}`,
-        fields: firestoreFields(document.data),
-      },
-      currentDocument: { exists: false },
-    }))
-    await gcloudFirestoreRequest(`${endpoint}/documents:commit`, {
-      method: 'POST',
-      body: JSON.stringify({ writes }),
-    })
-    created += chunk.length
-    process.stdout.write(`Applied ${created}/${createResources.length} new resources\n`)
+  const commitResources = async (items, mode) => {
+    for (let offset = 0; offset < items.length; offset += 120) {
+      const chunk = items.slice(offset, offset + 120)
+      const writes = chunk.flatMap((resource) => {
+        const existing = existingDocuments.get(resource.id)
+        return migrationDocuments(resource, catalog, mode === 'update' ? existing.data : null).map((document, documentIndex) => ({
+          update: {
+            name: `${documentsRoot}/${document.path}`,
+            fields: firestoreFields(document.data),
+          },
+          currentDocument: mode === 'update' && documentIndex === 0
+            ? { updateTime: existing.updateTime }
+            : { exists: false },
+        }))
+      })
+      await gcloudFirestoreRequest(`${endpoint}/documents:commit`, {
+        method: 'POST',
+        body: JSON.stringify({ writes }),
+      })
+      if (mode === 'update') {
+        updated += chunk.length
+        process.stdout.write(`Refreshed ${updated}/${items.length} managed resources\n`)
+      } else {
+        created += chunk.length
+        process.stdout.write(`Applied ${created}/${items.length} new resources\n`)
+      }
+    }
   }
 
-  return { created, skipped: skippedResources, databaseId, projectId, auth: 'gcloud-rest' }
+  await commitResources(createResources, 'create')
+  await commitResources(updateResources, 'update')
+  return { created, updated, skipped: skippedResources, deleteCount: 0, databaseId, projectId, auth: 'gcloud-rest' }
 }
 
 async function loadCatalog() {
   const path = resolve(argValue('--catalog') || 'src/features/sop-center/data/catalog.json')
   const catalog = JSON.parse(await readFile(path, 'utf8'))
   if (catalog?.schemaVersion !== 1 || !Array.isArray(catalog.resources)) throw new Error('Catalog SOP không hợp lệ.')
-  const forbidden = ['lead_pipeline', 'member_360', 'renewal', 'prices', 'promotions', 'operational_records']
+  const forbidden = ['lead_pipeline', 'member_360', 'renewal_operations', 'operational_records']
   if (!forbidden.every((scope) => catalog.excludedScopes?.includes(scope))) {
     throw new Error('Catalog chưa khai báo đầy đủ các phạm vi bị loại trừ.')
   }
@@ -206,7 +277,7 @@ async function loadCatalog() {
 
 async function applyCatalog(catalog) {
   const { initializeApp, applicationDefault } = require('firebase-admin/app')
-  const { getFirestore, Timestamp } = require('firebase-admin/firestore')
+  const { getFirestore } = require('firebase-admin/firestore')
   const projectId = argValue('--project') || process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT
   const databaseId = argValue('--database') || process.env.FIRESTORE_DATABASE_ID || DEFAULT_DATABASE_ID
   if (process.argv.includes('--gcloud-auth')) return applyCatalogWithGcloud(catalog, projectId, databaseId)
@@ -215,74 +286,42 @@ async function applyCatalog(catalog) {
   const refs = catalog.resources.map((resource) => db.doc(`${RESOURCE_COLLECTION}/${resource.id}`))
   const existing = await db.getAll(...refs)
   const createResources = catalog.resources.filter((_, index) => !existing[index].exists)
-  const skippedResources = catalog.resources.length - createResources.length
+  const existingById = new Map(existing.filter((snapshot) => snapshot.exists).map((snapshot) => [snapshot.id, snapshot.data()]))
+  const updateResources = process.argv.includes('--refresh-managed')
+    ? catalog.resources.filter((resource) => isManagedMigrationDocument(existingById.get(resource.id)))
+    : []
+  const skippedResources = catalog.resources.length - createResources.length - updateResources.length
   let created = 0
+  let updated = 0
 
-  for (let offset = 0; offset < createResources.length; offset += 120) {
-    const batch = db.batch()
-    const chunk = createResources.slice(offset, offset + 120)
-    chunk.forEach((resource) => {
-      const resourceRef = db.doc(`${RESOURCE_COLLECTION}/${resource.id}`)
-      const publishedVersionId = versionId(resource)
-      const importedAt = Timestamp.fromDate(new Date(resource.updatedAt || catalog.generatedAt))
-      const current = {
-        ...resource,
-        publishedVersionId,
-        updatedAt: importedAt,
-        createdAt: importedAt,
-        createdBy: 'migration:sop-aura-v1',
-        migrationBatchId: catalog.source.migrationBatchId,
-        migrationDigest: digest(resource),
-      }
-      batch.create(resourceRef, current)
-      batch.create(resourceRef.collection('versions').doc(publishedVersionId), {
-        resourceId: resource.id,
-        versionId: publishedVersionId,
-        version: resource.version,
-        revision: resource.revision,
-        status: resource.status,
-        note: 'Nhập có kiểm soát từ SOP aura',
-        contentHash: digest({
-          kind: resource.kind,
-          code: resource.code,
-          title: resource.title,
-          summary: resource.summary,
-          ownerRole: resource.ownerRole,
-          audiences: resource.audiences,
-          branchScope: resource.branchScope,
-          tags: resource.tags,
-          payload: resource.payload,
-        }),
-        createdAt: importedAt,
-        createdBy: 'migration:sop-aura-v1',
-        snapshot: resource,
-        migrationBatchId: catalog.source.migrationBatchId,
+  const commitResources = async (items, mode) => {
+    for (let offset = 0; offset < items.length; offset += 120) {
+      const batch = db.batch()
+      const chunk = items.slice(offset, offset + 120)
+      chunk.forEach((resource) => {
+        const documents = migrationDocuments(resource, catalog, mode === 'update' ? existingById.get(resource.id) : null)
+        documents.forEach((document, index) => {
+          const ref = db.doc(document.path)
+          if (mode === 'update' && index === 0) batch.set(ref, document.data)
+          else batch.create(ref, document.data)
+        })
       })
-      batch.create(db.doc(`${AUDIT_COLLECTION}/${resource.id}__${publishedVersionId}`), {
-        schemaVersion: 1,
-        resourceId: resource.id,
-        resourceKind: resource.kind,
-        revision: resource.revision,
-        versionId: publishedVersionId,
-        action: 'migration.created',
-        status: resource.status,
-        note: 'Nhập có kiểm soát từ SOP aura',
-        actorUid: 'migration:sop-aura-v1',
-        actorName: 'SOP aura migration',
-        createdAt: importedAt,
-        migrationBatchId: catalog.source.migrationBatchId,
-      })
-    })
-    await batch.commit()
-    created += chunk.length
-    process.stdout.write(`Applied ${created}/${createResources.length} new resources\n`)
+      await batch.commit()
+      if (mode === 'update') updated += chunk.length
+      else created += chunk.length
+    }
   }
 
-  return { created, skipped: skippedResources, databaseId, projectId: projectId || null }
+  await commitResources(createResources, 'create')
+  await commitResources(updateResources, 'update')
+
+  return { created, updated, skipped: skippedResources, deleteCount: 0, databaseId, projectId: projectId || null }
 }
 
 async function main() {
   const { path, catalog } = await loadCatalog()
+  const projectId = argValue('--project') || process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT
+  const databaseId = argValue('--database') || process.env.FIRESTORE_DATABASE_ID || DEFAULT_DATABASE_ID
   const plan = {
     mode: process.argv.includes('--apply') ? 'apply' : 'plan',
     catalog: path,
@@ -292,6 +331,9 @@ async function main() {
     excludedScopes: catalog.excludedScopes,
     catalogDigest: digest(catalog),
     deleteCount: 0,
+  }
+  if (process.argv.includes('--gcloud-auth')) {
+    plan.remote = await applyCatalogWithGcloud(catalog, projectId, databaseId, { planOnly: true })
   }
   process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`)
   if (!process.argv.includes('--apply')) {

@@ -35,3 +35,14 @@ test('public resources default to a safe all-branch scope', () => {
   assert.equal(resource.schemaVersion, 1)
 })
 
+test('public resources retain SOP-skill traceability metadata', () => {
+  const resource = publicResource('script__demo', {
+    kind: 'script', code: 'SCRIPT', title: 'Demo', status: 'live', revision: 1,
+    payload: {}, updatedAt: '2026-11-06T00:00:00.000Z',
+    relatedSopIds: ['sop01'], relatedSkillIds: ['8'],
+    contentMetrics: { phraseCount: 3, situationCount: 1, variantCount: 2 },
+  })
+  assert.deepEqual(resource.relatedSopIds, ['sop01'])
+  assert.deepEqual(resource.relatedSkillIds, ['8'])
+  assert.deepEqual(resource.contentMetrics, { phraseCount: 3, situationCount: 1, variantCount: 2 })
+})

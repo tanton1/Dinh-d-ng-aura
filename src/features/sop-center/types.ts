@@ -8,11 +8,15 @@ export type SopKnowledgeKind =
   | 'variable'
   | 'kpi'
   | 'escalation'
+  | 'price'
+  | 'promotion'
+  | 'voice'
 
 export type SopKnowledgeStatus = 'draft' | 'review' | 'approved' | 'live'
 
 export type SopCenterSection =
   | 'overview'
+  | 'lookup'
   | 'sops'
   | 'skills'
   | 'scripts'
@@ -36,6 +40,13 @@ export interface SopKnowledgeResource {
   audiences: string[]
   branchScope: string[]
   tags: string[]
+  relatedSopIds: string[]
+  relatedSkillIds: string[]
+  contentMetrics: {
+    phraseCount: number
+    situationCount: number
+    variantCount: number
+  }
   searchText: string
   sortKey: string
   sourceSystem: string
@@ -73,6 +84,11 @@ export interface SopCatalogEnvelope {
   stats: {
     total: number
     byKind: Partial<Record<SopKnowledgeKind, number>>
+    contentMetrics: {
+      phraseCount: number
+      situationCount: number
+      variantCount: number
+    }
   }
   resources: SopKnowledgeResource[]
 }
@@ -126,4 +142,3 @@ export interface SopKnowledgeListResult {
   hasMore: boolean
   nextCursor: string | null
 }
-

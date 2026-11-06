@@ -5,10 +5,10 @@ import type { SopKnowledgeKind, SopKnowledgeResource, SopStepPayload } from './t
 
 export interface SopDraftSubmission {
   note: string
-  resource: Pick<SopKnowledgeResource, 'kind' | 'code' | 'title' | 'summary' | 'ownerRole' | 'audiences' | 'branchScope' | 'tags' | 'payload'>
+  resource: Pick<SopKnowledgeResource, 'kind' | 'code' | 'title' | 'summary' | 'ownerRole' | 'audiences' | 'branchScope' | 'tags' | 'relatedSopIds' | 'relatedSkillIds' | 'contentMetrics' | 'payload'>
 }
 
-const creatableKinds: SopKnowledgeKind[] = ['sop', 'skill', 'script', 'dialogue', 'objection', 'policy', 'variable', 'kpi', 'escalation']
+const creatableKinds: SopKnowledgeKind[] = ['sop', 'skill', 'script', 'dialogue', 'objection', 'policy', 'variable', 'kpi', 'escalation', 'price', 'promotion', 'voice']
 
 function lines(value: string) {
   return value.split('\n').map((item) => item.trim()).filter(Boolean)
@@ -156,6 +156,9 @@ export default function ResourceEditor({
         audiences: audiences.split(',').map((item) => item.trim()).filter(Boolean),
         branchScope: resource?.branchScope?.length ? resource.branchScope : ['all'],
         tags: tags.split(',').map((item) => item.trim()).filter(Boolean),
+        relatedSopIds: resource?.relatedSopIds ?? [],
+        relatedSkillIds: resource?.relatedSkillIds ?? [],
+        contentMetrics: resource?.contentMetrics ?? { phraseCount: 0, situationCount: 0, variantCount: 0 },
         payload,
       },
     })
