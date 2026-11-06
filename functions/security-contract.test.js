@@ -87,6 +87,21 @@ test('in-person PT programs and set logs are revisioned, actor-scoped and callab
   }
 })
 
+test('SOP Center is capability-gated, revisioned and callable-only', () => {
+  const sopCenterSource = readFileSync(join(__dirname, 'sop-center.js'), 'utf8')
+  for (const capability of ['sop.content.read', 'sop.content.edit', 'sop.content.review', 'sop.content.publish']) {
+    assert.match(sopCenterSource, new RegExp(capability.replaceAll('.', '\\.')))
+  }
+  assert.match(sopCenterSource, /expectedRevision/)
+  assert.match(sopCenterSource, /idempotencyKey/)
+  assert.match(sopCenterSource, /collection\('versions'\)\.doc\(versionId\)/)
+  assert.match(sopCenterSource, /sopAuditLogs/)
+  for (const collection of ['operatingKnowledge', 'sopCommandReceipts', 'sopAuditLogs']) {
+    assert.match(rules, new RegExp(`match /${collection}/`))
+  }
+  assert.match(functionsSource, /createSopCenterFunctions/)
+})
+
 const runtimeSource = readRuntimeSources(join(repositoryRoot, 'src'))
 const adminRuntimeSource = [
   readRuntimeSources(join(repositoryRoot, 'src', 'components', 'admin')),

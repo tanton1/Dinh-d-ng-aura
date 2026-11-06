@@ -56,6 +56,7 @@ const routeImporters: Partial<Record<ViewId, () => Promise<unknown>>> = {
   'admin-eat-clean': () => import('../features/eat-clean/admin/AdminEatCleanPage'),
   'admin-nutrition-reviews': () => import('../pages/admin/AdminNutritionReviewsPage'),
   'admin-notifications': () => import('../pages/admin/AdminNotificationsPage'),
+  'admin-sop': () => import('../features/sop-center/AdminSopCenterPage'),
 }
 
 type NetworkInformation = {

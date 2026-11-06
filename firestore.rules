@@ -1661,6 +1661,24 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // SOP Center is callable-only. Version snapshots, command receipts and
+    // audit evidence must not be mutable from a browser, even by Admin UI.
+    match /operatingKnowledge/{resourceId} {
+      allow read, write: if false;
+
+      match /versions/{versionId} {
+        allow read, write: if false;
+      }
+    }
+
+    match /sopCommandReceipts/{receiptId} {
+      allow read, write: if false;
+    }
+
+    match /sopAuditLogs/{auditId} {
+      allow read, write: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

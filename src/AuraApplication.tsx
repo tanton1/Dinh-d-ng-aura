@@ -66,6 +66,7 @@ const AdminRolesPage = lazyWithRetry(() => import('./pages/admin/AdminRolesPage'
 const AdminStudentsPage = lazyWithRetry(() => import('./pages/admin/AdminStudentsPage'))
 const AdminNutritionReviewsPage = lazyWithRetry(() => import('./pages/admin/AdminNutritionReviewsPage'))
 const AdminNotificationsPage = lazyWithRetry(() => import('./pages/admin/AdminNotificationsPage'))
+const AdminSopCenterPage = lazyWithRetry(() => import('./features/sop-center/AdminSopCenterPage'))
 const CourseEditorPage = lazyWithRetry(() => import('./pages/admin/CourseEditorPage'))
 const CourseDetailPage = lazyWithRetry(() => import('./pages/student/CourseDetailPage'))
 const CoursesPage = lazyWithRetry(() => import('./pages/student/CoursesPage'))
@@ -1007,6 +1008,20 @@ function AuraApplication() {
       case 'admin-roles': return <AuraOperationsFrame><AdminRolesPage users={adminUsers} currentRole={role} currentUserUid={user?.uid} loading={adminUsersLoading} onRoleChange={updateUserRole} /></AuraOperationsFrame>
       case 'admin-nutrition-reviews': return <AdminNutritionReviewsPage onNavigate={navigate} focus={route.focus} />
       case 'admin-notifications': return <AdminNotificationsPage onNavigate={navigate} currentUserUid={user?.uid} authzVersion={JSON.stringify([profile?.authzVersion, role])} canManageUiRollout={role === 'super_admin'} backendMode={backendMode} />
+      case 'admin-sop': return backendMode === 'firebase' && (!authzReady || !hasCapability('sop.content.read'))
+        ? <div className="course-detail-state" role="status"><h1>{authzReady ? 'Không có quyền mở Trung tâm SOP' : 'Đang xác minh quyền Trung tâm SOP'}</h1><p>{authzReady ? 'Tài khoản chưa được cấp quyền đọc kho tri thức vận hành.' : 'Aura đang đối chiếu quyền quản trị trước khi tải tài liệu.'}</p></div>
+        : <AdminSopCenterPage
+          isDemo={backendMode === 'demo'}
+          actorId={user?.uid ?? 'demo-admin'}
+          capabilities={{
+            canRead: backendMode === 'demo' || hasCapability('sop.content.read'),
+            canEdit: backendMode === 'demo' || hasCapability('sop.content.edit'),
+            canReview: backendMode === 'demo' || hasCapability('sop.content.review'),
+            canPublish: backendMode === 'demo' || hasCapability('sop.content.publish'),
+            canManageTraining: backendMode === 'demo' || hasCapability('sop.training.manage'),
+            canReadAudit: backendMode === 'demo' || hasCapability('sop.audit.read'),
+          }}
+        />
       case 'admin-eat-clean': return <AdminEatCleanPage key={user?.uid ?? backendMode} accountId={user?.uid || ''} currentRole={role} isDemo={backendMode === 'demo'} />
 
       // PT Coaching & Gym Management Views

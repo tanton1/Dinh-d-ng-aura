@@ -7,6 +7,7 @@ import {
   Bell,
   Bot,
   BookOpen,
+  BookOpenCheck,
   Check,
   ChefHat,
   CalendarClock,
@@ -306,6 +307,12 @@ const adminNavSections: Array<{ label: string; items: ShellAdminNavItem[] }> = [
     ],
   },
   {
+    label: 'TIÊU CHUẨN VẬN HÀNH',
+    items: [
+      { id: 'admin-sop' as const, label: 'Trung tâm SOP', icon: BookOpenCheck, permission: 'sop.view' as Permission },
+    ],
+  },
+  {
     label: 'CÀI ĐẶT',
     items: [
       { id: 'admin-notifications' as const, label: 'Push Notifications & Cài đặt', icon: Bell, permission: 'team.view' as Permission },
@@ -382,6 +389,7 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   'admin-nutrition-reviews': 'Duyệt ăn',
   'admin-eat-clean': 'Vận hành Eat Clean',
   'admin-notifications': 'Cài đặt Push Notifications',
+  'admin-sop': 'Trung tâm SOP',
   'progress-photo-studio': 'Ghi nhận tiến độ',
 }
 

@@ -108,6 +108,7 @@ export const routeCapabilities = {
   'admin-nutrition-reviews': 'nutrition.meals.all.review',
   'admin-eat-clean': 'eat_clean.operations.manage',
   'admin-notifications': 'identity.staff_position.manage',
+  'admin-sop': 'sop.content.read',
 } as const
 
 export function hasRouteCapability(

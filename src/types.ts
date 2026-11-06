@@ -220,6 +220,7 @@ export type AdminView =
   | 'admin-meal-plans'
   | 'admin-eat-clean'
   | 'admin-notifications'
+  | 'admin-sop'
 
 export type ViewId = StudentView | AdminView
 

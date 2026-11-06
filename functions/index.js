@@ -94,6 +94,7 @@ const { createRegionalReadAliases } = require('./regional-read-aliases')
 const { createRegionalSecondaryReadAliases } = require('./regional-secondary-reads')
 const { buildContractUsageView, contractUsageViewNeedsRebuild, createContractUsageViewFunctions, syncContractUsageView } = require('./contract-usage-view')
 const { createActionCenterFunctions, syncOperationalActionSource } = require('./action-center')
+const { createSopCenterFunctions } = require('./sop-center')
 const { createPackageManagementFunctions } = require('./package-management')
 const { createQuoteManagementFunctions } = require('./quote-management')
 const { createScheduleConfigManagementFunctions } = require('./schedule-config-management')
@@ -595,6 +596,7 @@ exports.getOperationsDashboardRegional = operationsDashboardOverflowFunctions.ge
 exports.getTodaySessionsRegional = operationsDashboardOverflowFunctions.getTodaySessions
 Object.assign(exports, createContractUsageViewFunctions({ db, onCall, logger }))
 Object.assign(exports, createActionCenterFunctions({ db, onCall, logger }))
+Object.assign(exports, createSopCenterFunctions({ db, onCall, logger }))
 const packageManagementFunctions = createPackageManagementFunctions({ db, onCall })
 exports.upsertTrainingPackage = packageManagementFunctions.upsertTrainingPackage
 exports.archiveTrainingPackage = packageManagementFunctions.archiveTrainingPackage

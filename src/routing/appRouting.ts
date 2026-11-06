@@ -28,6 +28,7 @@ export const adminViews: ViewId[] = [
   'admin-nutrition-reviews',
   'admin-eat-clean',
   'admin-notifications',
+  'admin-sop',
 ]
 
 const validViews: ViewId[] = [
@@ -88,6 +89,7 @@ export const adminViewPermissions: Partial<Record<ViewId, Permission>> = {
   'admin-nutrition-reviews': 'student.view_assigned',
   'admin-eat-clean': 'eat_clean.manage',
   'admin-notifications': 'team.view',
+  'admin-sop': 'sop.view',
 }
 
 export interface AuraRoute {
