@@ -1,0 +1,43 @@
+.installment-claims *, .installment-claims *::before, .installment-claims *::after { box-sizing: border-box; }
+.installment-claims { box-sizing: border-box; display: grid; gap: 8px; padding: 14px; border: 1px solid color-mix(in srgb, var(--aura-info) 28%, transparent); border-radius: 18px; background: color-mix(in srgb, var(--aura-info) 5%, var(--aura-surface)); }
+.installment-claims .finance-management__section-head h2 svg { color: var(--aura-info); }
+.installment-claims__head-tools { display: flex; align-items: center; gap: 6px; }
+.installment-claims__head-tools strong { color: var(--fm-muted); font-size: 12px; font-weight: 700; white-space: nowrap; }
+.installment-claims .finance-management__collect-button { min-height: 36px; padding: 0 14px; font-size: 13px; }
+.installment-claims__head-tools button { display: grid; width: 36px; height: 36px; place-items: center; border: 1px solid var(--fm-line); border-radius: 10px; color: var(--fm-ink); background: var(--aura-surface); cursor: pointer; }
+.installment-claims__hint { margin: 0; color: var(--fm-muted); font-size: 12px; line-height: 1.5; }
+.installment-claims__list { display: grid; }
+.installment-claims__list article { padding: 12px 0; border-bottom: 1px solid var(--fm-line); }
+.installment-claims__list article:last-child { border-bottom: 0; }
+.installment-claims__list article.is-stale { opacity: .82; }
+.installment-claims__row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: start; }
+.installment-claims__main { min-width: 0; }
+.installment-claims__main h3 { margin: 0; font-size: 14px; }
+.installment-claims__main h3 a { color: var(--fm-ink); text-decoration: none; }
+.installment-claims__main h3 a:hover { text-decoration: underline; }
+.installment-claims__main p { margin: 4px 0 0; color: var(--fm-muted); font-size: 12px; overflow-wrap: anywhere; }
+.installment-claims__code { display: flex; align-items: center; gap: 6px; }
+.installment-claims__code b { color: var(--aura-pink-text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; }
+.installment-claims__code button { display: grid; width: 28px; height: 28px; place-items: center; border: 0; border-radius: 8px; color: var(--aura-pink-text); background: var(--aura-pink-soft); cursor: pointer; }
+.installment-claims__note { font-style: italic; }
+.installment-claims__stale { display: flex; align-items: center; gap: 4px; color: var(--aura-warning) !important; font-weight: 700; }
+.installment-claims__side { display: grid; justify-items: end; gap: 4px; text-align: right; }
+.installment-claims__side b { color: var(--fm-ink); font-size: 16px; }
+.installment-claims__side small { color: var(--fm-muted); font-size: 12px; }
+.installment-claims__actions { display: flex; gap: 6px; margin-top: 4px; }
+.installment-claims__reject { min-height: 36px; padding: 0 12px; border: 1px solid var(--fm-line); border-radius: 9px; color: var(--fm-ink); background: var(--aura-surface); font-size: 12px; font-weight: 800; cursor: pointer; }
+.installment-claims__reject-form { display: grid; gap: 8px; margin-top: 10px; }
+.installment-claims__reject-form label { display: grid; gap: 4px; color: var(--fm-muted); font-size: 12px; }
+.installment-claims__reject-form textarea { min-height: 64px; padding: 8px 10px; border: 1px solid var(--fm-line); border-radius: 10px; color: var(--fm-ink); font: inherit; font-size: 14px; }
+.installment-claims__reject-form > div { display: flex; justify-content: flex-end; gap: 6px; }
+.installment-claims__reject-form button { min-height: 36px; padding: 0 12px; border: 1px solid var(--fm-line); border-radius: 10px; color: var(--fm-ink); background: var(--aura-surface); font-weight: 800; cursor: pointer; }
+.installment-claims__reject-form button.is-danger { border-color: transparent; color: #ffffff; background: var(--aura-danger); }
+
+@media (max-width: 520px) {
+  .installment-claims { padding: 12px; }
+  .installment-claims__row { grid-template-columns: 1fr; }
+  .installment-claims__side { justify-items: start; text-align: left; }
+}
+
+.finance-payment-claim-note { margin: 10px 0 0; padding: 10px 12px; border-radius: 12px; color: var(--aura-ink); background: color-mix(in srgb, var(--aura-info) 10%, var(--aura-surface)); font-size: 13px; line-height: 1.5; }
+.finance-payment-claim-note b { color: var(--aura-pink-text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }

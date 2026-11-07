@@ -25,10 +25,11 @@ import { reverseContractPayment } from '../../../services/financeLedgerService'
 import { useAuth } from '../../../contexts/AuthContext'
 import { formatVietnamDate, formatVietnamDateTime, vietnamDateKey, vietnamToday } from '../../../utils/vietnamDate'
 import S2eCashDetailBook from './S2eCashDetailBook'
+import TransferProfileForm from './TransferProfileForm'
 import useCashbookPages from './useCashbookPages'
 import './CashbookPanel.css'
 
-type PanelMode = 'none' | 'account' | 'receipt' | 'voucher' | 'transfer'
+type PanelMode = 'none' | 'account' | 'receipt' | 'voucher' | 'transfer' | 'vietqr'
 type LedgerTab = 's2e' | 'receipts' | 'vouchers' | 'cash'
 
 const today = vietnamToday
@@ -402,12 +403,15 @@ function CashbookSession({ branches, onAccessDenied }: Props & { onAccessDenied:
         <button disabled={busy || !accountRead.data} onClick={() => { closeForm(); setMode('account') }}><Plus size={15} /> Mở quỹ</button>
         <button disabled={busy || !accountRead.data} onClick={openReceipt} aria-label="Lập phiếu thu"><ReceiptText size={15} /> Lập thu</button>
         <button disabled={busy || !accountRead.data} onClick={() => openVoucher()} aria-label="Lập phiếu chi"><FilePenLine size={15} /> Lập chi</button>
+        <button disabled={busy || !accountRead.data} onClick={() => { closeForm(); setMode('vietqr') }} aria-label="Cấu hình nhận chuyển khoản VietQR"><Landmark size={15} /> VietQR</button>
       </div>
     </div>
 
     {error && <div className="cashbook-error" role="alert">{error}</div>}
     {readErrors.length > 0 && <div className="cashbook-error" role="alert">{errorMessage(readErrors[0], 'Không thể tải dữ liệu sổ quỹ. Vui lòng thử lại.')}</div>}
     {message && <div className="cashbook-message"><CheckCircle2 size={18} /> {message}</div>}
+
+    {mode === 'vietqr' && <TransferProfileForm accounts={accounts} branches={branches} onClose={closeForm} onSaved={(value) => { closeForm(); setMessage(value); setRefreshVersion((version) => version + 1) }} />}
 
     {(mode === 'account' || mode === 'transfer') && <div className="cashbook-form">
       {mode === 'account' && <>

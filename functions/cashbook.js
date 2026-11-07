@@ -60,7 +60,15 @@ async function actorForFinance(request, db, options) {
 
 function serializeAccount(snapshot) {
   const value = snapshot.data()
-  return { id: snapshot.id, name: value.name || '', type: value.type || 'cash', branchId: value.branchId || '', currency: 'VND', balance: Number(value.balance || 0), status: value.status || 'active', openingBalanceAt: value.openingBalanceAt?.toDate?.().toISOString?.() || '' }
+  const transfer = value.transferProfile
+  return {
+    id: snapshot.id, name: value.name || '', type: value.type || 'cash', branchId: value.branchId || '', currency: 'VND', balance: Number(value.balance || 0), status: value.status || 'active', openingBalanceAt: value.openingBalanceAt?.toDate?.().toISOString?.() || '',
+    // Receiving details shown to students in VietQR. Public by nature; no
+    // credentials or balances beyond what the account row already carries.
+    transferProfile: transfer && typeof transfer === 'object'
+      ? { enabled: transfer.enabled === true, bankBin: transfer.bankBin || '', bankName: transfer.bankName || '', accountNumber: transfer.accountNumber || '', accountName: transfer.accountName || '' }
+      : null,
+  }
 }
 
 function serializeTransaction(snapshot) {

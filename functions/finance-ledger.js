@@ -5,6 +5,7 @@ const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { readContractRecognizedRevenue } = require('./finance-recognition-balance')
 const { readSettlementCashPlan, writeSettlementCashProgress, assertContractPaymentReversalAllowed } = require('./contract-settlement-cash')
 const { contractPaymentJournal, reversedJournalLines, amountInVietnameseWords } = require('./accounting-core')
+const { PAYMENT_CLAIM_COLLECTION, paymentClaimId, confirmedClaimPatch, formatVnd } = require('./installment-payment-core')
 
 // `payment` is a cash collection, while `revenue_recognition` is the
 // management P&L event.  Keeping both types prevents cash flow from being
@@ -755,9 +756,13 @@ function createFinanceLedgerFunctions({ db, onCall }) {
       const settlement = await readSettlementCashPlan(transaction, db, { contractId, contract: data, type: 'payment', amount, installmentId, expectedSettlementRevision: expectedSettlement })
       const renewalCaseReference = data.renewalCaseId ? db.doc(`contractRenewalCases/${data.renewalCaseId}`) : null
       const studentReference = data.studentId ? db.doc(`students/${data.studentId}`) : null
-      const [renewalCase, student] = await Promise.all([
+      // A student's "I have transferred" report for this exact target is
+      // closed by the same transaction that posts the payment.
+      const claimReference = db.doc(`${PAYMENT_CLAIM_COLLECTION}/${paymentClaimId(contractId, installmentId)}`)
+      const [renewalCase, student, claim] = await Promise.all([
         renewalCaseReference ? transaction.get(renewalCaseReference) : Promise.resolve(null),
         studentReference ? transaction.get(studentReference) : Promise.resolve(null),
+        transaction.get(claimReference),
       ])
       const totalDue = settlement ? settlement.recognizedReceivableTarget : Number(data.totalPrice || 0) - Number(data.discount || 0)
       const nextPaid = Number(data.paidAmount || 0) + amount
@@ -793,6 +798,26 @@ function createFinanceLedgerFunctions({ db, onCall }) {
       const settlementPatch = writeSettlementCashProgress(transaction, settlement, ledgerReference.id, actor.uid)
       transaction.update(contractReference, { paidAmount: nextPaid, ...(installmentPatch || {}), ...settlementPatch, accountingAdvanceAccountCode: advanceAccountCode, financeProjectionUpdatedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
       if (renewalCase?.exists) transaction.update(renewalCaseReference, { collectedValue: FieldValue.increment(amount), updatedAt: FieldValue.serverTimestamp() })
+      const claimData = claim?.exists ? claim.data() : null
+      const claimPatch = confirmedClaimPatch(claimData, { amount, installmentId, ledgerEntryId: ledgerReference.id, receiptVoucherNumber: receipt.voucherNumber, actorUid: actor.uid, confirmedAt: Timestamp.now() })
+      if (claimPatch) {
+        transaction.update(claimReference, claimPatch)
+        if (claimData.status === 'submitted' && /^[A-Za-z0-9_-]{1,128}$/.test(String(claimData.accountUid || ''))) {
+          const notification = db.doc(`users/${claimData.accountUid}/notifications/installment-paid-${ledgerReference.id.slice(0, 24)}`)
+          transaction.set(notification, {
+            id: notification.id,
+            userId: claimData.accountUid,
+            title: claimData.sequence ? `Đã ghi nhận thanh toán kỳ ${claimData.sequence}` : 'Đã ghi nhận thanh toán',
+            message: `${claimData.packageName || 'Gói tập Aura'} · ${formatVnd(amount)} · phiếu thu ${receipt.voucherNumber}`,
+            type: 'PAYMENT',
+            category: 'payment',
+            actionUrl: '#/schedule?tab=contract',
+            dedupeKey: notification.id,
+            read: false,
+            createdAt: FieldValue.serverTimestamp(),
+          })
+        }
+      }
       createCashMovement(transaction, db, ledgerReference, cashAccount, amount, effectiveAt, actor.uid, 'contract_payment', {
         referenceCode: receipt.voucherNumber,
         accountingDocumentId: receipt.reference.id,

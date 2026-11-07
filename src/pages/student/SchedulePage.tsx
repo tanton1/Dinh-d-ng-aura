@@ -1,7 +1,8 @@
 import { useLocalTimeBoundaries, useVietnamDay, useWorkspaceAccountId, useWorkspaceSync } from '../../hooks/useWorkspaceSync'
 import { runCoalescedRefresh, type CoalescedRefreshState } from '../../utils/coalescedRefresh'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { mergeTrainingHistoryPage } from '../../utils/trainingHistoryPagination'
+import { paymentTargetFromHash } from '../../services/installmentPaymentService'
 import {
   AlertCircle,
   CalendarCheck,
@@ -46,6 +47,24 @@ import { useAuraUiSurface } from '../../features/ui-rollout/AuraUiRolloutContext
 import { vietnamBusinessDayCode } from '../../utils/dateUtils'
 import { PT_OPERATIONS_POLICY_DEFAULTS } from '../../config/ptOperationsPolicy'
 
+// Loaded on demand so the QR encoder never weighs on the schedule route.
+const InstallmentPaymentSheet = lazy(() => import('../../features/installment-payment/InstallmentPaymentSheet'))
+type PaymentTarget = { contractId: string; installmentId: string | null }
+
+function initialPaymentTarget(): PaymentTarget | null {
+  return typeof window === 'undefined' ? null : paymentTargetFromHash(window.location.hash)
+}
+
+/** Drop `pay=` so closing the sheet, or reloading afterwards, does not reopen it. */
+function clearPaymentRoute() {
+  if (typeof window === 'undefined' || !window.location.hash.includes('pay=')) return
+  const [path, query = ''] = window.location.hash.split('?')
+  const params = new URLSearchParams(query)
+  params.delete('pay')
+  const next = params.toString()
+  window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}${path}${next ? `?${next}` : ''}`)
+}
+
 const DEFAULT_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
 const DEFAULT_HOURS = [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20]
 const DAY_LABELS = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7']
@@ -58,6 +77,7 @@ type StudentAttentionAlert = {
   action: 'contract' | 'availability'
   actionLabel: string
   contractId?: string
+  paymentDueDate?: string
 }
 
 function scheduleTabFromRoute(): StudentScheduleTab | null {
@@ -209,7 +229,8 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
   const [requestSession, setRequestSession] = useState<StudentPtSession | null>(null)
   const [showPauseRequest, setShowPauseRequest] = useState(false)
   const [showAdditionalRequest, setShowAdditionalRequest] = useState(false)
-  const [selectedContractId, setSelectedContractId] = useState<string | null>(null)
+  const [selectedContractId, setSelectedContractId] = useState<string | null>(() => initialPaymentTarget()?.contractId ?? null)
+  const [paymentTarget, setPaymentTarget] = useState<PaymentTarget | null>(initialPaymentTarget)
   const [historyPage, setHistoryPage] = useState<TrainingHistoryPage | null>(null)
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState('')
@@ -329,6 +350,11 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
   }, [activeTab, data?.student?.id, historyScope, isDemo, loadHistory])
   useEffect(() => {
     const syncTabFromRoute = () => {
+      const nextPayment = paymentTargetFromHash(window.location.hash)
+      if (nextPayment) {
+        setSelectedContractId(nextPayment.contractId)
+        setPaymentTarget(nextPayment)
+      }
       const nextTab = scheduleTabFromRoute()
       if (!nextTab) return
       setActiveTab(nextTab)
@@ -390,6 +416,20 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
     ?? displayContract
     ?? contracts[0]
   const contractAlerts = data?.contractAlerts ?? []
+  const openPayment = (contractId: string, installmentId: string | null) => {
+    setSelectedContractId(contractId)
+    setActiveTab('contract')
+    setPaymentTarget({ contractId, installmentId })
+  }
+  const closePayment = () => {
+    setPaymentTarget(null)
+    clearPaymentRoute()
+  }
+  const openPaymentForDueDate = (contractId: string, dueDate: string) => {
+    const pending = (contracts.find((contract) => contract.id === contractId)?.installments ?? []).filter((item) => item.status === 'pending')
+    openPayment(contractId, (pending.find((item) => item.date === dueDate) ?? pending[0])?.id ?? null)
+  }
+  const paymentContract = paymentTarget ? contracts.find((contract) => contract.id === paymentTarget.contractId) : undefined
   const availability = data?.student?.availability
   const availabilitySlots = availability?.slots ?? data?.student?.availableSlots ?? []
   const minimumAvailabilitySlots = Math.max(5, Number.isFinite(Number(availability?.minimumSlots)) ? Number(availability?.minimumSlots) : 5)
@@ -425,8 +465,9 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
       title: alert.title,
       message: alert.message,
       action: 'contract' as const,
-      actionLabel: alert.code.startsWith('PAYMENT_') ? 'Xem lịch thanh toán' : 'Xem gói tập',
+      actionLabel: alert.code.startsWith('PAYMENT_') ? 'Thanh toán ngay' : 'Xem gói tập',
       contractId: alert.contractId,
+      paymentDueDate: alert.code.startsWith('PAYMENT_') && alert.dueDate ? alert.dueDate : undefined,
     })),
     ...(availabilityAlert ? [availabilityAlert] : []),
   ].sort((left, right) => severityOrder[left.severity] - severityOrder[right.severity])
@@ -511,6 +552,7 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
           <div className="student-attention-center__rail">
             {attentionAlerts.slice(0, scheduleV4 ? 3 : attentionAlerts.length).map((alert) => <button type="button" className={`is-${alert.severity}`} key={alert.key} onClick={() => {
               if (alert.action === 'availability') return onNavigate('student-availability')
+              if (alert.contractId && alert.paymentDueDate) return openPaymentForDueDate(alert.contractId, alert.paymentDueDate)
               if (alert.contractId) setSelectedContractId(alert.contractId)
               setActiveTab('contract')
             }}>
@@ -569,7 +611,7 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
         {message && <div className="student-schedule-message" role="status"><Check size={17} /> {message}</div>}
         {data.sessionsTruncated && <div className="student-schedule-state is-warning" role="status"><AlertCircle size={24} /><strong>Khoảng lịch có quá nhiều buổi tập</strong><span>Aura đang hiển thị 1.000 buổi đầu tiên. Hãy chuyển sang khoảng thời gian ngắn hơn để xem đầy đủ.</span></div>}
         {activeTab === 'contract' && <section className="student-contract-center">
-          <header><div><small>AURA · HỢP ĐỒNG & THANH TOÁN</small><h2>Gói tập của bạn</h2><p>Thông tin chỉ đọc, được đồng bộ từ hợp đồng và lịch thanh toán canonical của Aura.</p></div>{scheduleV4 ? <button type="button" className="student-contract-back" onClick={() => selectWeek(weekOffset)}><ChevronLeft size={16} /> Quay lại lịch</button> : selectedContract && <span className={`is-${selectedContract.paymentStatus}`}>{selectedContract.outstandingAmount > 0 ? `Còn ${formatMoney(selectedContract.outstandingAmount)}` : 'Đã thanh toán'}</span>}</header>
+          <header><div><small>AURA · HỢP ĐỒNG & THANH TOÁN</small><h2>Gói tập của bạn</h2><p>Đồng bộ từ hợp đồng và lịch thanh toán của Aura. Bạn có thể thanh toán từng kỳ ngay tại đây.</p></div>{scheduleV4 ? <button type="button" className="student-contract-back" onClick={() => selectWeek(weekOffset)}><ChevronLeft size={16} /> Quay lại lịch</button> : selectedContract && <span className={`is-${selectedContract.paymentStatus}`}>{selectedContract.outstandingAmount > 0 ? `Còn ${formatMoney(selectedContract.outstandingAmount)}` : 'Đã thanh toán'}</span>}</header>
           {contracts.length > 0 ? <>
             <div className="student-contract-carousel" aria-label="Danh sách hợp đồng">
               {contracts.map((contract) => <button type="button" key={contract.id} className={`${selectedContract?.id === contract.id ? 'active' : ''} is-${contract.status}`} onClick={() => setSelectedContractId(contract.id)}>
@@ -588,8 +630,9 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
                   const overdue = installment.status === 'pending' && installment.date < todayKey
                   const dueToday = installment.status === 'pending' && installment.date === todayKey
                   const status = installment.status === 'paid' ? 'Đã thanh toán' : installment.status === 'cancelled' ? 'Đã hủy' : overdue ? 'Quá hạn' : dueToday ? 'Đến hạn hôm nay' : 'Chờ thanh toán'
-                  return <article className={`${installment.status === 'paid' ? 'is-paid' : overdue || dueToday ? 'is-overdue' : 'is-pending'}`} key={installment.id}><span>{index + 1}</span><div><strong>Kỳ {index + 1} · {formatMoney(installment.amount)}</strong><small>Hạn {formatContractDate(installment.date)}</small></div><em>{status}</em></article>
-                })}</div> : <div className="student-session-empty"><WalletCards size={27} /><strong>{selectedContract.outstandingAmount > 0 ? 'Chưa có lịch trả góp chi tiết' : 'Hợp đồng đã thanh toán đủ'}</strong><span>{selectedContract.nextPaymentDate ? `Kỳ thanh toán tiếp theo: ${formatContractDate(selectedContract.nextPaymentDate)}` : 'Aura chưa ghi nhận kỳ thanh toán nào cần xử lý.'}</span></div>}
+                  const payable = installment.status === 'pending' && selectedContract.outstandingAmount > 0 && !['draft', 'cancelled', 'inactive', 'archived'].includes(String(selectedContract.storedStatus || selectedContract.status))
+                  return <article className={`${installment.status === 'paid' ? 'is-paid' : overdue || dueToday ? 'is-overdue' : 'is-pending'}`} key={installment.id}><span>{index + 1}</span><div><strong>Kỳ {index + 1} · {formatMoney(installment.amount)}</strong><small>Hạn {formatContractDate(installment.date)}</small></div><em>{status}</em>{payable && <button type="button" className="student-payment-pay" onClick={() => openPayment(selectedContract.id, installment.id)} aria-label={`Thanh toán kỳ ${index + 1}`}><WalletCards size={15} /> Thanh toán</button>}</article>
+                })}</div> : <div className="student-session-empty"><WalletCards size={27} /><strong>{selectedContract.outstandingAmount > 0 ? 'Chưa có lịch trả góp chi tiết' : 'Hợp đồng đã thanh toán đủ'}</strong><span>{selectedContract.nextPaymentDate ? `Kỳ thanh toán tiếp theo: ${formatContractDate(selectedContract.nextPaymentDate)}` : 'Aura chưa ghi nhận kỳ thanh toán nào cần xử lý.'}</span>{selectedContract.outstandingAmount > 0 && !['draft', 'cancelled', 'inactive', 'archived'].includes(String(selectedContract.storedStatus || selectedContract.status)) && <button type="button" className="student-payment-pay" onClick={() => openPayment(selectedContract.id, null)}><WalletCards size={15} /> Thanh toán {formatMoney(selectedContract.outstandingAmount)}</button>}</div>}
               </div>
               {activeContract?.id === selectedContract.id && <button type="button" className="student-contract-pause-action" onClick={() => setShowPauseRequest(true)}><CalendarRange size={17} /> Đăng ký OFF / Bảo lưu</button>}
             </div>}
@@ -617,6 +660,18 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
           onRetry={() => { historyLoadedStudentRef.current = data?.student?.id || ''; void loadHistory(false) }}
           onLoadMore={() => void loadHistory(true)}
         />}
+        {paymentTarget && (!isDemo || paymentContract) && <Suspense fallback={null}>
+          <InstallmentPaymentSheet
+            key={`${paymentTarget.contractId}~${paymentTarget.installmentId ?? 'outstanding'}`}
+            contractId={paymentTarget.contractId}
+            installmentId={paymentTarget.installmentId}
+            todayKey={todayKey}
+            isDemo={isDemo}
+            demoContract={paymentContract}
+            onClose={closePayment}
+            onChanged={setMessage}
+          />
+        </Suspense>}
         {requestSession && <SessionRequestModal session={requestSession} onClose={() => setRequestSession(null)} onCreated={(value) => { invalidateHistory(); setMessage(value); setActiveTab('requests'); void load() }} />}
         {showAdditionalRequest && <AdditionalSessionModal onClose={() => setShowAdditionalRequest(false)} onCreated={(value) => { invalidateHistory(); setMessage(value); setActiveTab('requests'); void load() }} />}
         {showPauseRequest && activeContract && <LeaveRequestModal contractId={activeContract.id} policy={data.scheduleConfig} onClose={() => setShowPauseRequest(false)} onCreated={(value) => { invalidateHistory(); setMessage(value); setActiveTab('requests'); void load() }} />}

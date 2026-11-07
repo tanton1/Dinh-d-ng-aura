@@ -2641,8 +2641,10 @@ module.exports = {
   normalizedAvailabilitySlots,
   scheduleConfig,
   sessionHour,
+  studentActor,
   studentContractProjection,
   studentContractAlerts,
+  studentProfileForActor,
   trainerSlotsWithoutOffDates,
   workspaceCacheVersion,
 }

@@ -484,6 +484,10 @@
 .student-payment-schedule article > em { padding:6px 8px; border-radius:999px; color:#9a621f; background:#fff2dd; font-size:9px; font-style:normal; font-weight:900; white-space:nowrap; }
 .student-payment-schedule article.is-paid > em { color:#147653; background:#e7f8f0; }
 .student-payment-schedule article.is-overdue > em { color:#b8284f; background:#ffe8ef; }
+.student-payment-pay { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:var(--aura-touch-target); padding:0 var(--aura-space-4); border:0; border-radius:var(--aura-radius-sm); color:#ffffff; background:var(--aura-gradient-cta); font:inherit; font-size:var(--aura-text-sm); font-weight:800; cursor:pointer; }
+.student-payment-pay:focus-visible { outline:2px solid var(--aura-pink-text); outline-offset:2px; }
+.student-payment-schedule article > .student-payment-pay { grid-column:2 / -1; justify-self:start; }
+.student-session-empty > .student-payment-pay { margin-top:var(--aura-space-2); }
 .student-contract-pause-action { display:inline-flex; align-items:center; gap:7px; min-height:40px; margin-top:11px; padding:0 13px; border:1px solid #efb9cc; border-radius:12px; color:#d4266e; background:#fff4f8; font:inherit; font-size:10px; font-weight:900; cursor:pointer; }
 
 .student-request-center {

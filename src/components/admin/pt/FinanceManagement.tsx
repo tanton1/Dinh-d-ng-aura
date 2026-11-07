@@ -17,6 +17,8 @@ import AuraMetricCarousel, { type AuraMetricSlide } from './AuraMetricCarousel'
 import AuraHelpPopover from './AuraHelpPopover'
 import { listCashAccounts, type CashAccount } from '../../../services/cashbookService'
 import FinanceIntentBoundary, { FinancePendingOperations } from './FinanceIntentBoundary'
+import InstallmentClaimQueue from './InstallmentClaimQueue'
+import type { InstallmentClaimRow } from '../../../services/installmentPaymentService'
 import type { FinanceIntentOutcome, FinanceOperationDraft } from '../../../services/financeOperationIntent'
 import '../../../styles-finance-management.css'
 
@@ -172,6 +174,8 @@ function FinanceWorkspace({ profile, category: initialCategory = 'all', initialF
   const [cashAccountsLoading, setCashAccountsLoading] = useState(false)
   const [cashAccountsError, setCashAccountsError] = useState('')
   const [selectedCashAccountId, setSelectedCashAccountId] = useState('')
+  const [paymentClaim, setPaymentClaim] = useState<InstallmentClaimRow | null>(null)
+  const [claimRefreshKey, setClaimRefreshKey] = useState(0)
   const [debtSearch, setDebtSearch] = useState('')
   const [debouncedDebtSearch, setDebouncedDebtSearch] = useState('')
   const requestSequence = useRef(0)
@@ -331,7 +335,7 @@ function FinanceWorkspace({ profile, category: initialCategory = 'all', initialF
 
   const studentName = (studentId: string) => studentById.get(studentId)?.name || (studentId ? `Học viên ${studentId}` : 'Chưa có tên học viên')
 
-  const loadPaymentCashAccounts = async (contract: StudentContract) => {
+  const loadPaymentCashAccounts = async (contract: StudentContract, preferredAccountId: string | null = null) => {
     const sequence = ++cashRequestSequence.current
     const isCurrent = () => mounted.current && cashRequestSequence.current === sequence
     setCashAccounts([])
@@ -343,7 +347,8 @@ function FinanceWorkspace({ profile, category: initialCategory = 'all', initialF
       if (!isCurrent()) return
       const accounts = result.accounts.filter((item) => item.status === 'active')
       setCashAccounts(accounts)
-      setSelectedCashAccountId(accounts.find((item) => !contract.branchId || item.branchId === contract.branchId)?.id || '')
+      setSelectedCashAccountId((preferredAccountId && accounts.some((item) => item.id === preferredAccountId) ? preferredAccountId : '')
+        || accounts.find((item) => !contract.branchId || item.branchId === contract.branchId)?.id || '')
     } catch (cause) {
       if (!isCurrent()) return
       const { code } = callableErrorDetails(cause)
@@ -359,6 +364,7 @@ function FinanceWorkspace({ profile, category: initialCategory = 'all', initialF
     cashRequestSequence.current += 1
     setSelectedContract(null)
     setSelectedInstallmentId(null)
+    setPaymentClaim(null)
     setCashAccounts([])
     setSelectedCashAccountId('')
     setCashAccountsLoading(false)
@@ -379,6 +385,32 @@ function FinanceWorkspace({ profile, category: initialCategory = 'all', initialF
     void loadPaymentCashAccounts(contract)
   }
 
+  // A student's transfer report opens the same canonical payment form,
+  // prefilled with the installment, amount and receiving account. Posting the
+  // payment closes the report on the server in the same transaction.
+  const collectClaim = (claim: InstallmentClaimRow) => {
+    if (!claim.contract) return
+    const source = claim.contract
+    const contract = {
+      id: claim.contractId,
+      studentId: source.studentId || claim.studentId,
+      branchId: source.branchId || '',
+      packageName: source.packageName || claim.packageName,
+      totalPrice: Number(source.totalPrice || 0),
+      discount: Number(source.discount || 0),
+      paidAmount: Number(source.paidAmount || 0),
+      status: (source.status || 'active') as StudentContract['status'],
+      installments: source.installments || [],
+      nextPaymentDate: source.nextPaymentDate || undefined,
+    } as StudentContract
+    setStudents(current => current.some(item => item.id === contract.studentId) ? current : [...current, { id: contract.studentId, name: claim.studentName, phone: claim.studentPhone, email: '' }])
+    setSelectedContract(contract)
+    setSelectedInstallmentId(claim.installmentId)
+    setPayAmount(String(claim.amount))
+    setPaymentClaim(claim)
+    void loadPaymentCashAccounts(contract, claim.cashAccountId)
+  }
+
   const submitPayment = async (submit: (draft: FinanceOperationDraft) => Promise<void>) => {
     if (!selectedContract || cashAccountsLoading || cashAccountsError) return
     if (selectedContract.status === 'cancelled' || contracts.find(item => item.id === selectedContract.id)?.status === 'cancelled') {
@@ -396,7 +428,7 @@ function FinanceWorkspace({ profile, category: initialCategory = 'all', initialF
     }
     const payload = { contractId: selectedContract.id, amount: Math.abs(amount), effectiveAt: new Date().toISOString(), paymentMethod: 'transfer', cashAccountId: selectedCashAccountId, installmentId: selectedInstallmentId || undefined, expectedPaidAmount: Number(selectedContract.paidAmount || 0) }
     await submit(amount > 0
-      ? { type: 'payment', payload: { ...payload, note: selectedInstallmentId ? 'Thanh toán kỳ trả góp' : 'Thanh toán công nợ' } }
+      ? { type: 'payment', payload: { ...payload, note: paymentClaim ? `Chuyển khoản ${paymentClaim.transferCode}` : selectedInstallmentId ? 'Thanh toán kỳ trả góp' : 'Thanh toán công nợ' } }
       : { type: 'refund', payload: { ...payload, reason: selectedInstallmentId ? 'Hoàn tiền kỳ trả góp' : 'Hoàn tiền từ trang tài chính' } })
   }
 
@@ -405,6 +437,7 @@ function FinanceWorkspace({ profile, category: initialCategory = 'all', initialF
     closePayment()
     setEntryToReverse(null)
     setPayAmount('')
+    setClaimRefreshKey(value => value + 1)
     await Promise.all([loadLedger(false), loadDebts(false, true)])
     if (mounted.current) setAlertMessage(outcome.state === 'committed' ? 'Đã xác nhận giao dịch được ghi nhận. Chứng từ và số dư đã được cập nhật.' : 'Đã dừng yêu cầu chưa ghi nhận. Bạn có thể mở lại biểu mẫu để tạo yêu cầu mới.')
   }
@@ -479,6 +512,8 @@ function FinanceWorkspace({ profile, category: initialCategory = 'all', initialF
         <AuraHelpPopover title="Trả góp và bảo lưu"><p>Bảo lưu gồm hợp đồng đang bảo lưu còn nợ. Các nhóm còn lại gồm hợp đồng trả góp còn nợ, không đang bảo lưu.</p><p>Tổng theo chi nhánh và nhóm. Tìm kiếm chỉ lọc danh sách; khoảng ngày chỉ lọc lịch sử giao dịch. Khoản thanh toán dư và quyết toán hợp đồng hủy được quản lý trong hồ sơ học viên.</p>{debtSummary?.asOf && <p>Cập nhật {new Date(debtSummary.asOf).toLocaleString('vi-VN')}.</p>}</AuraHelpPopover>
       </div>
 
+      {backendMode === 'firebase' && category !== 'frozen' && <InstallmentClaimQueue branchId={effectiveBranchId} refreshKey={claimRefreshKey} onCollect={collectClaim} />}
+
       <section ref={receivablesRef} className="finance-management__receivables">
         <div className="finance-management__section-head">
           <h2>{categoryLabel}</h2>
@@ -541,6 +576,7 @@ function FinanceWorkspace({ profile, category: initialCategory = 'all', initialF
         {selectedContract && <Modal onClose={closePayment} title={contractBalance(selectedContract) < 0 ? 'Hoàn thanh toán dư' : 'Thu công nợ'}>
           <FinanceIntentBoundary contractId={selectedContract.id} onCompleted={financeCompleted}>{({ blocked, busy, submit }) => <fieldset disabled={blocked || busy} className="finance-payment-fields">
           <p className="text-sm text-zinc-400">Học viên: <b className="text-white">{studentName(selectedContract.studentId)}</b></p>
+          {paymentClaim && <p className="finance-payment-claim-note">Học viên báo đã chuyển khoản. Đối chiếu sao kê với nội dung <b>{paymentClaim.transferCode}</b> trước khi ghi nhận.</p>}
           <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950 p-4 text-sm"><div className="flex justify-between text-zinc-500"><span>Tổng hợp đồng</span><span className="text-zinc-300">{money(Number(selectedContract.totalPrice || 0) - Number(selectedContract.discount || 0))}</span></div><div className="mt-2 flex justify-between text-zinc-500"><span>Đã thanh toán</span><span className="text-zinc-300">{money(Number(selectedContract.paidAmount || 0))}</span></div></div>
           {contractBalance(selectedContract) > 0 && (selectedContract.installments || []).some((item) => item.status === 'pending') && <div className="mt-4"><p className="mb-2 text-xs font-bold text-zinc-500">Chọn nhanh kỳ trả góp</p><div className="flex flex-wrap gap-2">{selectedContract.installments?.filter((item) => item.status === 'pending').map((item) => <button key={item.id} onClick={() => { setSelectedInstallmentId(item.id); setPayAmount(String(item.amount)) }} className={`rounded-lg border px-3 py-2 text-xs ${selectedInstallmentId === item.id ? 'border-pink-500 bg-pink-500/10 text-pink-300' : 'border-zinc-700 bg-zinc-900 text-zinc-300'}`}>{new Date(item.date).toLocaleDateString('vi-VN')} · {money(item.amount)}</button>)}</div></div>}
           <label className="mt-4 block text-xs font-bold text-zinc-500">Số tiền; nhập số âm để hoàn tiền</label>

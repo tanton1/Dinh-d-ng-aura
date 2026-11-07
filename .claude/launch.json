@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "installment-payment-ui",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--config", "tests/installment-payment-ui/vite.config.ts", "--host", "127.0.0.1", "--port", "4193", "--strictPort"],
+      "port": 4193
+    },
+    {
+      "name": "app-demo",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--mode", "e2e", "--host", "127.0.0.1", "--port", "4194", "--strictPort"],
+      "port": 4194
+    }
+  ]
+}

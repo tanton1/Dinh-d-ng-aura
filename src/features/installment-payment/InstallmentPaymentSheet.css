@@ -1,0 +1,83 @@
+.aura-pay { position: fixed; inset: 0; z-index: 240; display: grid; grid-template-columns: minmax(0, 1fr); place-items: end center; font-family: var(--aura-font); }
+.aura-pay *, .aura-pay *::before, .aura-pay *::after { box-sizing: border-box; }
+.aura-pay__backdrop { position: absolute; inset: 0; width: 100%; border: 0; background: rgba(24, 16, 29, .58); backdrop-filter: blur(6px); cursor: pointer; }
+.aura-pay__sheet { position: relative; display: grid; gap: var(--aura-space-3); width: min(100%, 480px); max-height: min(92dvh, 820px); overflow: auto; overscroll-behavior: contain; padding: 10px var(--aura-space-4) calc(var(--aura-space-6) + env(safe-area-inset-bottom, 0px)); border-radius: 28px 28px 0 0; color: var(--aura-ink); background: var(--aura-surface); box-shadow: 0 -20px 60px rgba(34, 17, 30, .24); }
+.aura-pay__sheet::before { content: ''; display: block; width: 44px; height: 5px; margin: 0 auto; border-radius: var(--aura-radius-pill); background: var(--aura-line); }
+
+.aura-pay__header { display: flex; align-items: center; justify-content: space-between; gap: var(--aura-space-3); }
+.aura-pay__header small { display: block; color: var(--aura-pink-text); font-size: var(--aura-text-xs); font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.aura-pay__header h2 { margin: 2px 0 0; font-size: var(--aura-text-lg); line-height: 1.2; }
+.aura-pay__close { display: grid; flex: 0 0 auto; width: var(--aura-touch-target); height: var(--aura-touch-target); place-items: center; border: 0; border-radius: var(--aura-radius-sm); color: var(--aura-muted); background: var(--aura-canvas); cursor: pointer; }
+
+.aura-pay__loading { display: flex; align-items: center; justify-content: center; gap: var(--aura-space-2); min-height: 160px; color: var(--aura-muted); font-size: var(--aura-text-sm); }
+.aura-pay__spin { animation: aura-pay-spin 1s linear infinite; }
+@keyframes aura-pay-spin { to { transform: rotate(360deg); } }
+
+.aura-pay__hero { --tone: var(--aura-info); display: grid; gap: 4px; padding: var(--aura-space-4); border: 1px solid color-mix(in srgb, var(--tone) 28%, transparent); border-radius: var(--aura-radius-md); background: color-mix(in srgb, var(--tone) 8%, var(--aura-surface)); }
+.aura-pay__hero.is-warning { --tone: var(--aura-warning); }
+.aura-pay__hero.is-danger { --tone: var(--aura-danger); }
+.aura-pay__hero.is-success { --tone: var(--aura-success); }
+.aura-pay__hero > span:last-child { color: var(--aura-muted); font-size: var(--aura-text-sm); }
+.aura-pay__badge { display: inline-flex; align-items: center; gap: 6px; width: max-content; color: var(--tone); font-size: var(--aura-text-sm); font-weight: 800; }
+.aura-pay__amount { font-size: var(--aura-text-2xl); line-height: 1.1; letter-spacing: -.02em; }
+
+.aura-pay__progress > div { display: flex; justify-content: space-between; gap: var(--aura-space-2); margin-bottom: 6px; color: var(--aura-muted); font-size: var(--aura-text-xs); }
+.aura-pay__progress i { display: block; height: 6px; overflow: hidden; border-radius: var(--aura-radius-pill); background: var(--aura-line); }
+.aura-pay__progress b { display: block; height: 100%; border-radius: inherit; background: var(--aura-success); }
+
+.aura-pay__qr-card { display: grid; justify-items: center; gap: var(--aura-space-3); padding: var(--aura-space-4); border: 1px solid var(--aura-line); border-radius: var(--aura-radius-md); }
+.aura-pay__qr { width: min(64vw, 220px); height: auto; color: var(--aura-ink); border-radius: var(--aura-radius-xs); }
+.aura-pay__qr-hint { margin: 0; color: var(--aura-muted); font-size: var(--aura-text-xs); text-align: center; }
+.aura-pay__details { display: grid; width: 100%; margin: 0; }
+.aura-pay__details > div { display: flex; align-items: center; justify-content: space-between; gap: var(--aura-space-3); min-height: var(--aura-touch-target); border-bottom: 1px solid var(--aura-line); }
+.aura-pay__details > div:last-child { border-bottom: 0; }
+.aura-pay__details dt { color: var(--aura-muted); font-size: var(--aura-text-sm); }
+.aura-pay__details dd { display: flex; align-items: center; gap: 4px; min-width: 0; margin: 0; font-size: var(--aura-text-sm); font-weight: 700; text-align: right; }
+.aura-pay__details dd span { overflow-wrap: anywhere; }
+.aura-pay__details .is-key dd { color: var(--aura-pink-text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; }
+.aura-pay__details button { display: grid; flex: 0 0 auto; width: 36px; height: 36px; place-items: center; border: 0; border-radius: var(--aura-radius-xs); color: var(--aura-pink-text); background: var(--aura-pink-soft); cursor: pointer; }
+.aura-pay__keep { width: 100%; margin: 0; padding: var(--aura-space-2) var(--aura-space-3); border-radius: var(--aura-radius-xs); color: var(--aura-ink); background: var(--aura-surface-soft); font-size: var(--aura-text-xs); line-height: 1.5; }
+
+.aura-pay__alert { --tone: var(--aura-info); display: flex; align-items: flex-start; gap: var(--aura-space-2); padding: var(--aura-space-3); border-radius: var(--aura-radius-sm); color: var(--aura-ink); background: color-mix(in srgb, var(--tone) 9%, var(--aura-surface)); font-size: var(--aura-text-sm); line-height: 1.5; }
+.aura-pay__alert > svg { flex: 0 0 auto; margin-top: 2px; color: var(--tone); }
+.aura-pay__alert > span { flex: 1; }
+.aura-pay__alert.is-warning { --tone: var(--aura-warning); }
+.aura-pay__alert.is-danger { --tone: var(--aura-danger); }
+.aura-pay__alert button { display: inline-flex; align-items: center; gap: 4px; min-height: 36px; padding: 0 var(--aura-space-3); border: 1px solid var(--aura-line); border-radius: var(--aura-radius-xs); color: var(--aura-ink); background: var(--aura-surface); font-weight: 700; cursor: pointer; }
+
+.aura-pay__result { --tone: var(--aura-info); display: flex; gap: var(--aura-space-3); padding: var(--aura-space-4); border-radius: var(--aura-radius-md); background: color-mix(in srgb, var(--tone) 8%, var(--aura-surface)); }
+.aura-pay__result.is-success { --tone: var(--aura-success); }
+.aura-pay__result > svg { flex: 0 0 auto; color: var(--tone); }
+.aura-pay__result strong { display: block; font-size: var(--aura-text-md); }
+.aura-pay__result p { margin: 4px 0 0; color: var(--aura-muted); font-size: var(--aura-text-sm); line-height: 1.5; }
+.aura-pay__note { font-style: italic; }
+.aura-pay__link { min-height: var(--aura-touch-target); margin-top: var(--aura-space-1); padding: 0; border: 0; color: var(--aura-pink-text); background: none; font-size: var(--aura-text-sm); font-weight: 700; text-decoration: underline; cursor: pointer; }
+
+.aura-pay__confirm { display: grid; gap: var(--aura-space-3); }
+.aura-pay__confirm label { display: grid; gap: 6px; color: var(--aura-muted); font-size: var(--aura-text-sm); }
+.aura-pay__confirm textarea { min-height: 76px; padding: var(--aura-space-3); border: 1px solid var(--aura-line); border-radius: var(--aura-radius-sm); color: var(--aura-ink); font: inherit; font-size: var(--aura-text-md); resize: vertical; }
+.aura-pay__confirm textarea:focus-visible { outline: 2px solid var(--aura-pink-text); outline-offset: 1px; }
+
+/* Phones stack the actions with the primary one on top; wider sheets put them side by side. */
+.aura-pay__actions { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--aura-space-2); }
+.aura-pay__actions .aura-pay__primary { order: -1; }
+.aura-pay__primary, .aura-pay__secondary { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 48px; padding: 0 var(--aura-space-4); border-radius: var(--aura-radius-sm); font: inherit; font-size: var(--aura-text-md); font-weight: 800; white-space: nowrap; cursor: pointer; }
+.aura-pay__primary { border: 0; color: #ffffff; background: var(--aura-gradient-cta); }
+.aura-pay__secondary { border: 1px solid var(--aura-line); color: var(--aura-ink); background: var(--aura-surface); }
+.aura-pay__primary:disabled, .aura-pay__secondary:disabled, .aura-pay__link:disabled { cursor: progress; opacity: .6; }
+.aura-pay button:focus-visible { outline: 2px solid var(--aura-pink-text); outline-offset: 2px; }
+
+.aura-pay__counter { display: flex; align-items: flex-start; gap: var(--aura-space-2); margin: 0; color: var(--aura-muted); font-size: var(--aura-text-xs); line-height: 1.5; }
+.aura-pay__counter svg { flex: 0 0 auto; margin-top: 1px; }
+
+@media (min-width: 641px) {
+  .aura-pay { place-items: center; padding: var(--aura-space-6); }
+  .aura-pay__sheet { border-radius: 28px; padding-bottom: var(--aura-space-6); }
+  .aura-pay__sheet::before { display: none; }
+  .aura-pay__actions { grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); }
+  .aura-pay__actions .aura-pay__primary { order: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aura-pay__spin { animation: none; }
+}

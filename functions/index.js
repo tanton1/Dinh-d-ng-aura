@@ -72,6 +72,8 @@ const { createPtScheduleWeeklyViewFunctions, rebuildDirtyPtScheduleWeeklyViews, 
 const { applyAdminScheduleEdit } = require('./pt-schedule-admin-edit')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { createFinanceLedgerFunctions } = require('./finance-ledger')
+const { createInstallmentPaymentFunctions } = require('./installment-payments')
+const { paymentClaimId, planInstallmentReminders, reminderDates, vietnamDateKey } = require('./installment-payment-core')
 const { createReportingReadFunctions } = require('./reporting-read-runtime')
 const { createPushOverviewReads } = require('./push-overview-reads')
 const { PUSH_ADMISSION_LIMITS, assertPushAdmissionCount, normalizePushRequestedIds, createPushAdmissionBudget, preparePushDevices } = require('./push-broadcast-admission')
@@ -1141,6 +1143,7 @@ const ptScheduleOverflowOnCall = (optionsOrHandler, maybeHandler) => {
 const ptScheduleOverflowFunctions = createPtScheduleV2Functions({ db, onCall: ptScheduleOverflowOnCall })
 exports.generatePtScheduleDraftV4 = ptScheduleOverflowFunctions.generatePtScheduleDraft
 Object.assign(exports, createFinanceLedgerFunctions({ db, onCall, logger }))
+Object.assign(exports, createInstallmentPaymentFunctions({ db, onCall }))
 // Reporting uses the existing overflow pool. A shared lease coalesces summary
 // scans across instances; detailed pages remain bounded independently.
 Object.assign(exports, createReportingReadFunctions({ db, logger, onCall: asiaEastOnCall }))
@@ -1958,6 +1961,55 @@ exports.dispatchScheduledReminders = onSchedule({
   })
   logger.info('Scheduled reminders completed', { runId, ...deliveryResult, createdNotifications: createdDeliveries.length })
   return { runId, createdNotifications: createdDeliveries.length, ...deliveryResult }
+})
+
+/**
+ * Installment reminders at 3 days before, on, and 3 days after the next due
+ * date. The inbox record is transactional and always created; device push
+ * follows the global push channel switch. Deterministic ids make reruns safe.
+ */
+exports.sendInstallmentDueRemindersScheduled = onSchedule({
+  schedule: '0 8 * * *',
+  region: 'asia-southeast1',
+  timeZone: 'Asia/Ho_Chi_Minh',
+  retryCount: 1,
+  timeoutSeconds: 300,
+  memory: '256MiB',
+  maxInstances: 1,
+}, async () => {
+  const today = vietnamDateKey(new Date())
+  const snapshot = await db.collection('contracts').where('nextPaymentDate', 'in', reminderDates(today))
+    .select('studentId', 'crmProfileId', 'packageName', 'totalPrice', 'discount', 'paidAmount', 'status', 'installments', 'nextPaymentDate')
+    .limit(5000).get()
+  if (snapshot.size >= 5000) logger.warn('Installment reminders reached the contract scan limit', { today })
+  const contracts = snapshot.docs.map((document) => ({ id: document.id, data: document.data() }))
+  const studentIds = [...new Set(contracts.flatMap(({ data }) => [data.studentId, data.crmProfileId]).filter((value) => typeof value === 'string' && value && !value.includes('/')))]
+  const students = new Map()
+  for (let offset = 0; offset < studentIds.length; offset += 300) {
+    const rows = await db.getAll(...studentIds.slice(offset, offset + 300).map((value) => db.doc(`students/${value}`)), { fieldMask: ['accountUid', 'status', 'accountStatus'] })
+    rows.forEach((row) => { if (row.exists) students.set(row.id, row.data()) })
+  }
+  const claimIds = contracts.flatMap(({ id, data }) => {
+    const pending = (Array.isArray(data.installments) ? data.installments : []).filter((item) => item?.status === 'pending' && item.date === data.nextPaymentDate)
+    return pending.length ? pending.map((item) => paymentClaimId(id, item.id)) : [paymentClaimId(id, null)]
+  })
+  const claims = new Map()
+  for (let offset = 0; offset < claimIds.length; offset += 300) {
+    const rows = await db.getAll(...claimIds.slice(offset, offset + 300).map((value) => db.doc(`installmentPaymentClaims/${value}`)), { fieldMask: ['status'] })
+    rows.forEach((row) => { if (row.exists) claims.set(row.id, row.data()) })
+  }
+  const planned = planInstallmentReminders({ contracts, students, claims, today })
+  const created = []
+  for (let offset = 0; offset < planned.length; offset += 20) {
+    const batch = await Promise.all(planned.slice(offset, offset + 20).map((delivery) => createScheduledNotification(delivery.userId, delivery)))
+    created.push(...batch.filter(Boolean))
+  }
+  const pushSettings = await db.doc('system/push_settings').get()
+  const pushResult = normalizedReminderSettings(pushSettings.exists ? pushSettings.data() : {}).enabled
+    ? await deliverScheduledPushes(created)
+    : { sent: 0, failed: 0, removed: 0, skipped: 'push_disabled' }
+  logger.info('Installment reminders completed', { today, contracts: contracts.length, planned: planned.length, created: created.length, ...pushResult })
+  return { today, planned: planned.length, created: created.length, ...pushResult }
 })
 
 exports.syncNutritionReminderSchedule = onDocumentWritten({

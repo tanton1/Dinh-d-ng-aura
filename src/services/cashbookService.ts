@@ -7,7 +7,8 @@ function callable<Input, Output>(name: string) {
 }
 
 export type CashAccountType = 'cash' | 'bank' | 'wallet'
-export interface CashAccount { id: string; name: string; type: CashAccountType; branchId: string; currency: 'VND'; balance: number; status: string; openingBalanceAt: string }
+export interface CashAccountTransferProfile { enabled: boolean; bankBin: string; bankName: string; accountNumber: string; accountName: string }
+export interface CashAccount { id: string; name: string; type: CashAccountType; branchId: string; currency: 'VND'; balance: number; status: string; openingBalanceAt: string; transferProfile?: CashAccountTransferProfile | null }
 export interface CashTransaction { id: string; accountId: string; pairedAccountId: string; branchId: string; type: string; category: string; amount: number; effectiveAt: string; referenceCode: string; note: string; status: string; reversedTransactionId: string }
 export interface CashbookPageMetadata { paginationVersion: 1; hasMore: boolean; nextCursor: string | null; scanLimited: boolean; asOf: string }
 export interface CashbookPageInput { pageSize?: number; cursor?: string }

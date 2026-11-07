@@ -1492,6 +1492,12 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Student "I have transferred" reports. Callable-only: a browser must
+    // never mark its own installment as reported, confirmed or rejected.
+    match /installmentPaymentClaims/{claimId} {
+      allow read, write: if false;
+    }
+
     match /expenseRequests/{requestId} {
       allow read, write: if false;
     }
