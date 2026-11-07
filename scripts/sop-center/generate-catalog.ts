@@ -175,6 +175,43 @@ function policySops(group: unknown) {
   return mapping[String(group)] ?? []
 }
 
+// The stage each script category is written for. A skill can serve several
+// SOPs, so a script reaches an SOP only when its skill belongs to that SOP and
+// its category fits the SOP's stage; when the two never meet, the stage wins.
+const SCRIPT_CATEGORY_SOPS: Record<string, string[]> = {
+  inbox: ['sop01'],
+  booking: ['sop01'],
+  followup: ['sop01', 'sop02'],
+  pricing: ['sop01', 'sop02', 'sop05'],
+  objection: ['sop01', 'sop02'],
+  welcome: ['sop02', 'sop09'],
+  trial: ['sop02'],
+  closing: ['sop02'],
+  onboarding: ['sop03'],
+  longterm: ['sop03', 'sop05'],
+  retention: ['sop04', 'sop05'],
+  renewal: ['sop05'],
+  safety: ['sop06'],
+  schedule: ['sop07'],
+  contract: ['sop05', 'sop07'],
+  feedback: ['sop04', 'sop07'],
+  privacy: ['sop08'],
+  reception: ['sop09'],
+}
+
+// Objections are raised before a customer buys: in the inbox or at the first visit.
+const OBJECTION_SOPS = ['sop01', 'sop02']
+
+function stageSops(skillSops: string[], stage: string[] | undefined) {
+  if (!stage?.length) return skillSops
+  const both = skillSops.filter((id) => stage.includes(id))
+  return both.length ? both : stage
+}
+
+function mentionsVariable(value: unknown, key: string) {
+  return searchable(value).includes(`[${key}]`)
+}
+
 async function buildCatalog(sourceRoot: string) {
   const [sopsModule, skillsModule, scriptsModule, dialoguesModule, objectionsModule, policyModule, voiceModule, channelsModule] = await Promise.all([
     sourceModule(sourceRoot, 'src/data/sops.ts'),
@@ -193,7 +230,6 @@ async function buildCatalog(sourceRoot: string) {
   const scripts = scriptsModule.SEED_SCRIPTS as SourceRecord[]
   const dialogues = dialoguesModule.DIALOGUES as SourceRecord[]
   const objections = objectionsModule.OBJECTIONS as SourceRecord[]
-  const allSopIds = sops.map((item) => String(item.id))
   const sopSkillIds = new Map(sops.map((sop) => [String(sop.id), resolvedSopSkillIds(sop)]))
   const skillToSops = new Map<string, string[]>()
   sops.forEach((sop) => {
@@ -202,6 +238,10 @@ async function buildCatalog(sourceRoot: string) {
     })
   })
   const sopsForSkill = (skillId: unknown) => skillToSops.get(String(skillId)) ?? []
+  // Each SOP names its own KPIs; a KPI no SOP names applies to all of them.
+  const sopsForKpi = (name: unknown) => sops
+    .filter((sop) => stringArray(sop.kpis).some((line) => normalizeSearch(line) === normalizeSearch(String(name))))
+    .map((sop) => String(sop.id))
   const scriptVariants = channelsModule.SCRIPT_VARIANTS as Record<string, SourceRecord[]>
 
   const voiceResources = [
@@ -216,42 +256,42 @@ async function buildCatalog(sourceRoot: string) {
     }, {
       sourceId: 'banned-rules', code: 'VOICE-01', title: 'Cụm từ không được dùng',
       summary: 'Các cách nói gây áp lực, hứa hẹn quá mức hoặc thiếu an toàn.', ownerRole: 'admin',
-      audiences: ['sales', 'pt', 'cs'], tags: ['giọng Aura', 'không nên nói'], relatedSopIds: allSopIds,
+      audiences: ['sales', 'pt', 'cs'], tags: ['giọng Aura', 'không nên nói'],
       metrics: { phraseCount: voiceModule.BANNED_RULES.length },
     }),
     makeResource('voice', { type: 'substitutions', items: voiceModule.SUBSTITUTIONS }, {
       sourceId: 'substitutions', code: 'VOICE-02', title: 'Cách nói thay thế theo giọng Aura',
       summary: 'Đổi câu cứng hoặc gây áp lực thành cách nói rõ ràng, tôn trọng.', ownerRole: 'admin',
-      audiences: ['sales', 'pt', 'cs'], tags: ['giọng Aura', 'câu thay thế'], relatedSopIds: allSopIds,
+      audiences: ['sales', 'pt', 'cs'], tags: ['giọng Aura', 'câu thay thế'],
       metrics: { phraseCount: voiceModule.SUBSTITUTIONS.length * 2, variantCount: voiceModule.SUBSTITUTIONS.length },
     }),
     makeResource('voice', { type: 'addressing', items: voiceModule.ADDRESSING }, {
       sourceId: 'addressing', code: 'VOICE-03', title: 'Xưng hô với khách hàng',
       summary: 'Quy tắc gọi khách và tự xưng theo từng đối tượng.', ownerRole: 'admin',
-      audiences: ['sales', 'pt', 'cs'], tags: ['giọng Aura', 'xưng hô'], relatedSopIds: allSopIds,
+      audiences: ['sales', 'pt', 'cs'], tags: ['giọng Aura', 'xưng hô'],
       metrics: { phraseCount: voiceModule.ADDRESSING.length },
     }),
     makeResource('voice', { type: 'message-rules', items: voiceModule.MESSAGE_RULES }, {
       sourceId: 'message-rules', code: 'VOICE-04', title: 'Quy tắc viết tin nhắn',
       summary: 'Cấu trúc và tiêu chuẩn cho tin nhắn gửi khách.', ownerRole: 'admin',
-      audiences: ['sales', 'pt', 'cs'], tags: ['giọng Aura', 'tin nhắn'], relatedSopIds: allSopIds,
+      audiences: ['sales', 'pt', 'cs'], tags: ['giọng Aura', 'tin nhắn'],
       metrics: { phraseCount: voiceModule.MESSAGE_RULES.length },
     }),
     makeResource('voice', { type: 'channels', items: channelsModule.CHANNELS }, {
       sourceId: 'channels', code: 'VOICE-05', title: 'Cách giao tiếp theo kênh',
       summary: 'Nguyên tắc dùng Fanpage, Zalo, điện thoại và tại quầy.', ownerRole: 'admin',
-      audiences: ['sales', 'pt', 'cs'], tags: ['kênh giao tiếp'], relatedSopIds: allSopIds,
+      audiences: ['sales', 'pt', 'cs'], tags: ['kênh giao tiếp'],
       metrics: { situationCount: channelsModule.CHANNELS.length },
     }),
     makeResource('voice', { type: 'audiences', items: channelsModule.AUDIENCES }, {
       sourceId: 'audiences', code: 'VOICE-06', title: 'Cách nói theo nhóm khách',
       summary: 'Mối quan tâm, cách tiếp cận và từ ngữ phù hợp theo nhóm khách.', ownerRole: 'admin',
-      audiences: ['sales', 'pt', 'cs'], tags: ['nhóm khách', 'giọng Aura'], relatedSopIds: allSopIds,
+      audiences: ['sales', 'pt', 'cs'], tags: ['nhóm khách', 'giọng Aura'],
       metrics: { situationCount: channelsModule.AUDIENCES.length },
     }),
   ]
 
-  const resources = [
+  const knowledge = [
     ...sops.map((item) => makeResource('sop', {
       ...item,
       declaredSkillIds: stringArray(item.skillIds),
@@ -272,7 +312,8 @@ async function buildCatalog(sourceRoot: string) {
       const variants = scriptVariants[String(item.id)] ?? []
       return makeResource('script', { ...item, variants }, {
         sourceId: String(item.id), title: String(item.title), summary: String(item.trigger ?? ''), ownerRole: 'sales',
-        audiences: ['sales'], tags: [String(item.category ?? ''), 'mẫu câu'], relatedSopIds: sopsForSkill(item.skillId),
+        audiences: ['sales'], tags: [String(item.category ?? ''), 'mẫu câu'],
+        relatedSopIds: stageSops(sopsForSkill(item.skillId), SCRIPT_CATEGORY_SOPS[String(item.category)]),
         relatedSkillIds: item.skillId ? [String(item.skillId)] : [], metrics: { phraseCount: 1 + variants.length, variantCount: variants.length },
       })
     }),
@@ -286,7 +327,7 @@ async function buildCatalog(sourceRoot: string) {
     })),
     ...objections.map((item) => makeResource('objection', item, {
       sourceId: String(item.id), title: `Xử lý: “${String(item.say)}”`, summary: stringArray(item.meaning).join(' · '),
-      ownerRole: 'sales', audiences: ['sales'], tags: ['xử lý băn khoăn'], relatedSopIds: sopsForSkill(item.skillId),
+      ownerRole: 'sales', audiences: ['sales'], tags: ['xử lý băn khoăn'], relatedSopIds: stageSops(sopsForSkill(item.skillId), OBJECTION_SOPS),
       relatedSkillIds: item.skillId ? [String(item.skillId)] : [],
       metrics: { phraseCount: sourceArray(item.responses).length, situationCount: 1, variantCount: stringArray(item.variants).length },
     })),
@@ -295,19 +336,15 @@ async function buildCatalog(sourceRoot: string) {
       audiences: [String(item.appliesTo ?? '')], tags: [String(item.group ?? ''), 'tham chiếu cần duyệt'],
       status: 'review', relatedSopIds: policySops(item.group),
     })),
-    ...(policyModule.SEED_VARS as SourceRecord[]).map((item) => makeResource('variable', item, {
-      sourceId: String(item.key), title: `Biến chính sách: ${String(item.key)}`, summary: String(item.note ?? ''),
-      ownerRole: 'admin', tags: ['biến chính sách', 'tham chiếu cần duyệt'], status: 'review', relatedSopIds: allSopIds,
-    })),
     ...(policyModule.SEED_KPIS as SourceRecord[]).map((item, index) => makeResource('kpi', item, {
       sourceId: `${index + 1}-${String(item.name)}`, title: String(item.name), summary: String(item.formula ?? ''),
       ownerRole: 'admin', audiences: [String(item.owner ?? '')], tags: ['kpi', 'tham chiếu cần duyệt'],
-      status: 'review', relatedSopIds: allSopIds,
+      status: 'review', relatedSopIds: sopsForKpi(item.name),
     })),
     ...(policyModule.SEED_ESCALATIONS as SourceRecord[]).map((item) => makeResource('escalation', item, {
       sourceId: String(item.id), title: String(item.situation), summary: String(item.trigger ?? ''), ownerRole: 'admin',
       audiences: [String(item.handler ?? '')], tags: ['escalation', 'tham chiếu cần duyệt'], status: 'review',
-      relatedSopIds: allSopIds, metrics: { situationCount: 1 },
+      metrics: { situationCount: 1 },
     })),
     ...(policyModule.SEED_PRICES as SourceRecord[]).map((item) => makeResource('price', item, {
       sourceId: String(item.id), code: `PRICE-${String(item.id)}`, title: String(item.label),
@@ -321,7 +358,22 @@ async function buildCatalog(sourceRoot: string) {
       relatedSopIds: ['sop01', 'sop02', 'sop05'],
     })),
     ...voiceResources,
-  ].sort((left, right) => left.sortKey.localeCompare(right.sortKey, 'vi'))
+  ]
+
+  // A policy variable belongs to the SOPs whose own steps, or whose linked
+  // scripts, dialogues and objections, write it as [key].
+  const variables = (policyModule.SEED_VARS as SourceRecord[]).map((item) => {
+    const key = String(item.key)
+    const relatedSopIds = uniqueStrings(knowledge
+      .filter((resource) => ['sop', 'script', 'dialogue', 'objection', 'policy'].includes(resource.kind) && mentionsVariable(resource.payload, key))
+      .flatMap((resource) => resource.relatedSopIds))
+    return makeResource('variable', item, {
+      sourceId: key, title: `Biến chính sách: ${key}`, summary: String(item.note ?? ''),
+      ownerRole: 'admin', tags: ['biến chính sách', 'tham chiếu cần duyệt'], status: 'review', relatedSopIds,
+    })
+  })
+
+  const resources = [...knowledge, ...variables].sort((left, right) => left.sortKey.localeCompare(right.sortKey, 'vi'))
 
   const byKind = resources.reduce<Record<string, number>>((result, item) => {
     result[item.kind] = (result[item.kind] ?? 0) + 1

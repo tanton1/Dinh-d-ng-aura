@@ -673,8 +673,7 @@
 .sop-center-tree-label > span { grid-row: 1 / 3; display: grid; place-items: center; width: 27px; height: 27px; border-radius: 50%; color: #fff; background: var(--sop-pink); font-size: 9px; font-weight: 850; }
 .sop-center-tree-label strong { font-size: 12px; }
 .sop-center-tree-label small { color: var(--sop-muted); font-size: 10px; }
-.sop-center-tree-sops > div:last-child,
-.sop-center-tree-skills > div:last-child { display: grid; gap: 3px; }
+.sop-center-tree-sops > div:last-child { display: grid; gap: 3px; }
 .sop-center-tree-sops > div:last-child > button { position: relative; display: grid; grid-template-columns: 1fr auto; gap: 3px 8px; width: 100%; border: 0; border-radius: 8px; padding: 10px 9px; color: inherit; background: transparent; text-align: left; cursor: pointer; }
 .sop-center-tree-sops button > span { color: var(--sop-pink); font-size: 9px; font-weight: 850; }
 .sop-center-tree-sops button > strong { overflow: hidden; font-size: 11px; line-height: 1.35; }
@@ -682,22 +681,14 @@
 .sop-center-tree-sops button > svg { grid-column: 2; grid-row: 1 / 4; align-self: center; color: #a6b0aa; }
 .sop-center-tree-sops button.is-active { color: #a8124d; background: var(--sop-pink-soft); }
 .sop-center-tree-sops button.is-active::after { content: ''; position: absolute; top: 50%; right: -22px; width: 22px; height: 1px; background: var(--sop-pink); }
-.sop-center-tree-skills > div:last-child > button { display: grid; grid-template-columns: 28px 1fr 16px; align-items: center; gap: 8px; width: 100%; border: 0; border-bottom: 1px solid #f1e8ed; padding: 9px 3px; color: inherit; background: transparent; text-align: left; cursor: pointer; }
-.sop-center-tree-skills button i { display: grid; place-items: center; width: 25px; height: 25px; border-radius: 50%; color: var(--sop-pink); background: var(--sop-pink-soft); font-size: 9px; font-style: normal; font-weight: 850; }
-.sop-center-tree-skills button strong,
-.sop-center-tree-skills button small { display: block; }
-.sop-center-tree-skills button strong { font-size: 11px; line-height: 1.35; }
-.sop-center-tree-skills button small { margin-top: 2px; color: var(--sop-muted); font-size: 9px; }
-.sop-center-tree-skills button svg { color: #a6b0aa; }
 .sop-center-tree-knowledge { padding-right: 0; }
 .sop-center-tree-knowledge-head { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
 .sop-center-tree-knowledge-head > button { display: inline-flex; align-items: center; gap: 6px; border: 0; padding: 7px 0; color: var(--sop-pink); background: transparent; font-size: 10px; font-weight: 800; cursor: pointer; }
-.sop-center-tree-filters { display: flex; gap: 5px; overflow-x: auto; margin-bottom: 12px; padding-bottom: 5px; scrollbar-width: thin; }
+.sop-center-tree-filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .sop-center-tree-filters button { flex: 0 0 auto; border: 0; border-radius: 999px; padding: 6px 9px; color: var(--sop-muted); background: #f6f1f4; font-size: 9px; font-weight: 750; cursor: pointer; }
 .sop-center-tree-filters button.is-active { color: #fff; background: var(--sop-pink); }
 .sop-center-tree-filters small { margin-left: 3px; opacity: .75; }
-.sop-center-tree-results { max-height: 510px; overflow-y: auto; padding-right: 10px; }
-.sop-center-tree-results > button { display: grid; grid-template-columns: 88px minmax(0, 1fr) 16px; align-items: center; gap: 10px; width: 100%; border: 0; border-bottom: 1px solid #f1e8ed; padding: 11px 3px; color: inherit; background: transparent; text-align: left; cursor: pointer; }
+.sop-center-tree-results > button { display: grid; grid-template-columns: 100px minmax(0, 1fr) 16px; align-items: center; gap: 10px; width: 100%; border: 0; border-bottom: 1px solid #f1e8ed; padding: 11px 3px; color: inherit; background: transparent; text-align: left; cursor: pointer; }
 .sop-center-tree-results > button:hover { background: #fff8fb; }
 .sop-center-tree-results > button > span:nth-child(2) { min-width: 0; }
 .sop-center-tree-results strong,
@@ -778,8 +769,7 @@
   .sop-center-tree-sops > div:last-child { display: flex; overflow-x: auto; }
   .sop-center-tree-sops > div:last-child > button { min-width: 190px; }
   .sop-center-tree-sops button.is-active::after { display: none; }
-  .sop-center-tree-skills > div:last-child { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .sop-center-tree-results { max-height: 620px; }
+  .sop-center-tree-support > div { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .sop-center-relation-group { grid-template-columns: 1fr; }
 }
 
@@ -795,9 +785,70 @@
   .sop-center-coverage > div { grid-template-columns: repeat(2, 1fr); }
   .sop-center-coverage > div button { padding-inline: 12px; }
   .sop-center-coverage > div button:nth-child(2n) { border-right: 0; }
-  .sop-center-tree-skills > div:last-child { grid-template-columns: 1fr; }
-  .sop-center-tree-results > button { grid-template-columns: 72px minmax(0, 1fr) 16px; }
+  .sop-center-tree-support > div { grid-template-columns: 1fr; }
+  /* The kind label sits above the title instead of squeezing it. */
+  .sop-center-tree-results > button { grid-template-columns: minmax(0, 1fr) 16px; gap: 5px 10px; }
+  .sop-center-tree-results > button > .sop-center-kind-mark { grid-column: 1; justify-self: start; }
+  .sop-center-tree-results > button > svg { grid-column: 2; grid-row: 1 / 3; }
+  .sop-center-lookup-metrics { flex-wrap: wrap; gap: 12px 18px; }
   .sop-center-relation-group > div { grid-template-columns: 1fr; }
   .sop-center-relation-summary { align-items: flex-start; flex-wrap: wrap; }
   .sop-center-relation-summary button { width: 100%; margin-left: 0; }
 }
+
+/* Lookup tree, four levels: SOP → step → skill → content. Text stays at 12px
+   or more, the kind filters wrap instead of hiding, and the content column
+   grows with the page rather than scrolling inside it. */
+.sop-center-lookup-metrics > span { font-size: 12px; }
+.sop-center-tree-label > span { font-size: 11px; }
+.sop-center-tree-label strong { font-size: 14px; }
+.sop-center-tree-label small { font-size: 12px; }
+.sop-center-tree-sops button > span { font-size: 12px; }
+.sop-center-tree-sops button > strong { font-size: 13px; }
+.sop-center-tree-sops button > small { font-size: 12px; }
+.sop-center-tree-steps { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.sop-center-tree-steps > li > button,
+.sop-center-tree-support > div > button { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 9px; width: 100%; border: 0; border-radius: 8px; padding: 9px 6px; color: inherit; background: transparent; text-align: left; cursor: pointer; }
+.sop-center-tree-steps > li > button:hover:not(:disabled),
+.sop-center-tree-support > div > button:hover { background: #fff8fb; }
+.sop-center-tree-steps > li > button:disabled { cursor: default; opacity: .6; }
+.sop-center-tree-steps > li > button.is-active,
+.sop-center-tree-support > div > button.is-active { color: #a8124d; background: var(--sop-pink-soft); }
+.sop-center-tree-steps i,
+.sop-center-tree-support i { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; color: var(--sop-pink); background: var(--sop-pink-soft); font-size: 11px; font-style: normal; font-weight: 850; }
+.sop-center-tree-steps > li > button.is-active i,
+.sop-center-tree-support > div > button.is-active i { color: #fff; background: var(--sop-pink); }
+.sop-center-tree-steps strong,
+.sop-center-tree-support > div strong { display: block; font-size: 13px; line-height: 1.35; }
+.sop-center-tree-steps small,
+.sop-center-tree-support > div small { display: block; margin-top: 2px; color: var(--sop-muted); font-size: 12px; line-height: 1.35; }
+.sop-center-tree-support { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--sop-line); }
+.sop-center-tree-support > strong { display: block; margin: 0 6px 6px; color: var(--sop-muted); font-size: 12px; font-weight: 800; }
+.sop-center-tree-support > div { display: grid; gap: 2px; }
+.sop-center-tree-support svg { color: #a6b0aa; }
+.sop-center-tree-steps-loading { display: grid; gap: 8px; }
+.sop-center-tree-steps-loading span { height: 44px; border-radius: 8px; background: linear-gradient(90deg, #f6eff3, #fdf8fa, #f6eff3); }
+.sop-center-tree-knowledge-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 14px; }
+.sop-center-tree-knowledge-actions > button,
+.sop-center-tree-note button { display: inline-flex; align-items: center; gap: 6px; border: 0; padding: 7px 0; color: var(--sop-pink); background: transparent; font-size: 12px; font-weight: 800; cursor: pointer; }
+.sop-center-tree-filters button { font-size: 12px; padding: 6px 11px; }
+.sop-center-tree-results strong { font-size: 13px; }
+.sop-center-tree-results small { font-size: 12px; }
+.sop-center-tree-results .sop-center-kind-mark { font-size: 11px; letter-spacing: .02em; }
+.sop-center-tree-more { width: 100%; margin-top: 10px; border: 1px solid var(--sop-line); border-radius: 8px; padding: 10px; color: var(--sop-pink); background: #fff; font-size: 12px; font-weight: 800; cursor: pointer; }
+.sop-center-tree-note { margin: 12px 0 0; color: var(--sop-muted); font-size: 12px; }
+.sop-center-tree-shared { margin-top: 18px; border-top: 1px solid var(--sop-line); padding-top: 12px; }
+.sop-center-tree-shared > summary { color: var(--sop-ink); font-size: 13px; font-weight: 800; cursor: pointer; }
+.sop-center-tree-shared > summary small { margin-left: 6px; color: var(--sop-muted); font-weight: 700; }
+.sop-center-relation-group > strong { font-size: 12px; }
+.sop-center-relation-group button { font-size: 12px; }
+.sop-center-relation-group button span { font-size: 11px; }
+.sop-center-tree-results .sop-center-kind-mark { white-space: normal; line-height: 1.2; }
+.sop-center-lookup > header > div > span,
+.sop-center-lookup > header .sop-center-lookup-metrics > span { font-size: 12px; }
+.sop-center-lookup .sop-center-tree-label > span,
+.sop-center-lookup .sop-center-tree-steps i,
+.sop-center-lookup .sop-center-tree-support i { font-size: 12px; }
+.sop-center-lookup .sop-center-tree-filters small,
+.sop-center-lookup .sop-center-tree-shared > summary small,
+.sop-center-lookup .sop-center-tree-results .sop-center-kind-mark { font-size: 12px; }

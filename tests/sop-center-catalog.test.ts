@@ -5,9 +5,11 @@ import test from 'node:test'
 type Resource = {
   kind: string
   sourceId: string
+  title: string
   relatedSopIds: string[]
   relatedSkillIds: string[]
   contentMetrics: { phraseCount: number; situationCount: number; variantCount: number }
+  payload: Record<string, unknown>
 }
 
 async function catalog() {
@@ -61,4 +63,44 @@ test('catalog excludes operational modules but keeps prices and renewal knowledg
   assert.deepEqual(value.excludedScopes, ['lead_pipeline', 'member_360', 'renewal_operations', 'operational_records'])
   assert.equal(value.resources.some((item) => item.kind === 'price'), true)
   assert.equal(value.resources.some((item) => item.kind === 'sop' && item.sourceId === 'sop05'), true)
+})
+
+test('only the voice guide and escalations apply to every SOP; nothing else is blanket-linked', async () => {
+  const value = await catalog()
+  const content = value.resources.filter((item) => item.kind !== 'sop' && item.kind !== 'skill')
+  const shared = content.filter((item) => !item.relatedSopIds.length)
+  assert.deepEqual([...new Set(shared.map((item) => item.kind))].sort(), ['escalation', 'voice'])
+  assert.equal(content.some((item) => item.relatedSopIds.length >= 9), false)
+})
+
+test('each KPI belongs to exactly the SOPs that list it', async () => {
+  const value = await catalog()
+  const sops = value.resources.filter((item) => item.kind === 'sop')
+  for (const kpi of value.resources.filter((item) => item.kind === 'kpi')) {
+    const owners = sops.filter((sop) => (sop.payload.kpis as string[]).includes(kpi.title)).map((sop) => sop.sourceId).sort()
+    assert.ok(owners.length > 0, kpi.title)
+    assert.deepEqual([...kpi.relatedSopIds].sort(), owners, kpi.title)
+  }
+})
+
+test('a policy variable only reaches SOPs that write it as [key]', async () => {
+  const value = await catalog()
+  const writers = value.resources.filter((item) => ['sop', 'script', 'dialogue', 'objection', 'policy'].includes(item.kind))
+  for (const variable of value.resources.filter((item) => item.kind === 'variable')) {
+    for (const sopId of variable.relatedSopIds) {
+      const used = writers.some((item) => item.relatedSopIds.includes(sopId) && JSON.stringify(item.payload).includes(`[${variable.sourceId}]`))
+      assert.ok(used, `[${variable.sourceId}] in ${sopId}`)
+    }
+  }
+})
+
+test('scripts follow their stage, not every SOP that shares their skill', async () => {
+  const value = await catalog()
+  const script = (title: string) => value.resources.find((item) => item.kind === 'script' && item.title === title)
+  assert.deepEqual(script('Hội viên rút đồng ý hình ảnh')?.relatedSopIds, ['sop08'])
+  assert.deepEqual(script('Hệ thống check-in lỗi')?.relatedSopIds, ['sop09'])
+  assert.deepEqual(script('Khách hỏi bảo lưu gói')?.relatedSopIds, ['sop07'])
+  const safety = value.resources.filter((item) => item.kind === 'script' && item.payload.category === 'safety')
+  assert.ok(safety.length > 0)
+  assert.ok(safety.every((item) => !item.relatedSopIds.includes('sop01')))
 })

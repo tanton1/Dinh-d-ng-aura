@@ -87,6 +87,12 @@ function isManagedMigrationDocument(value) {
     && /^migration:sop-aura-v\d+$/.test(String(value?.updatedBy || ''))
 }
 
+// Only documents the migration still owns and whose catalog entry changed get a
+// new revision; untouched entries keep their history as it is.
+function needsManagedRefresh(existing, resource) {
+  return isManagedMigrationDocument(existing) && existing.migrationDigest !== digest(resource)
+}
+
 function migrationDocuments(resource, catalog, existing = null) {
   const actor = migrationActor(catalog)
   const revision = existing ? Math.max(1, Number(existing.revision || 1)) + 1 : Math.max(1, Number(resource.revision || 1))
@@ -205,7 +211,7 @@ async function applyCatalogWithGcloud(catalog, projectId, databaseId, { planOnly
   const refreshManaged = process.argv.includes('--refresh-managed')
   const createResources = catalog.resources.filter((resource) => !existingDocuments.has(resource.id))
   const updateResources = refreshManaged
-    ? catalog.resources.filter((resource) => isManagedMigrationDocument(existingDocuments.get(resource.id)?.data))
+    ? catalog.resources.filter((resource) => needsManagedRefresh(existingDocuments.get(resource.id)?.data, resource))
     : []
   const skippedResources = catalog.resources.length - createResources.length - updateResources.length
   const verifiedResources = catalog.resources.filter((resource) => (
@@ -288,7 +294,7 @@ async function applyCatalog(catalog) {
   const createResources = catalog.resources.filter((_, index) => !existing[index].exists)
   const existingById = new Map(existing.filter((snapshot) => snapshot.exists).map((snapshot) => [snapshot.id, snapshot.data()]))
   const updateResources = process.argv.includes('--refresh-managed')
-    ? catalog.resources.filter((resource) => isManagedMigrationDocument(existingById.get(resource.id)))
+    ? catalog.resources.filter((resource) => needsManagedRefresh(existingById.get(resource.id), resource))
     : []
   const skippedResources = catalog.resources.length - createResources.length - updateResources.length
   let created = 0

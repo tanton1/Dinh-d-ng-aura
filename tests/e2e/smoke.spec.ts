@@ -94,6 +94,7 @@ test('Admin menu follows the operational workflow and hides unfinished modules',
     'LỊCH & HUẤN LUYỆN',
     'ĐỘI NGŨ & HIỆU SUẤT',
     'TÀI CHÍNH & DỊCH VỤ',
+    'TIÊU CHUẨN VẬN HÀNH',
     'CÀI ĐẶT',
   ])
 

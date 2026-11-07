@@ -97,6 +97,7 @@ export interface SopStepPayload {
   title?: string
   when?: string
   owner?: string
+  skillId?: number | string
   goal?: string
   actions?: string[]
   say?: string[]

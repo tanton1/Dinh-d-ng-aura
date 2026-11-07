@@ -3375,24 +3375,14 @@
         "escalation",
         "tham chiếu cần duyệt"
       ],
-      "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
-      ],
+      "relatedSopIds": [],
       "relatedSkillIds": [],
       "contentMetrics": {
         "phraseCount": 0,
         "situationCount": 1,
         "variantCount": 0
       },
-      "searchText": "bao luu off dai ngay vuot khung vuot so ngay lan theo chinh sach goi 1 thang xin bao luu admin escalation tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 es freeze bao luu off dai ngay vuot khung vuot so ngay lan theo chinh sach goi 1 thang xin bao luu admin ban quan ly truoc ngay bat dau bao luu",
+      "searchText": "bao luu off dai ngay vuot khung vuot so ngay lan theo chinh sach goi 1 thang xin bao luu admin escalation tham chieu can duyet es freeze bao luu off dai ngay vuot khung vuot so ngay lan theo chinh sach goi 1 thang xin bao luu admin ban quan ly truoc ngay bat dau bao luu",
       "sortKey": "escalation:bao luu off dai ngay vuot khung",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -3430,24 +3420,14 @@
         "escalation",
         "tham chiếu cần duyệt"
       ],
-      "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
-      ],
+      "relatedSopIds": [],
       "relatedSkillIds": [],
       "contentMetrics": {
         "phraseCount": 0,
         "situationCount": 1,
         "variantCount": 0
       },
-      "searchText": "chuyen nhuong goi moi yeu cau chuyen nhuong admin escalation tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 es transfer chuyen nhuong goi moi yeu cau chuyen nhuong admin quan ly truoc khi nguoi nhan kich hoat",
+      "searchText": "chuyen nhuong goi moi yeu cau chuyen nhuong admin escalation tham chieu can duyet es transfer chuyen nhuong goi moi yeu cau chuyen nhuong admin quan ly truoc khi nguoi nhan kich hoat",
       "sortKey": "escalation:chuyen nhuong goi",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -3485,24 +3465,14 @@
         "escalation",
         "tham chiếu cần duyệt"
       ],
-      "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
-      ],
+      "relatedSopIds": [],
       "relatedSkillIds": [],
       "contentMetrics": {
         "phraseCount": 0,
         "situationCount": 1,
         "variantCount": 0
       },
-      "searchText": "doi lich qua 01 lan thang hoi vien xin doi lan 2 trong thang admin escalation tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 es schedule doi lich qua 01 lan thang hoi vien xin doi lan 2 trong thang pt admin ban quan ly truoc gio tap 24 gio",
+      "searchText": "doi lich qua 01 lan thang hoi vien xin doi lan 2 trong thang admin escalation tham chieu can duyet es schedule doi lich qua 01 lan thang hoi vien xin doi lan 2 trong thang pt admin ban quan ly truoc gio tap 24 gio",
       "sortKey": "escalation:doi lich qua 01 lan thang",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -3540,24 +3510,14 @@
         "escalation",
         "tham chiếu cần duyệt"
       ],
-      "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
-      ],
+      "relatedSopIds": [],
       "relatedSkillIds": [],
       "contentMetrics": {
         "phraseCount": 0,
         "situationCount": 1,
         "variantCount": 0
       },
-      "searchText": "doi pt hoi vien khong hop pt hoi vien phan hoi khong hop health score 60 kem ly do pt admin escalation tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 es pt doi pt hoi vien khong hop pt hoi vien phan hoi khong hop health score 60 kem ly do pt cs quan ly 48 gio",
+      "searchText": "doi pt hoi vien khong hop pt hoi vien phan hoi khong hop health score 60 kem ly do pt admin escalation tham chieu can duyet es pt doi pt hoi vien khong hop pt hoi vien phan hoi khong hop health score 60 kem ly do pt cs quan ly 48 gio",
       "sortKey": "escalation:doi pt hoi vien khong hop pt",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -3595,24 +3555,14 @@
         "escalation",
         "tham chiếu cần duyệt"
       ],
-      "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
-      ],
+      "relatedSopIds": [],
       "relatedSkillIds": [],
       "contentMetrics": {
         "phraseCount": 0,
         "situationCount": 1,
         "variantCount": 0
       },
-      "searchText": "gia uu dai ngoai chinh sach khach xin giam them goi khong co trong bang gia admin escalation tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 es discount gia uu dai ngoai chinh sach khach xin giam them goi khong co trong bang gia sales quan ly truoc khi bao khach",
+      "searchText": "gia uu dai ngoai chinh sach khach xin giam them goi khong co trong bang gia admin escalation tham chieu can duyet es discount gia uu dai ngoai chinh sach khach xin giam them goi khong co trong bang gia sales quan ly truoc khi bao khach",
       "sortKey": "escalation:gia uu dai ngoai chinh sach",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -3650,24 +3600,14 @@
         "escalation",
         "tham chiếu cần duyệt"
       ],
-      "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
-      ],
+      "relatedSopIds": [],
       "relatedSkillIds": [],
       "contentMetrics": {
         "phraseCount": 0,
         "situationCount": 1,
         "variantCount": 0
       },
-      "searchText": "khieu nai dich vu moi khieu nai lan 2 cung van de quan ly truc tiep admin escalation tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 es complaint khieu nai dich vu moi khieu nai lan 2 cung van de quan ly truc tiep cs quan ly chi nhanh phan hoi dau 2 gio noi bo so bo 03 ngay lam viec hd",
+      "searchText": "khieu nai dich vu moi khieu nai lan 2 cung van de quan ly truc tiep admin escalation tham chieu can duyet es complaint khieu nai dich vu moi khieu nai lan 2 cung van de quan ly truc tiep cs quan ly chi nhanh phan hoi dau 2 gio noi bo so bo 03 ngay lam viec hd",
       "sortKey": "escalation:khieu nai dich vu",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -3705,24 +3645,14 @@
         "escalation",
         "tham chiếu cần duyệt"
       ],
-      "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
-      ],
+      "relatedSopIds": [],
       "relatedSkillIds": [],
       "contentMetrics": {
         "phraseCount": 0,
         "situationCount": 1,
         "variantCount": 0
       },
-      "searchText": "lo du lieu hinh anh hoi vien anh so do thong tin bi chia se ngoai pham vi admin escalation tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 es privacy lo du lieu hinh anh hoi vien anh so do thong tin bi chia se ngoai pham vi nguoi phat hien quan ly bao ngay go noi dung 24 gio",
+      "searchText": "lo du lieu hinh anh hoi vien anh so do thong tin bi chia se ngoai pham vi admin escalation tham chieu can duyet es privacy lo du lieu hinh anh hoi vien anh so do thong tin bi chia se ngoai pham vi nguoi phat hien quan ly bao ngay go noi dung 24 gio",
       "sortKey": "escalation:lo du lieu hinh anh hoi vien",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -3760,24 +3690,14 @@
         "escalation",
         "tham chiếu cần duyệt"
       ],
-      "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
-      ],
+      "relatedSopIds": [],
       "relatedSkillIds": [],
       "contentMetrics": {
         "phraseCount": 0,
         "situationCount": 1,
         "variantCount": 0
       },
-      "searchText": "su co suc khoe tai phong dau nguc kho tho ngat chan thuong admin escalation tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 es emergency su co suc khoe tai phong dau nguc kho tho ngat chan thuong nhan su gan nhat so cuu goi cap cuu quan ly chi nhanh ngay lap tuc bien ban 24 gio",
+      "searchText": "su co suc khoe tai phong dau nguc kho tho ngat chan thuong admin escalation tham chieu can duyet es emergency su co suc khoe tai phong dau nguc kho tho ngat chan thuong nhan su gan nhat so cuu goi cap cuu quan ly chi nhanh ngay lap tuc bien ban 24 gio",
       "sortKey": "escalation:su co suc khoe tai phong",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -3815,24 +3735,14 @@
         "escalation",
         "tham chiếu cần duyệt"
       ],
-      "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
-      ],
+      "relatedSopIds": [],
       "relatedSkillIds": [],
       "contentMetrics": {
         "phraseCount": 0,
         "situationCount": 1,
         "variantCount": 0
       },
-      "searchText": "vi pham noi quy nghiem trong quay roi quay len dua nguoi ngoai vao bao luc admin escalation tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 es violation vi pham noi quy nghiem trong quay roi quay len dua nguoi ngoai vao bao luc nhan su truc lap bien ban quan ly ngay lap tuc",
+      "searchText": "vi pham noi quy nghiem trong quay roi quay len dua nguoi ngoai vao bao luc admin escalation tham chieu can duyet es violation vi pham noi quy nghiem trong quay roi quay len dua nguoi ngoai vao bao luc nhan su truc lap bien ban quan ly ngay lap tuc",
       "sortKey": "escalation:vi pham noi quy nghiem trong",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -3870,24 +3780,14 @@
         "escalation",
         "tham chiếu cần duyệt"
       ],
-      "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
-      ],
+      "relatedSopIds": [],
       "relatedSkillIds": [],
       "contentMetrics": {
         "phraseCount": 0,
         "situationCount": 1,
         "variantCount": 0
       },
-      "searchText": "yeu cau hoan phi khach de nghi hoan tien duoi bat ky hinh thuc nao admin escalation tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 es refund yeu cau hoan phi khach de nghi hoan tien duoi bat ky hinh thuc nao cs admin lap ho so ban quan ly van ban xu ly 15 ngay lam viec khi du ho so",
+      "searchText": "yeu cau hoan phi khach de nghi hoan tien duoi bat ky hinh thuc nao admin escalation tham chieu can duyet es refund yeu cau hoan phi khach de nghi hoan tien duoi bat ky hinh thuc nao cs admin lap ho so ban quan ly van ban xu ly 15 ngay lam viec khi du ho so",
       "sortKey": "escalation:yeu cau hoan phi",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -3925,24 +3825,14 @@
         "escalation",
         "tham chiếu cần duyệt"
       ],
-      "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
-      ],
+      "relatedSopIds": [],
       "relatedSkillIds": [],
       "contentMetrics": {
         "phraseCount": 0,
         "situationCount": 1,
         "variantCount": 0
       },
-      "searchText": "yeu to suc khoe benh nen thai ky sau sinh chan thuong khach khai bao hoac tra loi co trong phieu suc khoe admin escalation tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 es health yeu to suc khoe benh nen thai ky sau sinh chan thuong khach khai bao hoac tra loi co trong phieu suc khoe pt phu trach quan ly neu can xac nhan y te truoc buoi tap dau",
+      "searchText": "yeu to suc khoe benh nen thai ky sau sinh chan thuong khach khai bao hoac tra loi co trong phieu suc khoe admin escalation tham chieu can duyet es health yeu to suc khoe benh nen thai ky sau sinh chan thuong khach khai bao hoac tra loi co trong phieu suc khoe pt phu trach quan ly neu can xac nhan y te truoc buoi tap dau",
       "sortKey": "escalation:yeu to suc khoe benh nen thai ky sau sinh chan thuong",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -3981,15 +3871,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop04"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -3997,7 +3879,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "at risk recovery rate case rui ro dong da phuc hoi case rui ro da dong admin kpi tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 at risk recovery rate case rui ro dong da phuc hoi case rui ro da dong de xuat chot sau baseline tuan 4 cs pt hang thang action center",
+      "searchText": "at risk recovery rate case rui ro dong da phuc hoi case rui ro da dong admin kpi tham chieu can duyet sop04 at risk recovery rate case rui ro dong da phuc hoi case rui ro da dong de xuat chot sau baseline tuan 4 cs pt hang thang action center",
       "sortKey": "kpi:at risk recovery rate",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -4036,15 +3918,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop03"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -4052,7 +3926,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "attendance rate buoi da tap buoi theo ke hoach khong tinh bao luu hop le admin kpi tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 attendance rate buoi da tap buoi theo ke hoach khong tinh bao luu hop le 80 de xuat chot sau baseline tuan 4 pt hang tuan lich tap check in",
+      "searchText": "attendance rate buoi da tap buoi theo ke hoach khong tinh bao luu hop le admin kpi tham chieu can duyet sop03 attendance rate buoi da tap buoi theo ke hoach khong tinh bao luu hop le 80 de xuat chot sau baseline tuan 4 pt hang tuan lich tap check in",
       "sortKey": "kpi:attendance rate",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -4091,14 +3965,6 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
         "sop09"
       ],
       "relatedSkillIds": [],
@@ -4107,7 +3973,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "check in dung quy dinh luot vao phong co check in hop le tong luot vao admin kpi tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 check in dung quy dinh luot vao phong co check in hop le tong luot vao 100 le tan hang tuan he thong check in",
+      "searchText": "check in dung quy dinh luot vao phong co check in hop le tong luot vao admin kpi tham chieu can duyet sop09 check in dung quy dinh luot vao phong co check in hop le tong luot vao 100 le tan hang tuan he thong check in",
       "sortKey": "kpi:check in dung quy dinh",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -4146,15 +4012,8 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
         "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop07"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -4162,7 +4021,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "complaint resolution khieu nai phan hoi so bo 03 ngay lam viec va dong co xac nhan tong khieu nai admin kpi tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 complaint resolution khieu nai phan hoi so bo 03 ngay lam viec va dong co xac nhan tong khieu nai 100 han theo hd tt dieu 17 cs quan ly hang tuan khieu nai",
+      "searchText": "complaint resolution khieu nai phan hoi so bo 03 ngay lam viec va dong co xac nhan tong khieu nai admin kpi tham chieu can duyet sop04 sop07 complaint resolution khieu nai phan hoi so bo 03 ngay lam viec va dong co xac nhan tong khieu nai 100 han theo hd tt dieu 17 cs quan ly hang tuan khieu nai",
       "sortKey": "kpi:complaint resolution",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -4201,15 +4060,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop01"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -4217,7 +4068,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "dat lai lich thanh cong no show duoc dat lai va den tong no show admin kpi tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 dat lai lich thanh cong no show duoc dat lai va den tong no show de xuat chot sau baseline tuan 4 sales hang tuan appointment",
+      "searchText": "dat lai lich thanh cong no show duoc dat lai va den tong no show admin kpi tham chieu can duyet sop01 dat lai lich thanh cong no show duoc dat lai va den tong no show de xuat chot sau baseline tuan 4 sales hang tuan appointment",
       "sortKey": "kpi:dat lai lich thanh cong",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -4256,15 +4107,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop08"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -4272,7 +4115,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "dong y hinh anh duoc ghi nhan hoi vien moi co lua chon phieu dong y hinh anh hoi vien moi admin kpi tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 dong y hinh anh duoc ghi nhan hoi vien moi co lua chon phieu dong y hinh anh hoi vien moi 100 sales admin hang thang hop dong muc 6",
+      "searchText": "dong y hinh anh duoc ghi nhan hoi vien moi co lua chon phieu dong y hinh anh hoi vien moi admin kpi tham chieu can duyet sop08 dong y hinh anh duoc ghi nhan hoi vien moi co lua chon phieu dong y hinh anh hoi vien moi 100 sales admin hang thang hop dong muc 6",
       "sortKey": "kpi:dong y hinh anh duoc ghi nhan",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -4311,15 +4154,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop01"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -4327,7 +4162,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "inbox lich xac nhan lead co lich hen xac nhan lead moi cung ky admin kpi tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 inbox lich xac nhan lead co lich hen xac nhan lead moi cung ky de xuat chot sau baseline tuan 4 sales hang tuan lead pipeline",
+      "searchText": "inbox lich xac nhan lead co lich hen xac nhan lead moi cung ky admin kpi tham chieu can duyet sop01 inbox lich xac nhan lead co lich hen xac nhan lead moi cung ky de xuat chot sau baseline tuan 4 sales hang tuan lead pipeline",
       "sortKey": "kpi:inbox lich xac nhan",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -4366,14 +4201,6 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
         "sop09"
       ],
       "relatedSkillIds": [],
@@ -4382,7 +4209,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "lich tuan gui dung han tuan gui lich pt chinh thuc cho hoi vien truoc thu hai tong tuan admin kpi tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 lich tuan gui dung han tuan gui lich pt chinh thuc cho hoi vien truoc thu hai tong tuan 100 admin pt hang tuan lich tuan",
+      "searchText": "lich tuan gui dung han tuan gui lich pt chinh thuc cho hoi vien truoc thu hai tong tuan admin kpi tham chieu can duyet sop09 lich tuan gui dung han tuan gui lich pt chinh thuc cho hoi vien truoc thu hai tong tuan 100 admin pt hang tuan lich tuan",
       "sortKey": "kpi:lich tuan gui dung han",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -4421,15 +4248,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop05"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -4437,7 +4256,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "long term upgrade rate gia han sang goi dai hon tong gia han admin kpi tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 long term upgrade rate gia han sang goi dai hon tong gia han de xuat chot sau baseline tuan 4 pt sales hang quy renewal center",
+      "searchText": "long term upgrade rate gia han sang goi dai hon tong gia han admin kpi tham chieu can duyet sop05 long term upgrade rate gia han sang goi dai hon tong gia han de xuat chot sau baseline tuan 4 pt sales hang quy renewal center",
       "sortKey": "kpi:long term upgrade rate",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -4476,15 +4295,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop01"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -4492,7 +4303,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "no show rate lich no show lich da xac nhan admin kpi tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 no show rate lich no show lich da xac nhan 20 de xuat chot sau baseline tuan 4 sales hang tuan appointment",
+      "searchText": "no show rate lich no show lich da xac nhan admin kpi tham chieu can duyet sop01 no show rate lich no show lich da xac nhan 20 de xuat chot sau baseline tuan 4 sales hang tuan appointment",
       "sortKey": "kpi:no show rate",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -4531,15 +4342,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop03"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -4547,7 +4350,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "onboarding rate hoi vien moi du 7 muc onboarding complete trong 7 ngay hoi vien moi admin kpi tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 onboarding rate hoi vien moi du 7 muc onboarding complete trong 7 ngay hoi vien moi 95 cs admin hang tuan hoi vien 360",
+      "searchText": "onboarding rate hoi vien moi du 7 muc onboarding complete trong 7 ngay hoi vien moi admin kpi tham chieu can duyet sop03 onboarding rate hoi vien moi du 7 muc onboarding complete trong 7 ngay hoi vien moi 95 cs admin hang tuan hoi vien 360",
       "sortKey": "kpi:onboarding rate",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -4586,15 +4389,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop02"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -4602,7 +4397,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "onsite consultation quality score 85 so phieu cham 85 diem tong phieu cham admin kpi tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 onsite consultation quality score 85 so phieu cham 85 diem tong phieu cham 80 phieu dat quan ly hang thang chat luong tu van",
+      "searchText": "onsite consultation quality score 85 so phieu cham 85 diem tong phieu cham admin kpi tham chieu can duyet sop02 onsite consultation quality score 85 so phieu cham 85 diem tong phieu cham 80 phieu dat quan ly hang thang chat luong tu van",
       "sortKey": "kpi:onsite consultation quality score 85",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -4641,15 +4436,8 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
         "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop05"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -4657,7 +4445,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "progress review completion review hoan thanh dung moc d30 d60 d90 t 30 review den han admin kpi tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 progress review completion review hoan thanh dung moc d30 d60 d90 t 30 review den han 95 pt hang thang hoi vien 360 renewal",
+      "searchText": "progress review completion review hoan thanh dung moc d30 d60 d90 t 30 review den han admin kpi tham chieu can duyet sop03 sop05 progress review completion review hoan thanh dung moc d30 d60 d90 t 30 review den han 95 pt hang thang hoi vien 360 renewal",
       "sortKey": "kpi:progress review completion",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -4696,15 +4484,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop05"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -4712,7 +4492,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "renew rate hop dong gia han hd moi thanh toan lien ket hd cu hop dong den han admin kpi tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 renew rate hop dong gia han hd moi thanh toan lien ket hd cu hop dong den han de xuat chot sau baseline tuan 4 sales cs hang thang renewal center",
+      "searchText": "renew rate hop dong gia han hd moi thanh toan lien ket hd cu hop dong den han admin kpi tham chieu can duyet sop05 renew rate hop dong gia han hd moi thanh toan lien ket hd cu hop dong den han de xuat chot sau baseline tuan 4 sales cs hang thang renewal center",
       "sortKey": "kpi:renew rate",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -4751,15 +4531,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop07"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -4767,7 +4539,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "sai lech hop dong phieu thu hop dong co sai lech phat hien sau ky hop dong ky moi admin kpi tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 sai lech hop dong phieu thu hop dong co sai lech phat hien sau ky hop dong ky moi 0 admin hang thang hop dong",
+      "searchText": "sai lech hop dong phieu thu hop dong co sai lech phat hien sau ky hop dong ky moi admin kpi tham chieu can duyet sop07 sai lech hop dong phieu thu hop dong co sai lech phat hien sau ky hop dong ky moi 0 admin hang thang hop dong",
       "sortKey": "kpi:sai lech hop dong phieu thu",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -4806,15 +4578,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop06"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -4822,7 +4586,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "sang loc suc khoe truoc buoi dau hoi vien co phieu khai bao suc khoe truoc buoi tap dau hoi vien moi admin kpi tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 sang loc suc khoe truoc buoi dau hoi vien co phieu khai bao suc khoe truoc buoi tap dau hoi vien moi 100 pt le tan hang tuan phieu khai bao suc khoe",
+      "searchText": "sang loc suc khoe truoc buoi dau hoi vien co phieu khai bao suc khoe truoc buoi tap dau hoi vien moi admin kpi tham chieu can duyet sop06 sang loc suc khoe truoc buoi dau hoi vien co phieu khai bao suc khoe truoc buoi tap dau hoi vien moi 100 pt le tan hang tuan phieu khai bao suc khoe",
       "sortKey": "kpi:sang loc suc khoe truoc buoi dau",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -4861,15 +4625,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop05"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -4877,7 +4633,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "service retention gia han chuyen sang dich vu khac hop dong den han admin kpi tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 service retention gia han chuyen sang dich vu khac hop dong den han de xuat chot sau baseline tuan 4 quan ly hang thang renewal center",
+      "searchText": "service retention gia han chuyen sang dich vu khac hop dong den han admin kpi tham chieu can duyet sop05 service retention gia han chuyen sang dich vu khac hop dong den han de xuat chot sau baseline tuan 4 quan ly hang thang renewal center",
       "sortKey": "kpi:service retention",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -4916,15 +4672,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop06"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -4932,7 +4680,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "su co duoc bao cao trong 24h su co co bien ban trong 24 gio tong su co admin kpi tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 su co duoc bao cao trong 24h su co co bien ban trong 24 gio tong su co 100 quan ly hang thang bien ban su co",
+      "searchText": "su co duoc bao cao trong 24h su co co bien ban trong 24 gio tong su co admin kpi tham chieu can duyet sop06 su co duoc bao cao trong 24h su co co bien ban trong 24 gio tong su co 100 quan ly hang thang bien ban su co",
       "sortKey": "kpi:su co duoc bao cao trong 24h",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -4971,15 +4719,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop01"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -4987,7 +4727,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "toc do phan hoi trung vi thoi gian tu tin nhan dau phan hoi dau tien gio lam viec admin kpi tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 toc do phan hoi trung vi thoi gian tu tin nhan dau phan hoi dau tien gio lam viec 5 phut de xuat chot sau baseline tuan 4 sales fanpage hang ngay lead pipeline createdat lich su lien he",
+      "searchText": "toc do phan hoi trung vi thoi gian tu tin nhan dau phan hoi dau tien gio lam viec admin kpi tham chieu can duyet sop01 toc do phan hoi trung vi thoi gian tu tin nhan dau phan hoi dau tien gio lam viec 5 phut de xuat chot sau baseline tuan 4 sales fanpage hang ngay lead pipeline createdat lich su lien he",
       "sortKey": "kpi:toc do phan hoi",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -5026,15 +4766,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop01"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -5042,7 +4774,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "ty le den dung hen lich co trang thai da den lich da xac nhan admin kpi tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 ty le den dung hen lich co trang thai da den lich da xac nhan 70 de xuat chot sau baseline tuan 4 sales le tan hang tuan appointment",
+      "searchText": "ty le den dung hen lich co trang thai da den lich da xac nhan admin kpi tham chieu can duyet sop01 ty le den dung hen lich co trang thai da den lich da xac nhan 70 de xuat chot sau baseline tuan 4 sales le tan hang tuan appointment",
       "sortKey": "kpi:ty le den dung hen",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -5081,15 +4813,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop01"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -5097,7 +4821,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "ty le khach duoc lien he lead co it nhat 1 lan lien he tong lead moi admin kpi tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 ty le khach duoc lien he lead co it nhat 1 lan lien he tong lead moi 100 sales hang ngay lead pipeline",
+      "searchText": "ty le khach duoc lien he lead co it nhat 1 lan lien he tong lead moi admin kpi tham chieu can duyet sop01 ty le khach duoc lien he lead co it nhat 1 lan lien he tong lead moi 100 sales hang ngay lead pipeline",
       "sortKey": "kpi:ty le khach duoc lien he",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -5136,15 +4860,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop02"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -5152,7 +4868,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "ty le khach duoc tu van hoan chinh khach den co du visit brief danh gia pt lo trinh xac nhan khach den admin kpi tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 ty le khach duoc tu van hoan chinh khach den co du visit brief danh gia pt lo trinh xac nhan khach den 90 sales pt hang tuan visit brief roadmap",
+      "searchText": "ty le khach duoc tu van hoan chinh khach den co du visit brief danh gia pt lo trinh xac nhan khach den admin kpi tham chieu can duyet sop02 ty le khach duoc tu van hoan chinh khach den co du visit brief danh gia pt lo trinh xac nhan khach den 90 sales pt hang tuan visit brief roadmap",
       "sortKey": "kpi:ty le khach duoc tu van hoan chinh",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -5191,15 +4907,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop08"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -5207,7 +4915,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "vi pham quyen rieng tu so su viec lo anh so do du lieu hoi vien admin kpi tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 vi pham quyen rieng tu so su viec lo anh so do du lieu hoi vien 0 quan ly hang thang khieu nai bien ban",
+      "searchText": "vi pham quyen rieng tu so su viec lo anh so do du lieu hoi vien admin kpi tham chieu can duyet sop08 vi pham quyen rieng tu so su viec lo anh so do du lieu hoi vien 0 quan ly hang thang khieu nai bien ban",
       "sortKey": "kpi:vi pham quyen rieng tu",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -5246,15 +4954,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop02"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -5262,7 +4962,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "visit to sale rate khach den phong dang ky goi khach den phong admin kpi tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 visit to sale rate khach den phong dang ky goi khach den phong de xuat chot sau baseline tuan 4 sales pt hang tuan lead pipeline hop dong",
+      "searchText": "visit to sale rate khach den phong dang ky goi khach den phong admin kpi tham chieu can duyet sop02 visit to sale rate khach den phong dang ky goi khach den phong de xuat chot sau baseline tuan 4 sales pt hang tuan lead pipeline hop dong",
       "sortKey": "kpi:visit to sale rate",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -5301,15 +5001,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop07"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -5317,7 +5009,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "yeu cau xu ly dung han yeu cau bao luu chuyen nhuong hoan phi xu ly dung han chinh sach tong yeu cau admin kpi tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 yeu cau xu ly dung han yeu cau bao luu chuyen nhuong hoan phi xu ly dung han chinh sach tong yeu cau 100 admin quan ly hang thang ho so yeu cau",
+      "searchText": "yeu cau xu ly dung han yeu cau bao luu chuyen nhuong hoan phi xu ly dung han chinh sach tong yeu cau admin kpi tham chieu can duyet sop07 yeu cau xu ly dung han yeu cau bao luu chuyen nhuong hoan phi xu ly dung han chinh sach tong yeu cau 100 admin quan ly hang thang ho so yeu cau",
       "sortKey": "kpi:yeu cau xu ly dung han",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -5572,10 +5264,7 @@
         "xử lý băn khoăn"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop06",
-        "sop08",
-        "sop09"
+        "sop01"
       ],
       "relatedSkillIds": [
         "11"
@@ -5585,7 +5274,7 @@
         "situationCount": 1,
         "variantCount": 3
       },
-      "searchText": "xu ly chi dang co van de suc khoe can danh gia an toan truoc khi tap lo tap lam nang them sales xu ly ban khoan sop01 sop06 sop08 sop09 skill 11 ky nang 11 health chi dang co van de suc khoe medical review 11 chi bi thoat vi chi moi sinh 4 thang chi bi huyet ap can danh gia an toan truoc khi tap lo tap lam nang them da cam on chi da chia se a hien bac si co dan chi luu y hay han che van dong gi khong a moi truong hop da voi tinh trang van de suc khoe em se nho pt phu trach chuyen mon trao doi truc tiep voi chi truoc khi len bai a neu can chi tham khao them y kien bac si de minh tap an toan nhat em khong tu dua loi khuyen tap qua tin nhan duoc a gan co an toan medical review chuyen pt quan ly chua chao goi tap nhe thi khong sao dau chi tu chan doan hoac khuyen bo thuoc an kieng",
+      "searchText": "xu ly chi dang co van de suc khoe can danh gia an toan truoc khi tap lo tap lam nang them sales xu ly ban khoan sop01 skill 11 ky nang 11 health chi dang co van de suc khoe medical review 11 chi bi thoat vi chi moi sinh 4 thang chi bi huyet ap can danh gia an toan truoc khi tap lo tap lam nang them da cam on chi da chia se a hien bac si co dan chi luu y hay han che van dong gi khong a moi truong hop da voi tinh trang van de suc khoe em se nho pt phu trach chuyen mon trao doi truc tiep voi chi truoc khi len bai a neu can chi tham khao them y kien bac si de minh tap an toan nhat em khong tu dua loi khuyen tap qua tin nhan duoc a gan co an toan medical review chuyen pt quan ly chua chao goi tap nhe thi khong sao dau chi tu chan doan hoac khuyen bo thuoc an kieng",
       "sortKey": "objection:xu ly chi dang co van de suc khoe",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -5644,9 +5333,8 @@
         "xử lý băn khoăn"
       ],
       "relatedSopIds": [
-        "sop03",
-        "sop06",
-        "sop08"
+        "sop01",
+        "sop02"
       ],
       "relatedSkillIds": [
         "20"
@@ -5656,7 +5344,7 @@
         "situationCount": 1,
         "variantCount": 2
       },
-      "searchText": "xu ly chi lo pt khong hop tung co trai nghiem xau voi pt muon co quyen chon doi sales xu ly ban khoan sop03 sop06 sop08 skill 20 ky nang 20 pt fit chi lo pt khong hop pt match 20 pt co nghiem khong em lo khong hop pt thi sao tung co trai nghiem xau voi pt muon co quyen chon doi da chi thich pt theo phong cach nao a nhe nhang kien nhan hay nghiem khac sat sao truoc khi dang ky da em se ghep chi voi pt co phong cach phong cach chi muon sau vai buoi dau cs se hoi chi cam nhan ve pt neu chua hop chi cu noi that ben em xem xet dieu phoi pt khac theo chinh sach a ghi phong cach pt mong muon vao visit brief hua doi pt bat cu luc nao neu chua dung chinh sach",
+      "searchText": "xu ly chi lo pt khong hop tung co trai nghiem xau voi pt muon co quyen chon doi sales xu ly ban khoan sop01 sop02 skill 20 ky nang 20 pt fit chi lo pt khong hop pt match 20 pt co nghiem khong em lo khong hop pt thi sao tung co trai nghiem xau voi pt muon co quyen chon doi da chi thich pt theo phong cach nao a nhe nhang kien nhan hay nghiem khac sat sao truoc khi dang ky da em se ghep chi voi pt co phong cach phong cach chi muon sau vai buoi dau cs se hoi chi cam nhan ve pt neu chua hop chi cu noi that ben em xem xet dieu phoi pt khac theo chinh sach a ghi phong cach pt mong muon vao visit brief hua doi pt bat cu luc nao neu chua dung chinh sach",
       "sortKey": "objection:xu ly chi lo pt khong hop",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -6652,8 +6340,7 @@
         "xử lý băn khoăn"
       ],
       "relatedSopIds": [
-        "sop02",
-        "sop06"
+        "sop02"
       ],
       "relatedSkillIds": [
         "15"
@@ -6663,7 +6350,7 @@
         "situationCount": 1,
         "variantCount": 2
       },
-      "searchText": "xu ly truoc day tap khong hieu qua giao an khong phu hop hoac thieu theo doi ky vong chua thuc te mat niem tin sales xu ly ban khoan sop02 sop06 skill 15 ky nang 15 noresult before truoc day tap khong hieu qua service fit 15 tap hoai khong giam chi tap roi ma van vay giao an khong phu hop hoac thieu theo doi ky vong chua thuc te mat niem tin da truoc day chi tap theo hinh thuc nao bao nhieu buoi mot tuan va minh theo doi ket qua bang cach nao a tu tap khong theo doi da tu tap thi kho biet minh dang tien bo hay dam chan a ben em se do moc ban dau dat muc tieu tung giai doan va xem lai moi 30 ngay de biet ro phan nao hieu qua phan nao can doi ky vong nhanh da toc do thay doi moi nguoi khac nhau nen em khong hua con so co dinh a dieu em cam ket la co moc danh gia ro rang va neu chua tien bo thi pt dieu chinh giao an chu khong de chi tap mai mot kieu moi buoi danh gia voi pt de xem lai cach tap truoc day tai chi tap sai chu phong kia dau co loi hua so kg so do theo thoi gian",
+      "searchText": "xu ly truoc day tap khong hieu qua giao an khong phu hop hoac thieu theo doi ky vong chua thuc te mat niem tin sales xu ly ban khoan sop02 skill 15 ky nang 15 noresult before truoc day tap khong hieu qua service fit 15 tap hoai khong giam chi tap roi ma van vay giao an khong phu hop hoac thieu theo doi ky vong chua thuc te mat niem tin da truoc day chi tap theo hinh thuc nao bao nhieu buoi mot tuan va minh theo doi ket qua bang cach nao a tu tap khong theo doi da tu tap thi kho biet minh dang tien bo hay dam chan a ben em se do moc ban dau dat muc tieu tung giai doan va xem lai moi 30 ngay de biet ro phan nao hieu qua phan nao can doi ky vong nhanh da toc do thay doi moi nguoi khac nhau nen em khong hua con so co dinh a dieu em cam ket la co moc danh gia ro rang va neu chua tien bo thi pt dieu chinh giao an chu khong de chi tap mai mot kieu moi buoi danh gia voi pt de xem lai cach tap truoc day tai chi tap sai chu phong kia dau co loi hua so kg so do theo thoi gian",
       "sortKey": "objection:xu ly truoc day tap khong hieu qua",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -8688,7 +8375,6 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop03",
         "sop07"
       ],
       "relatedSkillIds": [
@@ -8699,7 +8385,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "aura can doi lich pt ban van hanh aura phai doi buoi da xac nhan sales schedule mau cau sop03 sop07 skill 19 ky nang 19 s sched aura change schedule 19 aura can doi lich pt ban van hanh aura phai doi buoi da xac nhan chi oi em xin loi chi vi phai bao doi lich buoi ngay gio buoi tap a ly do la ly do van hanh buoi nay khong tinh vao so buoi cua chi em de xuat buoi bu vao khung gio a hoac khung gio b chi chon giup em khung nao tien hon nhe cam on chi da thong cam cho ben em hd ct dieu 6 aura doi lich thi aura xep buoi bu bao som nhat co the",
+      "searchText": "aura can doi lich pt ban van hanh aura phai doi buoi da xac nhan sales schedule mau cau sop07 skill 19 ky nang 19 s sched aura change schedule 19 aura can doi lich pt ban van hanh aura phai doi buoi da xac nhan chi oi em xin loi chi vi phai bao doi lich buoi ngay gio buoi tap a ly do la ly do van hanh buoi nay khong tinh vao so buoi cua chi em de xuat buoi bu vao khung gio a hoac khung gio b chi chon giup em khung nao tien hon nhe cam on chi da thong cam cho ben em hd ct dieu 6 aura doi lich thi aura xep buoi bu bao som nhat co the",
       "sortKey": "script:aura can doi lich pt ban van hanh",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -8910,8 +8596,7 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop03",
-        "sop07"
+        "sop03"
       ],
       "relatedSkillIds": [
         "19"
@@ -8921,7 +8606,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "chao mung sau khi ky hop dong ngay sau khi hoan tat thanh toan sales onboarding mau cau sop03 sop07 skill 19 ky nang 19 s onb welcome onboarding 19 chao mung sau khi ky hop dong ngay sau khi hoan tat thanh toan chao mung chi chinh thuc tro thanh hoi vien aura fitness em gui chi vai thong tin cho buoi dau chi nhanh chi nhanh dia chi chi nhanh gio hoat dong gio mo cua buoi dau ngay gio buoi dau voi pt ten pt chi nho mang giay tap khan va binh nuoc nhe neu co cau hoi gi chi nhan em bat cu luc nao a gui trong ngay ky kem ban hop dong phu luc da ky",
+      "searchText": "chao mung sau khi ky hop dong ngay sau khi hoan tat thanh toan sales onboarding mau cau sop03 skill 19 ky nang 19 s onb welcome onboarding 19 chao mung sau khi ky hop dong ngay sau khi hoan tat thanh toan chao mung chi chinh thuc tro thanh hoi vien aura fitness em gui chi vai thong tin cho buoi dau chi nhanh chi nhanh dia chi chi nhanh gio hoat dong gio mo cua buoi dau ngay gio buoi dau voi pt ten pt chi nho mang giay tap khan va binh nuoc nhe neu co cau hoi gi chi nhan em bat cu luc nao a gui trong ngay ky kem ban hop dong phu luc da ky",
       "sortKey": "script:chao mung sau khi ky hop dong",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -9284,8 +8969,7 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop02",
-        "sop06"
+        "sop02"
       ],
       "relatedSkillIds": [
         "15"
@@ -9295,7 +8979,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "dao sau chi muon giam bung khach neu muc tieu mot vung co the sales welcome mau cau sop02 sop06 skill 15 ky nang 15 s discovery belly welcome 15 dao sau chi muon giam bung khach neu muc tieu mot vung co the da em hieu mong muon cua chi a ngoai viec muon vung bung gon hon chi co muon cai thien suc manh suc ben hoac dang nguoi noi chung khong em hoi de ben em xay huong tap toan dien phu hop voi lich sinh hoat cua chi chu khong chi tap rieng mot vung co the a khong hua giam mo dung vung hoac cam ket so do theo thoi gian",
+      "searchText": "dao sau chi muon giam bung khach neu muc tieu mot vung co the sales welcome mau cau sop02 skill 15 ky nang 15 s discovery belly welcome 15 dao sau chi muon giam bung khach neu muc tieu mot vung co the da em hieu mong muon cua chi a ngoai viec muon vung bung gon hon chi co muon cai thien suc manh suc ben hoac dang nguoi noi chung khong em hoi de ben em xay huong tap toan dien phu hop voi lich sinh hoat cua chi chu khong chi tap rieng mot vung co the a khong hua giam mo dung vung hoac cam ket so do theo thoi gian",
       "sortKey": "script:dao sau chi muon giam bung",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -9610,8 +9294,7 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop05",
-        "sop07"
+        "sop05"
       ],
       "relatedSkillIds": [
         "22"
@@ -9621,7 +9304,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "giai thich gia gia han khach hoi gia han co giu gia cu khong sales pricing mau cau sop05 sop07 skill 22 ky nang 22 s price renew rate pricing 22 giai thich gia gia han khach hoi gia han co giu gia cu khong da khi gia han minh se ky giao dich moi theo bang gia tai thoi diem gia han a hien tai muc gia la bang gia tu tap pt 1 1 gia pt 1 1 pt 1 1 vip gia pt vip em va pt se xem lai ket qua giai doan vua roi truoc roi moi goi y hinh thuc phu hop cho giai doan tiep theo de chi khong phai tra cho thu minh chua can a hd ct dieu 10 hd tt 9 5 uu dai moi khong ap dung hoi to cho hop dong da ky",
+      "searchText": "giai thich gia gia han khach hoi gia han co giu gia cu khong sales pricing mau cau sop05 skill 22 ky nang 22 s price renew rate pricing 22 giai thich gia gia han khach hoi gia han co giu gia cu khong da khi gia han minh se ky giao dich moi theo bang gia tai thoi diem gia han a hien tai muc gia la bang gia tu tap pt 1 1 gia pt 1 1 pt 1 1 vip gia pt vip em va pt se xem lai ket qua giai doan vua roi truoc roi moi goi y hinh thuc phu hop cho giai doan tiep theo de chi khong phai tra cho thu minh chua can a hd ct dieu 10 hd tt 9 5 uu dai moi khong ap dung hoi to cho hop dong da ky",
       "sortKey": "script:giai thich gia gia han",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -9662,8 +9345,7 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop05",
-        "sop07"
+        "sop09"
       ],
       "relatedSkillIds": [
         "22"
@@ -9673,7 +9355,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "goi da het han khi check in hoi vien den tap nhung goi het hieu luc sales reception mau cau sop05 sop07 skill 22 ky nang 22 s rec expired reception 22 goi da het han khi check in hoi vien den tap nhung goi het hieu luc da chi oi em kiem tra thay goi cua minh da het hieu luc tu ngay ngay het han a neu chi muon tap tiep em gui chi bang gia hien tai de minh chon bang gia tu tap chi co muon em ho tro gia han ngay hom nay hoac em gui thong tin de chi xem them o nha a noi nho khong de hoi vien khac nghe khong cho vao tap khi chua gia han",
+      "searchText": "goi da het han khi check in hoi vien den tap nhung goi het hieu luc sales reception mau cau sop09 skill 22 ky nang 22 s rec expired reception 22 goi da het han khi check in hoi vien den tap nhung goi het hieu luc da chi oi em kiem tra thay goi cua minh da het hieu luc tu ngay ngay het han a neu chi muon tap tiep em gui chi bang gia hien tai de minh chon bang gia tu tap chi co muon em ho tro gia han ngay hom nay hoac em gui thong tin de chi xem them o nha a noi nho khong de hoi vien khac nghe khong cho vao tap khi chua gia han",
       "sortKey": "script:goi da het han khi check in",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -9714,7 +9396,6 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop03",
         "sop07"
       ],
       "relatedSkillIds": [
@@ -9725,7 +9406,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "gui lich tuan da xep chu nhat sau khi pt xep xong lich tuan sales schedule mau cau sop03 sop07 skill 19 ky nang 19 s sched confirm schedule 19 gui lich tuan da xep chu nhat sau khi pt xep xong lich tuan chi oi lich tap tuan toi cua minh da duoc xep nhu sau a lich tuan da xep chi kiem tra giup em nhe khi chi xac nhan lich nay se la lich chinh thuc neu can dieu chinh sau do chi bao truoc it nhat 12 gio de pt xem khung phu hop a hd ct dieu 5 lich chinh thuc gui qua app zalo",
+      "searchText": "gui lich tuan da xep chu nhat sau khi pt xep xong lich tuan sales schedule mau cau sop07 skill 19 ky nang 19 s sched confirm schedule 19 gui lich tuan da xep chu nhat sau khi pt xep xong lich tuan chi oi lich tap tuan toi cua minh da duoc xep nhu sau a lich tuan da xep chi kiem tra giup em nhe khi chi xac nhan lich nay se la lich chinh thuc neu can dieu chinh sau do chi bao truoc it nhat 12 gio de pt xem khung phu hop a hd ct dieu 5 lich chinh thuc gui qua app zalo",
       "sortKey": "script:gui lich tuan da xep",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -9766,7 +9447,6 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop02",
         "sop09"
       ],
       "relatedSkillIds": [
@@ -9777,7 +9457,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "he thong check in loi nhan dien khuon mat qr khong nhan sales reception mau cau sop02 sop09 skill 14 ky nang 14 s rec checkin error reception 14 he thong check in loi nhan dien khuon mat qr khong nhan da chi doi em mot chut nhe he thong dang chua nhan duoc a em kiem tra thu cong giup chi chi cho em xin ho ten va so dien thoai dang ky nha em da kiem tra xong goi cua chi van con hieu luc chi vao tap binh thuong a em se bao ky thuat cap nhat lai de lan sau chi check in nhanh hon nhe hd tt dieu 4 ghi so check in thu cong va bao admin trong ca",
+      "searchText": "he thong check in loi nhan dien khuon mat qr khong nhan sales reception mau cau sop09 skill 14 ky nang 14 s rec checkin error reception 14 he thong check in loi nhan dien khuon mat qr khong nhan da chi doi em mot chut nhe he thong dang chua nhan duoc a em kiem tra thu cong giup chi chi cho em xin ho ten va so dien thoai dang ky nha em da kiem tra xong goi cua chi van con hieu luc chi vao tap binh thuong a em se bao ky thuat cap nhat lai de lan sau chi check in nhanh hon nhe hd tt dieu 4 ghi so check in thu cong va bao admin trong ca",
       "sortKey": "script:he thong check in loi",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -9818,9 +9498,7 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop03",
-        "sop06",
-        "sop08"
+        "sop03"
       ],
       "relatedSkillIds": [
         "20"
@@ -9830,7 +9508,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "hen do chi so theo moc tuan 0 4 8 12 sales onboarding mau cau sop03 sop06 sop08 skill 20 ky nang 20 s onb measure onboarding 20 hen do chi so theo moc tuan 0 4 8 12 chi oi tuan nay minh den moc do chi so tuan moc tuan roi a pt se danh khoang 10 phut dau buoi ngay gio buoi tap de do va ghi vao phieu do cua chi chi pt phu trach va chi xem duoc so lieu nay ngoai so do minh cung xem lai suc ben ky thuat va cam nhan co the vi do deu la tien bo quan trong a phieu do hd ct khong binh luan so do truoc nguoi khac",
+      "searchText": "hen do chi so theo moc tuan 0 4 8 12 sales onboarding mau cau sop03 skill 20 ky nang 20 s onb measure onboarding 20 hen do chi so theo moc tuan 0 4 8 12 chi oi tuan nay minh den moc do chi so tuan moc tuan roi a pt se danh khoang 10 phut dau buoi ngay gio buoi tap de do va ghi vao phieu do cua chi chi pt phu trach va chi xem duoc so lieu nay ngoai so do minh cung xem lai suc ben ky thuat va cam nhan co the vi do deu la tien bo quan trong a phieu do hd ct khong binh luan so do truoc nguoi khac",
       "sortKey": "script:hen do chi so theo moc",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -9972,9 +9650,7 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop03",
-        "sop06",
-        "sop08"
+        "sop06"
       ],
       "relatedSkillIds": [
         "20"
@@ -9984,7 +9660,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "hoi tham sau su co 24 gio sau su co sales safety mau cau sop03 sop06 sop08 skill 20 ky nang 20 s safe after safety 20 hoi tham sau su co 24 gio sau su co chi oi em hoi tham suc khoe cua chi hom nay the nao roi a hom qua ben em da ghi nhan lai su viec de rut kinh nghiem khi chi san sang quay lai pt se bat dau voi cuong do nhe hon va theo sat hon neu chi da di kham chi co the gui em khuyen nghi cua bac si de pt dieu chinh giao an cho dung nhe",
+      "searchText": "hoi tham sau su co 24 gio sau su co sales safety mau cau sop06 skill 20 ky nang 20 s safe after safety 20 hoi tham sau su co 24 gio sau su co chi oi em hoi tham suc khoe cua chi hom nay the nao roi a hom qua ben em da ghi nhan lai su viec de rut kinh nghiem khi chi san sang quay lai pt se bat dau voi cuong do nhe hon va theo sat hon neu chi da di kham chi co the gui em khuyen nghi cua bac si de pt dieu chinh giao an cho dung nhe",
       "sortKey": "script:hoi tham sau su co",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -10024,8 +9700,7 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop03",
-        "sop07"
+        "sop03"
       ],
       "relatedSkillIds": [
         "19"
@@ -10035,7 +9710,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "hoi tham sau tuan dau ngay 7 sau buoi dau sales onboarding mau cau sop03 sop07 skill 19 ky nang 19 s onb week1 onboarding 19 hoi tham sau tuan dau ngay 7 sau buoi dau chi oi vay la minh da di duoc tuan dau o aura roi em hoi tham chi thay lich tap cuong do va khong gian phong tap co on khong a co dieu gi lam chi chua thoai mai khong chi cu gop y that nhe em chuyen pt dieu chinh ngay cho minh a ghi diem hai long tuan 1",
+      "searchText": "hoi tham sau tuan dau ngay 7 sau buoi dau sales onboarding mau cau sop03 skill 19 ky nang 19 s onb week1 onboarding 19 hoi tham sau tuan dau ngay 7 sau buoi dau chi oi vay la minh da di duoc tuan dau o aura roi em hoi tham chi thay lich tap cuong do va khong gian phong tap co on khong a co dieu gi lam chi chua thoai mai khong chi cu gop y that nhe em chuyen pt dieu chinh ngay cho minh a ghi diem hai long tuan 1",
       "sortKey": "script:hoi tham sau tuan dau",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -10178,10 +9853,7 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop06",
-        "sop08",
-        "sop09"
+        "sop06"
       ],
       "relatedSkillIds": [
         "11"
@@ -10191,7 +9863,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "hoi vien co dau hieu bat thuong khi tap chong mat kho tho dau nguc te yeu sales safety mau cau sop01 sop06 sop08 sop09 skill 11 ky nang 11 s safe stop safety 11 hoi vien co dau hieu bat thuong khi tap chong mat kho tho dau nguc te yeu chi dung tap ngay giup em nhe minh ngoi xuong nghi o day a chi dang thay chong mat kho tho hay dau o dau a em lay nuoc va o canh chi neu khong cai thien sau vai phut hoac co dau hieu nang goi cap cuu bao quan ly truc lien he nguoi than theo ho so hd tt dieu 7 2 hd ct dieu 13 lap bien ban su co trong 24 gio",
+      "searchText": "hoi vien co dau hieu bat thuong khi tap chong mat kho tho dau nguc te yeu sales safety mau cau sop06 skill 11 ky nang 11 s safe stop safety 11 hoi vien co dau hieu bat thuong khi tap chong mat kho tho dau nguc te yeu chi dung tap ngay giup em nhe minh ngoi xuong nghi o day a chi dang thay chong mat kho tho hay dau o dau a em lay nuoc va o canh chi neu khong cai thien sau vai phut hoac co dau hieu nang goi cap cuu bao quan ly truc lien he nguoi than theo ho so hd tt dieu 7 2 hd ct dieu 13 lap bien ban su co trong 24 gio",
       "sortKey": "script:hoi vien co dau hieu bat thuong khi tap",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -10232,7 +9904,6 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop02",
         "sop09"
       ],
       "relatedSkillIds": [
@@ -10243,7 +9914,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "hoi vien muon dan ban vao tap hoi vien di cung nguoi chua dang ky sales reception mau cau sop02 sop09 skill 14 ky nang 14 s rec guest reception 14 hoi vien muon dan ban vao tap hoi vien di cung nguoi chua dang ky da em rat vui khi chi gioi thieu ban den aura a vi khu tap chi danh cho hoi vien da dang ky va khai bao suc khoe nen ban cua chi chua vao tap cung duoc hom nay em co the dua ban tham quan va dat lich trai nghiem rieng cho ban nhe ban tien de lai so dien thoai de em sap xep buoi trai nghiem phu hop khong a hd tt dieu 4 khong cho muon tai khoan khong dua nguoi ngoai vao khu tap tao lead nguon referral",
+      "searchText": "hoi vien muon dan ban vao tap hoi vien di cung nguoi chua dang ky sales reception mau cau sop09 skill 14 ky nang 14 s rec guest reception 14 hoi vien muon dan ban vao tap hoi vien di cung nguoi chua dang ky da em rat vui khi chi gioi thieu ban den aura a vi khu tap chi danh cho hoi vien da dang ky va khai bao suc khoe nen ban cua chi chua vao tap cung duoc hom nay em co the dua ban tham quan va dat lich trai nghiem rieng cho ban nhe ban tien de lai so dien thoai de em sap xep buoi trai nghiem phu hop khong a hd tt dieu 4 khong cho muon tai khoan khong dua nguoi ngoai vao khu tap tao lead nguon referral",
       "sortKey": "script:hoi vien muon dan ban vao tap",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -10285,8 +9956,6 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop03",
-        "sop06",
         "sop08"
       ],
       "relatedSkillIds": [
@@ -10297,7 +9966,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "hoi vien rut dong y hinh anh khach muon go anh da dang sales privacy mau cau sop03 sop06 sop08 skill 20 ky nang 20 s priv withdraw privacy 20 hoi vien rut dong y hinh anh khach muon go anh da dang da em nhan yeu cau cua chi roi a ben em se go hinh anh cua chi khoi cac kenh cua aura trong vong 24 gio va bao lai chi khi hoan tat em xin loi neu viec dang anh lam chi khong thoai mai tu gio ben em se khong su dung hinh anh cua chi nua a hd tt dieu 14 4 cap nhat lua chon trong ho so ngay bao marketing",
+      "searchText": "hoi vien rut dong y hinh anh khach muon go anh da dang sales privacy mau cau sop08 skill 20 ky nang 20 s priv withdraw privacy 20 hoi vien rut dong y hinh anh khach muon go anh da dang da em nhan yeu cau cua chi roi a ben em se go hinh anh cua chi khoi cac kenh cua aura trong vong 24 gio va bao lai chi khi hoan tat em xin loi neu viec dang anh lam chi khong thoai mai tu gio ben em se khong su dung hinh anh cua chi nua a hd tt dieu 14 4 cap nhat lua chon trong ho so ngay bao marketing",
       "sortKey": "script:hoi vien rut dong y hinh anh",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -10338,7 +10007,6 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop03",
         "sop07"
       ],
       "relatedSkillIds": [
@@ -10349,7 +10017,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "hoi vien vip bao nghi buoi hoi vien goi vip bao nghi truoc gio tap ke ca bao gap sales schedule mau cau sop03 sop07 skill 19 ky nang 19 s vip absence schedule 19 hoi vien vip bao nghi buoi hoi vien goi vip bao nghi truoc gio tap ke ca bao gap da em ghi nhan roi a chi cu lo viec cua minh truoc nhe voi goi vip buoi nghi khong bi tru em xep buoi bu cho chi vao khung gio a hoac khung gio b chi chon giup em khung nao tien hon a quan ly chot 11 2026 bao truoc gio tap la khong tru buoi khong gioi han so lan buoi bu phai nam trong thoi han goi vang khong bao tinh da tap dung kich ban khach bao huy duoi 12 gio ghi buoi nghi vip buoi bu da xep",
+      "searchText": "hoi vien vip bao nghi buoi hoi vien goi vip bao nghi truoc gio tap ke ca bao gap sales schedule mau cau sop07 skill 19 ky nang 19 s vip absence schedule 19 hoi vien vip bao nghi buoi hoi vien goi vip bao nghi truoc gio tap ke ca bao gap da em ghi nhan roi a chi cu lo viec cua minh truoc nhe voi goi vip buoi nghi khong bi tru em xep buoi bu cho chi vao khung gio a hoac khung gio b chi chon giup em khung nao tien hon a quan ly chot 11 2026 bao truoc gio tap la khong tru buoi khong gioi han so lan buoi bu phai nam trong thoi han goi vang khong bao tinh da tap dung kich ban khach bao huy duoi 12 gio ghi buoi nghi vip buoi bu da xep",
       "sortKey": "script:hoi vien vip bao nghi buoi",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -10391,8 +10059,6 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop03",
-        "sop04",
         "sop07"
       ],
       "relatedSkillIds": [
@@ -10403,7 +10069,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "khach bao huy duoi 12 gio khach bao nghi khi con duoi 12 gio sales schedule mau cau sop03 sop04 sop07 skill 21 ky nang 21 s sched late cancel schedule 21 khach bao huy duoi 12 gio khach bao nghi khi con duoi 12 gio da em hieu chi co viec dot xuat a chi cu giai quyet viec cua minh truoc nhe theo quy dinh cua aura buoi bao huy duoi 12 gio se duoc tinh la da su dung vi pt da giu khung gio nay cho chi em ghi nhan buoi ngay gio buoi tap nhu vay a tuan toi neu lich cua chi co thay doi chi bao em som de em sap xep giup minh nhe ngoai le om su co co bang chung chuyen quan ly xet khong thuong luong tai cho goi vip buoi nghi khong bi tru dung kich ban hoi vien vip bao nghi buoi ghi late cancel ly do",
+      "searchText": "khach bao huy duoi 12 gio khach bao nghi khi con duoi 12 gio sales schedule mau cau sop07 skill 21 ky nang 21 s sched late cancel schedule 21 khach bao huy duoi 12 gio khach bao nghi khi con duoi 12 gio da em hieu chi co viec dot xuat a chi cu giai quyet viec cua minh truoc nhe theo quy dinh cua aura buoi bao huy duoi 12 gio se duoc tinh la da su dung vi pt da giu khung gio nay cho chi em ghi nhan buoi ngay gio buoi tap nhu vay a tuan toi neu lich cua chi co thay doi chi bao em som de em sap xep giup minh nhe ngoai le om su co co bang chung chuyen quan ly xet khong thuong luong tai cho goi vip buoi nghi khong bi tru dung kich ban hoi vien vip bao nghi buoi ghi late cancel ly do",
       "sortKey": "script:khach bao huy duoi 12 gio",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -10611,7 +10277,6 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop03",
         "sop07"
       ],
       "relatedSkillIds": [
@@ -10622,7 +10287,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "khach di tre buoi pt khach nhan se den tre sales schedule mau cau sop03 sop07 skill 19 ky nang 19 s sched late schedule 19 khach di tre buoi pt khach nhan se den tre da chi cu di chuyen an toan nhe a em bao pt truoc buoi tap van ket thuc dung gio gio ket thuc de khong anh huong lich cua hoi vien sau nen pt se dieu chinh bai tap cho phu hop thoi gian con lai a hd ct dieu 7 tre 30 phut khong bao co the tinh da su dung chi noi khi khach hoi",
+      "searchText": "khach di tre buoi pt khach nhan se den tre sales schedule mau cau sop07 skill 19 ky nang 19 s sched late schedule 19 khach di tre buoi pt khach nhan se den tre da chi cu di chuyen an toan nhe a em bao pt truoc buoi tap van ket thuc dung gio gio ket thuc de khong anh huong lich cua hoi vien sau nen pt se dieu chinh bai tap cho phu hop thoi gian con lai a hd ct dieu 7 tre 30 phut khong bao co the tinh da su dung chi noi khi khach hoi",
       "sortKey": "script:khach di tre buoi pt",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -10663,8 +10328,6 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop03",
-        "sop04",
         "sop07"
       ],
       "relatedSkillIds": [
@@ -10675,7 +10338,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "khach hoi bao luu goi khach muon tam ngung vi cong tac om thai san sales contract mau cau sop03 sop04 sop07 skill 21 ky nang 21 s contract freeze contract 21 khach hoi bao luu goi khach muon tam ngung vi cong tac om thai san da em hieu a minh cu uu tien suc khoe va cong viec truoc chi nhe de bao luu chi gui giup em thoi gian muon bao luu tu ngay den ngay ly do va giay to lien quan neu co giay kham lich cong tac em se kiem tra so ngay bao luu theo goi cua chi va bao lai trong hom nay luu y la bao luu can gui truoc thoi diem nghi ben em khong ap dung hoi to a muc bao luu tra o trang chinh sach po freeze self po freeze pt goi 1 thang khong bao luu tao yeu cau freeze",
+      "searchText": "khach hoi bao luu goi khach muon tam ngung vi cong tac om thai san sales contract mau cau sop07 skill 21 ky nang 21 s contract freeze contract 21 khach hoi bao luu goi khach muon tam ngung vi cong tac om thai san da em hieu a minh cu uu tien suc khoe va cong viec truoc chi nhe de bao luu chi gui giup em thoi gian muon bao luu tu ngay den ngay ly do va giay to lien quan neu co giay kham lich cong tac em se kiem tra so ngay bao luu theo goi cua chi va bao lai trong hom nay luu y la bao luu can gui truoc thoi diem nghi ben em khong ap dung hoi to a muc bao luu tra o trang chinh sach po freeze self po freeze pt goi 1 thang khong bao luu tao yeu cau freeze",
       "sortKey": "script:khach hoi bao luu goi",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -10717,7 +10380,6 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop02",
         "sop09"
       ],
       "relatedSkillIds": [
@@ -10728,7 +10390,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "khach hoi do that lac khach quen do o phong tap sales reception mau cau sop02 sop09 skill 14 ky nang 14 s rec lost reception 14 khach hoi do that lac khach quen do o phong tap da chi mo ta giup em mon do va thoi gian chi tap hom do nhe a em kiem tra khu do that lac va bao chi trong hom nay do that lac ben em luu toi da 30 ngay nen chi yen tam neu do con o phong tap a hd tt dieu 13 tra do co ky nhan khong giao cho nguoi nhan ho khi chua xac nhan",
+      "searchText": "khach hoi do that lac khach quen do o phong tap sales reception mau cau sop09 skill 14 ky nang 14 s rec lost reception 14 khach hoi do that lac khach quen do o phong tap da chi mo ta giup em mon do va thoi gian chi tap hom do nhe a em kiem tra khu do that lac va bao chi trong hom nay do that lac ben em luu toi da 30 ngay nen chi yen tam neu do con o phong tap a hd tt dieu 13 tra do co ky nhan khong giao cho nguoi nhan ho khi chua xac nhan",
       "sortKey": "script:khach hoi do that lac",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -11076,10 +10738,7 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop06",
-        "sop08",
-        "sop09"
+        "sop06"
       ],
       "relatedSkillIds": [
         "11"
@@ -11089,7 +10748,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "khach moi sinh muon giam mo em moi sinh xong bung sau sinh sales safety mau cau sop01 sop06 sop08 sop09 skill 11 ky nang 11 s fb postpartum safety 11 khach moi sinh muon giam mo em moi sinh xong bung sau sinh da em cam on chi da chia se a de pt len bai an toan chi cho em hoi them be duoc may thang roi chi sinh thuong hay sinh mo va bac si da cho phep chi tap lai chua a voi chi em sau sinh pt se danh gia truoc va bat dau o muc nhe tang dan theo kha nang phuc hoi cua minh a rut tu inbox 11 2026 sau sinh duoi 6 thang hoac sinh mo khai bao suc khoe co the can xac nhan cua bac si khong ket luan tap duoc khi chua danh gia khong dung emoji objectionreason medical review neu chua co xac nhan",
+      "searchText": "khach moi sinh muon giam mo em moi sinh xong bung sau sinh sales safety mau cau sop06 skill 11 ky nang 11 s fb postpartum safety 11 khach moi sinh muon giam mo em moi sinh xong bung sau sinh da em cam on chi da chia se a de pt len bai an toan chi cho em hoi them be duoc may thang roi chi sinh thuong hay sinh mo va bac si da cho phep chi tap lai chua a voi chi em sau sinh pt se danh gia truoc va bat dau o muc nhe tang dan theo kha nang phuc hoi cua minh a rut tu inbox 11 2026 sau sinh duoi 6 thang hoac sinh mo khai bao suc khoe co the can xac nhan cua bac si khong ket luan tap duoc khi chua danh gia khong dung emoji objectionreason medical review neu chua co xac nhan",
       "sortKey": "script:khach moi sinh muon giam mo",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -11131,7 +10790,8 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop01"
+        "sop05",
+        "sop07"
       ],
       "relatedSkillIds": [
         "7"
@@ -11141,7 +10801,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "khach muon chuyen chi nhanh khach chuyen noi o noi lam sales contract mau cau sop01 skill 7 ky nang 7 s contract branch contract 7 khach muon chuyen chi nhanh khach chuyen noi o noi lam da em ho tro chi chuyen sang chi nhanh thuan tien hon nhe a aura co 3 co so cn1 23 nhon hoa 1 cn2 49 hai phong cn3 276 thai thi boi viec chuyen se tuy cong suat cua co so moi neu co chenh lech gia minh thanh toan phan chenh truoc khi chuyen co hieu luc a chi muon chuyen sang co so nao va tu ngay nao de em kiem tra giup minh hd tt dieu 10 4 voi pt kiem tra lich pt o co so moi truoc khi xac nhan",
+      "searchText": "khach muon chuyen chi nhanh khach chuyen noi o noi lam sales contract mau cau sop05 sop07 skill 7 ky nang 7 s contract branch contract 7 khach muon chuyen chi nhanh khach chuyen noi o noi lam da em ho tro chi chuyen sang chi nhanh thuan tien hon nhe a aura co 3 co so cn1 23 nhon hoa 1 cn2 49 hai phong cn3 276 thai thi boi viec chuyen se tuy cong suat cua co so moi neu co chenh lech gia minh thanh toan phan chenh truoc khi chuyen co hieu luc a chi muon chuyen sang co so nao va tu ngay nao de em kiem tra giup minh hd tt dieu 10 4 voi pt kiem tra lich pt o co so moi truoc khi xac nhan",
       "sortKey": "script:khach muon chuyen chi nhanh",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -11182,8 +10842,6 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop03",
-        "sop04",
         "sop07"
       ],
       "relatedSkillIds": [
@@ -11194,7 +10852,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "khach muon chuyen nhuong goi khach muon nhuong goi cho nguoi khac sales contract mau cau sop03 sop04 sop07 skill 21 ky nang 21 s contract transfer contract 21 khach muon chuyen nhuong goi khach muon nhuong goi cho nguoi khac da duoc chi a aura ho tro chuyen nhuong 01 lan voi dieu kien nguoi nhan la nu dong y noi quy va hoan tat thong tin hoi vien goi con hieu luc tren 30 ngay chua tung bao luu hoac chuyen nhuong khong phai goi khuyen mai dac biet hoac goi tang phi chuyen nhuong phi chuyen nhuong chi gui em thong tin nguoi nhan em kiem tra va hen hai ben ky xac nhan tai chi nhanh nhe hd tt dieu 10 hd ct dieu 12 can aura chap thuan truoc khi nhan phi",
+      "searchText": "khach muon chuyen nhuong goi khach muon nhuong goi cho nguoi khac sales contract mau cau sop07 skill 21 ky nang 21 s contract transfer contract 21 khach muon chuyen nhuong goi khach muon nhuong goi cho nguoi khac da duoc chi a aura ho tro chuyen nhuong 01 lan voi dieu kien nguoi nhan la nu dong y noi quy va hoan tat thong tin hoi vien goi con hieu luc tren 30 ngay chua tung bao luu hoac chuyen nhuong khong phai goi khuyen mai dac biet hoac goi tang phi chuyen nhuong phi chuyen nhuong chi gui em thong tin nguoi nhan em kiem tra va hen hai ben ky xac nhan tai chi nhanh nhe hd tt dieu 10 hd ct dieu 12 can aura chap thuan truoc khi nhan phi",
       "sortKey": "script:khach muon chuyen nhuong goi",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -11286,10 +10944,7 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop06",
-        "sop08",
-        "sop09"
+        "sop06"
       ],
       "relatedSkillIds": [
         "11"
@@ -11299,7 +10954,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "khach sut can nhieu khong ro ly do khach muon tang can ke da sut nhieu can trong thoi gian ngan sales safety mau cau sop01 sop06 sop08 sop09 skill 11 ky nang 11 s fb weightloss unknown safety 11 khach sut can nhieu khong ro ly do khach muon tang can ke da sut nhieu can trong thoi gian ngan da em cam on chi da chia se a sut can nhieu trong thoi gian ngan ma chua ro ly do thi minh nen di kham suc khoe tong quat truoc de chac co the on roi moi tang cuong do tap a khi co ket qua pt se dua vao do len bai tap va huong dan an uong phu hop voi muc tieu cua chi chi da di kham lan nao chua a rut tu inbox 11 2026 khong hua muc tang can bao pt chuyen mon quan ly skill 11 khong dung emoji",
+      "searchText": "khach sut can nhieu khong ro ly do khach muon tang can ke da sut nhieu can trong thoi gian ngan sales safety mau cau sop06 skill 11 ky nang 11 s fb weightloss unknown safety 11 khach sut can nhieu khong ro ly do khach muon tang can ke da sut nhieu can trong thoi gian ngan da em cam on chi da chia se a sut can nhieu trong thoi gian ngan ma chua ro ly do thi minh nen di kham suc khoe tong quat truoc de chac co the on roi moi tang cuong do tap a khi co ket qua pt se dua vao do len bai tap va huong dan an uong phu hop voi muc tieu cua chi chi da di kham lan nao chua a rut tu inbox 11 2026 khong hua muc tang can bao pt chuyen mon quan ly skill 11 khong dung emoji",
       "sortKey": "script:khach sut can nhieu khong ro ly do",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -11391,7 +11046,6 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop03",
         "sop07"
       ],
       "relatedSkillIds": [
@@ -11402,7 +11056,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "khach xin doi lich bao truoc 12 gio khach bao doi buoi truoc it nhat 12 gio sales schedule mau cau sop03 sop07 skill 19 ky nang 19 s sched change ok schedule 19 khach xin doi lich bao truoc 12 gio khach bao doi buoi truoc it nhat 12 gio da em nhan thong tin roi a cam on chi da bao som em kiem tra voi pt va gui chi khung gio thay the khung gio a hoac khung gio b chi chon giup em khung nao tien hon nhe em luu y nhe moi thang minh duoc doi lich 01 lan nen lan doi nay em se ghi nhan cho thang thang a hd ct dieu 6 doi lan 2 trong thang can ban quan ly duyet khong tu hua",
+      "searchText": "khach xin doi lich bao truoc 12 gio khach bao doi buoi truoc it nhat 12 gio sales schedule mau cau sop07 skill 19 ky nang 19 s sched change ok schedule 19 khach xin doi lich bao truoc 12 gio khach bao doi buoi truoc it nhat 12 gio da em nhan thong tin roi a cam on chi da bao som em kiem tra voi pt va gui chi khung gio thay the khung gio a hoac khung gio b chi chon giup em khung nao tien hon nhe em luu y nhe moi thang minh duoc doi lich 01 lan nen lan doi nay em se ghi nhan cho thang thang a hd ct dieu 6 doi lan 2 trong thang can ban quan ly duyet khong tu hua",
       "sortKey": "script:khach xin doi lich bao truoc 12 gio",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -11443,8 +11097,6 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop03",
-        "sop04",
         "sop07"
       ],
       "relatedSkillIds": [
@@ -11455,7 +11107,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "khach yeu cau hoan phi khach muon dung han va xin hoan tien sales contract mau cau sop03 sop04 sop07 skill 21 ky nang 21 s contract refund contract 21 khach yeu cau hoan phi khach muon dung han va xin hoan tien da em hieu chi dang muon dung goi tap em rat tiec khi nghe vay chi cho em hoi ly do chinh la gi de em ho tro dung nhat a theo hop dong aura xem xet hoan phi trong cac truong hop nhu benh ly co xac nhan y te chan thuong keo dai chuyen noi o xa hoac bat kha khang yeu cau se duoc ban quan ly duyet bang van ban va xu ly trong toi da 15 ngay lam viec chi gui em ly do va giay to lien quan neu co em lap ho so va bao chi tien do nhe khong hua so tien hoan cong thuc hoan va khau tru o trang chinh sach po refund chuyen quan ly ngay tao refund request gan ly do",
+      "searchText": "khach yeu cau hoan phi khach muon dung han va xin hoan tien sales contract mau cau sop07 skill 21 ky nang 21 s contract refund contract 21 khach yeu cau hoan phi khach muon dung han va xin hoan tien da em hieu chi dang muon dung goi tap em rat tiec khi nghe vay chi cho em hoi ly do chinh la gi de em ho tro dung nhat a theo hop dong aura xem xet hoan phi trong cac truong hop nhu benh ly co xac nhan y te chan thuong keo dai chuyen noi o xa hoac bat kha khang yeu cau se duoc ban quan ly duyet bang van ban va xu ly trong toi da 15 ngay lam viec chi gui em ly do va giay to lien quan neu co em lap ho so va bao chi tien do nhe khong hua so tien hoan cong thuc hoan va khau tru o trang chinh sach po refund chuyen quan ly ngay tao refund request gan ly do",
       "sortKey": "script:khach yeu cau hoan phi",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -11609,8 +11261,6 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop03",
-        "sop04",
         "sop07"
       ],
       "relatedSkillIds": [
@@ -11621,7 +11271,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "khong du dieu kien bao luu goi 1 thang da dung het luot bao luu sales contract mau cau sop03 sop04 sop07 skill 21 ky nang 21 s contract freeze decline contract 21 khong du dieu kien bao luu goi 1 thang da dung het luot bao luu da em da kiem tra hop dong cua chi roi a ly do khong du dieu kien nen em chua the bao luu them cho minh em co the ho tro chi theo cach khac phuong an thay the vi du xep lich nhe hon doi khung gio tap online theo giao an neu truong hop cua chi dac biet em se gui quan ly xem xet va bao lai chi trong thoi han phan hoi a luon dua phuong an thay the ngoai le chi quan ly duyet",
+      "searchText": "khong du dieu kien bao luu goi 1 thang da dung het luot bao luu sales contract mau cau sop07 skill 21 ky nang 21 s contract freeze decline contract 21 khong du dieu kien bao luu goi 1 thang da dung het luot bao luu da em da kiem tra hop dong cua chi roi a ly do khong du dieu kien nen em chua the bao luu them cho minh em co the ho tro chi theo cach khac phuong an thay the vi du xep lich nhe hon doi khung gio tap online theo giao an neu truong hop cua chi dac biet em se gui quan ly xem xet va bao lai chi trong thoi han phan hoi a luon dua phuong an thay the ngoai le chi quan ly duyet",
       "sortKey": "script:khong du dieu kien bao luu",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -11770,8 +11420,7 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop05",
-        "sop07"
+        "sop05"
       ],
       "relatedSkillIds": [
         "22"
@@ -11781,7 +11430,7 @@
         "situationCount": 0,
         "variantCount": 2
       },
-      "searchText": "moi progress review truoc renew case renew vao giai doan review t 30 sales renewal mau cau sop05 sop07 skill 22 ky nang 22 s renew standard renewal 22 moi progress review truoc renew case renew vao giai doan review t 30 chi oi minh sap hoan thanh giai doan tap hien tai roi em va pt muon danh mot buoi trao doi de cung chi nhin lai nhung thay doi trong thoi gian vua qua xem muc tieu nao minh da dat duoc va con dieu gi muon cai thien them neu chi muon tiep tuc tui em se xay lo trinh giai doan tiep theo dua tren ket qua hien tai thay vi bat dau lai tu dau chi tien trao doi voi pt sau buoi tap sap toi khong a counter chi oi sau buoi tap hom nay chi danh cho em va pt khoang 10 15 phut duoc khong a minh cung xem lai ket qua thoi gian qua va nhung dieu chi muon cai thien tiep nhe u40 thua chi minh sap hoan thanh giai doan tap hien tai roi a pt muon cung chi xem lai suc khoe suc ben va cam nhan cua khop sau thoi gian tap de chon huong tiep theo an toan va phu hop chi tien trao doi sau buoi tap nao a",
+      "searchText": "moi progress review truoc renew case renew vao giai doan review t 30 sales renewal mau cau sop05 skill 22 ky nang 22 s renew standard renewal 22 moi progress review truoc renew case renew vao giai doan review t 30 chi oi minh sap hoan thanh giai doan tap hien tai roi em va pt muon danh mot buoi trao doi de cung chi nhin lai nhung thay doi trong thoi gian vua qua xem muc tieu nao minh da dat duoc va con dieu gi muon cai thien them neu chi muon tiep tuc tui em se xay lo trinh giai doan tiep theo dua tren ket qua hien tai thay vi bat dau lai tu dau chi tien trao doi voi pt sau buoi tap sap toi khong a counter chi oi sau buoi tap hom nay chi danh cho em va pt khoang 10 15 phut duoc khong a minh cung xem lai ket qua thoi gian qua va nhung dieu chi muon cai thien tiep nhe u40 thua chi minh sap hoan thanh giai doan tap hien tai roi a pt muon cung chi xem lai suc khoe suc ben va cam nhan cua khop sau thoi gian tap de chon huong tiep theo an toan va phu hop chi tien trao doi sau buoi tap nao a",
       "sortKey": "script:moi progress review truoc renew",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -11983,7 +11632,6 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop03",
         "sop07"
       ],
       "relatedSkillIds": [
@@ -11994,7 +11642,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "nhac gui lich ranh hang tuan thu 6 thu 7 hang tuan hoi vien pt chua gui lich sales schedule mau cau sop03 sop07 skill 19 ky nang 19 s sched weekly schedule 19 nhac gui lich ranh hang tuan thu 6 thu 7 hang tuan hoi vien pt chua gui lich chi oi em nhac nhe minh gui lich ranh tuan toi giup em nhe chi gui so slot ranh toi thieu moi slot khoang 60 phut truoc han gui lich ranh de pt xep lich dung khung chi tien nhat a neu tuan toi chi co lich dac biet chi ghi chu them de em uu tien sap xep nha hd ct dieu 4 gui tre thieu thi aura xep theo khung trong cua hlv bao truoc khong trach",
+      "searchText": "nhac gui lich ranh hang tuan thu 6 thu 7 hang tuan hoi vien pt chua gui lich sales schedule mau cau sop07 skill 19 ky nang 19 s sched weekly schedule 19 nhac gui lich ranh hang tuan thu 6 thu 7 hang tuan hoi vien pt chua gui lich chi oi em nhac nhe minh gui lich ranh tuan toi giup em nhe chi gui so slot ranh toi thieu moi slot khoang 60 phut truoc han gui lich ranh de pt xep lich dung khung chi tien nhat a neu tuan toi chi co lich dac biet chi ghi chu them de em uu tien sap xep nha hd ct dieu 4 gui tre thieu thi aura xep theo khung trong cua hlv bao truoc khong trach",
       "sortKey": "script:nhac gui lich ranh hang tuan",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -12086,8 +11734,7 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop02",
-        "sop06"
+        "sop03"
       ],
       "relatedSkillIds": [
         "15"
@@ -12097,7 +11744,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "nhac phieu suc khoe dong y hinh anh truoc buoi tap dau sales onboarding mau cau sop02 sop06 skill 15 ky nang 15 s onb forms onboarding 15 nhac phieu suc khoe dong y hinh anh truoc buoi tap dau chi oi truoc buoi tap dau em gui chi 2 phieu ngan de ben em chuan bi an toan cho minh a 1 phieu khai bao suc khoe giup pt biet minh can luu y gi khi tap 2 phieu lua chon ve hinh anh chi chon dong y dong y nhung an danh che mat hoac khong dong y lua chon nao cung khong anh huong quyen loi goi tap cua chi thong tin cua chi chi dung cho viec cham soc tap luyen va khong chia se cho ben ngoai a hd tt phu luc 02 hd ct dieu 15 khong tap khi chua co phieu suc khoe",
+      "searchText": "nhac phieu suc khoe dong y hinh anh truoc buoi tap dau sales onboarding mau cau sop03 skill 15 ky nang 15 s onb forms onboarding 15 nhac phieu suc khoe dong y hinh anh truoc buoi tap dau chi oi truoc buoi tap dau em gui chi 2 phieu ngan de ben em chuan bi an toan cho minh a 1 phieu khai bao suc khoe giup pt biet minh can luu y gi khi tap 2 phieu lua chon ve hinh anh chi chon dong y dong y nhung an danh che mat hoac khong dong y lua chon nao cung khong anh huong quyen loi goi tap cua chi thong tin cua chi chi dung cho viec cham soc tap luyen va khong chia se cho ben ngoai a hd tt phu luc 02 hd ct dieu 15 khong tap khi chua co phieu suc khoe",
       "sortKey": "script:nhac phieu suc khoe dong y hinh anh",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -12138,7 +11785,6 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop03",
         "sop07"
       ],
       "relatedSkillIds": [
@@ -12149,7 +11795,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "nhac quy dinh doi lich moi 12 gio gui hoi vien pt dang tap khi quy dinh moi co hieu luc sales schedule mau cau sop03 sop07 skill 19 ky nang 19 s sched change 12h schedule 19 nhac quy dinh doi lich moi 12 gio gui hoi vien pt dang tap khi quy dinh moi co hieu luc da chi oi aura cap nhat quy dinh doi lich de chi de sap xep hon a tu nay chi chi can bao truoc it nhat 12 gio truoc day la 24 gio goi pt 1 1 van doi lich duoc 1 lan thang bao duoi 12 gio thi buoi duoc tinh da tap co gi chua ro chi nhan em nhe quan ly chot 11 2026 gui sau khi phu luc hop dong da cap nhat hoi vien vip them cau goi vip chi can bao truoc gio tap la buoi nghi khong bi tru",
+      "searchText": "nhac quy dinh doi lich moi 12 gio gui hoi vien pt dang tap khi quy dinh moi co hieu luc sales schedule mau cau sop07 skill 19 ky nang 19 s sched change 12h schedule 19 nhac quy dinh doi lich moi 12 gio gui hoi vien pt dang tap khi quy dinh moi co hieu luc da chi oi aura cap nhat quy dinh doi lich de chi de sap xep hon a tu nay chi chi can bao truoc it nhat 12 gio truoc day la 24 gio goi pt 1 1 van doi lich duoc 1 lan thang bao duoi 12 gio thi buoi duoc tinh da tap co gi chua ro chi nhan em nhe quan ly chot 11 2026 gui sau khi phu luc hop dong da cap nhat hoi vien vip them cau goi vip chi can bao truoc gio tap la buoi nghi khong bi tru",
       "sortKey": "script:nhac quy dinh doi lich moi 12 gio",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -12241,7 +11887,6 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop03",
         "sop04",
         "sop07"
       ],
@@ -12253,7 +11898,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "phan hoi ket qua xu ly khieu nai da co huong xu ly tu quan ly sales feedback mau cau sop03 sop04 sop07 skill 21 ky nang 21 s fb resolve feedback 21 phan hoi ket qua xu ly khieu nai da co huong xu ly tu quan ly chi oi ve gop y cua chi hom ngay ben em da xem lai va xu ly nhu sau a huong xu ly em cam on chi da gop y de aura lam tot hon chi thay cach xu ly nay da on chua hay minh can ben em ho tro them dieu gi khong a quan ly duyet noi dung truoc khi gui hoi lai muc hai long sau 7 ngay",
+      "searchText": "phan hoi ket qua xu ly khieu nai da co huong xu ly tu quan ly sales feedback mau cau sop04 sop07 skill 21 ky nang 21 s fb resolve feedback 21 phan hoi ket qua xu ly khieu nai da co huong xu ly tu quan ly chi oi ve gop y cua chi hom ngay ben em da xem lai va xu ly nhu sau a huong xu ly em cam on chi da gop y de aura lam tot hon chi thay cach xu ly nay da on chua hay minh can ben em ho tro them dieu gi khong a quan ly duyet noi dung truoc khi gui hoi lai muc hai long sau 7 ngay",
       "sortKey": "script:phan hoi ket qua xu ly khieu nai",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -12346,10 +11991,7 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop06",
-        "sop08",
-        "sop09"
+        "sop06"
       ],
       "relatedSkillIds": [
         "11"
@@ -12359,7 +12001,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "phieu suc khoe co muc co khach khai co benh ly mang thai sau sinh hau phau sales safety mau cau sop01 sop06 sop08 sop09 skill 11 ky nang 11 s safe health yes safety 11 phieu suc khoe co muc co khach khai co benh ly mang thai sau sinh hau phau da cam on chi da chia se ro voi em a thong tin nay giup ben em cham soc chi an toan hon pt se trao doi them voi chi truoc buoi tap de dieu chinh bai phu hop voi tinh trang tinh trang da khai ben em co the can chi bo sung xac nhan cua bac si ve muc van dong phu hop chi cu yen tam ben em khong tu van thay bac si ma se tap theo dung khuyen nghi cua bac si danh cho chi a khong chan doan khong khuyen bo thuoc chuyen pt truong quan ly theo sop 06",
+      "searchText": "phieu suc khoe co muc co khach khai co benh ly mang thai sau sinh hau phau sales safety mau cau sop06 skill 11 ky nang 11 s safe health yes safety 11 phieu suc khoe co muc co khach khai co benh ly mang thai sau sinh hau phau da cam on chi da chia se ro voi em a thong tin nay giup ben em cham soc chi an toan hon pt se trao doi them voi chi truoc buoi tap de dieu chinh bai phu hop voi tinh trang tinh trang da khai ben em co the can chi bo sung xac nhan cua bac si ve muc van dong phu hop chi cu yen tam ben em khong tu van thay bac si ma se tap theo dung khuyen nghi cua bac si danh cho chi a khong chan doan khong khuyen bo thuoc chuyen pt truong quan ly theo sop 06",
       "sortKey": "script:phieu suc khoe co muc co",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -12451,8 +12093,7 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop05",
-        "sop07"
+        "sop05"
       ],
       "relatedSkillIds": [
         "22"
@@ -12462,7 +12103,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "pt review meeting t 15 pt da chuan bi dinh huong giai doan moi sales renewal mau cau sop05 sop07 skill 22 ky nang 22 s renew t15 renewal 22 pt review meeting t 15 pt da chuan bi dinh huong giai doan moi chi oi minh da di duoc mot chang duong kha dai roi giai doan vua roi chi da co nhung tien bo o ket qua da xac nhan em muon cung chi nhin lai xem dieu gi minh hai long nhat va dieu gi minh muon cai thien them pt da chuan bi mot dinh huong cho giai doan tiep theo sau buoi tap nay minh danh khoang 10 15 phut trao doi nhe chi chua dua goi 12 thang chi vi khach co kha nang chi tra",
+      "searchText": "pt review meeting t 15 pt da chuan bi dinh huong giai doan moi sales renewal mau cau sop05 skill 22 ky nang 22 s renew t15 renewal 22 pt review meeting t 15 pt da chuan bi dinh huong giai doan moi chi oi minh da di duoc mot chang duong kha dai roi giai doan vua roi chi da co nhung tien bo o ket qua da xac nhan em muon cung chi nhin lai xem dieu gi minh hai long nhat va dieu gi minh muon cai thien them pt da chuan bi mot dinh huong cho giai doan tiep theo sau buoi tap nay minh danh khoang 10 15 phut trao doi nhe chi chua dua goi 12 thang chi vi khach co kha nang chi tra",
       "sortKey": "script:pt review meeting t 15",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -12503,8 +12144,6 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop03",
-        "sop04",
         "sop07"
       ],
       "relatedSkillIds": [
@@ -12515,7 +12154,7 @@
         "situationCount": 0,
         "variantCount": 1
       },
-      "searchText": "sau buoi pt vang khong bao hoi vien pt khong den khong bao sales schedule mau cau sop03 sop04 sop07 skill 21 ky nang 21 s sched noshow schedule 21 sau buoi pt vang khong bao hoi vien pt khong den khong bao chi oi hom nay em khong thay chi den buoi tap luc gio em hoi tham chi co on khong a buoi hom nay theo hop dong se duoc tinh la da su dung em chi mong chi khong gap chuyen gi neu lich tuan nay dang kho sap xep chi nhan em de pt cung xem lai khung gio cho de duy tri hon nhe hoi tham truoc neu quy dinh sau vang 2 buoi lien tiep mo retention case no show phone da em chao chi em la ten nhan vien ben aura em khong thay chi den buoi gio nen goi hoi tham chi co on khong a da vang buoi hom nay theo hop dong duoc tinh da su dung tuan nay neu lich kho minh xep lai khung gio cho de theo nhe chi",
+      "searchText": "sau buoi pt vang khong bao hoi vien pt khong den khong bao sales schedule mau cau sop07 skill 21 ky nang 21 s sched noshow schedule 21 sau buoi pt vang khong bao hoi vien pt khong den khong bao chi oi hom nay em khong thay chi den buoi tap luc gio em hoi tham chi co on khong a buoi hom nay theo hop dong se duoc tinh la da su dung em chi mong chi khong gap chuyen gi neu lich tuan nay dang kho sap xep chi nhan em de pt cung xem lai khung gio cho de duy tri hon nhe hoi tham truoc neu quy dinh sau vang 2 buoi lien tiep mo retention case no show phone da em chao chi em la ten nhan vien ben aura em khong thay chi den buoi gio nen goi hoi tham chi co on khong a da vang buoi hom nay theo hop dong duoc tinh da su dung tuan nay neu lich kho minh xep lai khung gio cho de theo nhe chi",
       "sortKey": "script:sau buoi pt vang khong bao",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -12815,7 +12454,6 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop03",
         "sop04",
         "sop07"
       ],
@@ -12827,7 +12465,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "tiep nhan khieu nai khach phan nan tai quay hoac qua tin nhan sales feedback mau cau sop03 sop04 sop07 skill 21 ky nang 21 s fb receive feedback 21 tiep nhan khieu nai khach phan nan tai quay hoac qua tin nhan da em cam on chi da noi thang voi em a em rat tiec vi trai nghiem vua roi lam chi khong hai long em ghi lai day du noi dung khieu nai xay ra luc thoi gian tai chi nhanh em chuyen quan ly chi nhanh ngay va ben em se phan hoi chi trong toi da 03 ngay lam viec trong luc cho neu co dieu gi can ho tro gap chi nhan em truc tiep nhe hd tt dieu 17 khong do loi cho dong nghiep hoi vien khac ghi nguyen loi khach tao complaint han phan hoi 03 ngay lv",
+      "searchText": "tiep nhan khieu nai khach phan nan tai quay hoac qua tin nhan sales feedback mau cau sop04 sop07 skill 21 ky nang 21 s fb receive feedback 21 tiep nhan khieu nai khach phan nan tai quay hoac qua tin nhan da em cam on chi da noi thang voi em a em rat tiec vi trai nghiem vua roi lam chi khong hai long em ghi lai day du noi dung khieu nai xay ra luc thoi gian tai chi nhanh em chuyen quan ly chi nhanh ngay va ben em se phan hoi chi trong toi da 03 ngay lam viec trong luc cho neu co dieu gi can ho tro gap chi nhan em truc tiep nhe hd tt dieu 17 khong do loi cho dong nghiep hoi vien khac ghi nguyen loi khach tao complaint han phan hoi 03 ngay lv",
       "sortKey": "script:tiep nhan khieu nai",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -13023,9 +12661,7 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop03",
-        "sop04",
-        "sop07"
+        "sop04"
       ],
       "relatedSkillIds": [
         "21"
@@ -13035,7 +12671,7 @@
         "situationCount": 0,
         "variantCount": 2
       },
-      "searchText": "tinh huong a khach giam dong luc lich tap thay doi chuyen can giam sales retention mau cau sop03 sop04 sop07 skill 21 ky nang 21 s ret motivation retention 21 tinh huong a khach giam dong luc lich tap thay doi chuyen can giam chi oi dao gan day em thay lich tap cua minh co thay doi nen muon hoi tham chi mot chut khong biet cong viec dang ban hon hay minh co dieu gi chua thoai mai trong qua trinh tap khong a neu lich hoac giao an hien tai chua phu hop pt co the cung chi xem lai de viec tap de duy tri hon nhe retention case ghi nguyen nhan sau khi trao doi khong gan nhan luoi phone da em chao chi em la ten nhan vien ben aura em goi hoi tham chi vi may tuan nay em thay lich tap cua chi thay doi chi dao nay on khong a neu lich hien tai kho theo pt co the doi khung gio hoac giam tan suat tam thoi cho chi nhe mom chi oi em hoi tham chi va be dao nay on khong a em thay lich tap cua chi co thay doi neu be dang om hay lich nha ban minh co the tam giam buoi hoac doi khung gio khong sao dau a chi muon em xep lai lich the nao cho de",
+      "searchText": "tinh huong a khach giam dong luc lich tap thay doi chuyen can giam sales retention mau cau sop04 skill 21 ky nang 21 s ret motivation retention 21 tinh huong a khach giam dong luc lich tap thay doi chuyen can giam chi oi dao gan day em thay lich tap cua minh co thay doi nen muon hoi tham chi mot chut khong biet cong viec dang ban hon hay minh co dieu gi chua thoai mai trong qua trinh tap khong a neu lich hoac giao an hien tai chua phu hop pt co the cung chi xem lai de viec tap de duy tri hon nhe retention case ghi nguyen nhan sau khi trao doi khong gan nhan luoi phone da em chao chi em la ten nhan vien ben aura em goi hoi tham chi vi may tuan nay em thay lich tap cua chi thay doi chi dao nay on khong a neu lich hien tai kho theo pt co the doi khung gio hoac giam tan suat tam thoi cho chi nhe mom chi oi em hoi tham chi va be dao nay on khong a em thay lich tap cua chi co thay doi neu be dang om hay lich nha ban minh co the tam giam buoi hoac doi khung gio khong sao dau a chi muon em xep lai lich the nao cho de",
       "sortKey": "script:tinh huong a khach giam dong luc",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -13085,9 +12721,7 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop03",
-        "sop04",
-        "sop07"
+        "sop04"
       ],
       "relatedSkillIds": [
         "21"
@@ -13097,7 +12731,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "tinh huong b khong thay ket qua khach phan hoi chua hai long ket qua sales retention mau cau sop03 sop04 sop07 skill 21 ky nang 21 s ret noresult retention 21 tinh huong b khong thay ket qua khach phan hoi chua hai long ket qua da em hieu chi dang chua hai long voi ket qua hien tai em muon pt danh mot buoi xem lai toan bo tien do cua minh gom cac chi so da theo doi su tien bo trong bai tap va nhung kho khan thoi gian qua sau buoi do ben em se trao doi ro phan nao can thay doi trong ke hoach de chi co du thong tin quyet dinh co tiep tuc hay khong a renewal blocked progress concern khong dua khuyen mai truoc khi xu ly",
+      "searchText": "tinh huong b khong thay ket qua khach phan hoi chua hai long ket qua sales retention mau cau sop04 skill 21 ky nang 21 s ret noresult retention 21 tinh huong b khong thay ket qua khach phan hoi chua hai long ket qua da em hieu chi dang chua hai long voi ket qua hien tai em muon pt danh mot buoi xem lai toan bo tien do cua minh gom cac chi so da theo doi su tien bo trong bai tap va nhung kho khan thoi gian qua sau buoi do ben em se trao doi ro phan nao can thay doi trong ke hoach de chi co du thong tin quyet dinh co tiep tuc hay khong a renewal blocked progress concern khong dua khuyen mai truoc khi xu ly",
       "sortKey": "script:tinh huong b khong thay ket qua",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -13138,7 +12772,6 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop03",
         "sop05"
       ],
       "relatedSkillIds": [
@@ -13149,7 +12782,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "tinh huong c muon giam chi phi khach muon can doi ngan sach sales retention mau cau sop03 sop05 skill 23 ky nang 23 s ret budget retention 23 tinh huong c muon giam chi phi khach muon can doi ngan sach da neu giai doan nay chi muon can doi chi phi hon thi ben em co the xem lai hinh thuc tap phu hop a minh khong nhat thiet phai giu nguyen so buoi pt nhu giai doan truoc neu pt danh gia chi da co the tu tap mot phan ben em se xem phuong an ket hop hoac chuyen sang dich vu phu hop hon voi ngan sach va muc tieu cua chi nhe vi du goi tu tap hien co muc gia tu tap pt van co the gui chi giao an de tu tap dung ky thuat a budget adjustment",
+      "searchText": "tinh huong c muon giam chi phi khach muon can doi ngan sach sales retention mau cau sop05 skill 23 ky nang 23 s ret budget retention 23 tinh huong c muon giam chi phi khach muon can doi ngan sach da neu giai doan nay chi muon can doi chi phi hon thi ben em co the xem lai hinh thuc tap phu hop a minh khong nhat thiet phai giu nguyen so buoi pt nhu giai doan truoc neu pt danh gia chi da co the tu tap mot phan ben em se xem phuong an ket hop hoac chuyen sang dich vu phu hop hon voi ngan sach va muc tieu cua chi nhe vi du goi tu tap hien co muc gia tu tap pt van co the gui chi giao an de tu tap dung ky thuat a budget adjustment",
       "sortKey": "script:tinh huong c muon giam chi phi",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -13395,8 +13028,6 @@
         "mẫu câu"
       ],
       "relatedSopIds": [
-        "sop03",
-        "sop06",
         "sop08"
       ],
       "relatedSkillIds": [
@@ -13407,7 +13038,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "xin phep dung anh before after hoi vien co tien bo aura muon chia se sales privacy mau cau sop03 sop06 sop08 skill 20 ky nang 20 s priv photo ask privacy 20 xin phep dung anh before after hoi vien co tien bo aura muon chia se chi oi chang vua roi chi tien bo rat ro em va pt that su vui cho chi ben em muon xin phep chi dung hinh anh hanh trinh nay de truyen cam hung cho cac chi khac chi co the chon dong y dong y nhung che mat an danh khong dong y lua chon nao cung hoan toan binh thuong va khong anh huong gi den viec tap cua chi a hd ct dieu 15 luu lua chon bang van ban khong hoi lai neu khach da tu choi",
+      "searchText": "xin phep dung anh before after hoi vien co tien bo aura muon chia se sales privacy mau cau sop08 skill 20 ky nang 20 s priv photo ask privacy 20 xin phep dung anh before after hoi vien co tien bo aura muon chia se chi oi chang vua roi chi tien bo rat ro em va pt that su vui cho chi ben em muon xin phep chi dung hinh anh hanh trinh nay de truyen cam hung cho cac chi khac chi co the chon dong y dong y nhung che mat an danh khong dong y lua chon nao cung hoan toan binh thuong va khong anh huong gi den viec tap cua chi a hd ct dieu 15 luu lua chon bang van ban khong hoi lai neu khach da tu choi",
       "sortKey": "script:xin phep dung anh before after",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -22669,14 +22300,7 @@
       ],
       "relatedSopIds": [
         "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop02"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -22684,7 +22308,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "bien chinh sach chinh sach buoi trai nghiem tin nhan fanpage 11 2026 admin bien chinh sach tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 chinh sach buoi trai nghiem buoi gap khoang 30 phut mien phi do chi so co the xem form tap va tu van lo trinh tin nhan fanpage 11 2026",
+      "searchText": "bien chinh sach chinh sach buoi trai nghiem tin nhan fanpage 11 2026 admin bien chinh sach tham chieu can duyet sop01 sop02 chinh sach buoi trai nghiem buoi gap khoang 30 phut mien phi do chi so co the xem form tap va tu van lo trinh tin nhan fanpage 11 2026",
       "sortKey": "variable:bien chinh sach chinh sach buoi trai nghiem",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -22720,13 +22344,8 @@
       "relatedSopIds": [
         "sop01",
         "sop02",
-        "sop03",
-        "sop04",
         "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop07"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -22734,7 +22353,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "bien chinh sach gia pt vip quan ly xac nhan 11 2026 goi vip 3 900 000d thang chi bao gia khi tu van truc tiep xoa noi dung o nay neu muon mau cau bao thang gia admin bien chinh sach tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 gia pt vip tu van rieng khi gap tai phong quan ly xac nhan 11 2026 goi vip 3 900 000d thang chi bao gia khi tu van truc tiep xoa noi dung o nay neu muon mau cau bao thang gia",
+      "searchText": "bien chinh sach gia pt vip quan ly xac nhan 11 2026 goi vip 3 900 000d thang chi bao gia khi tu van truc tiep xoa noi dung o nay neu muon mau cau bao thang gia admin bien chinh sach tham chieu can duyet sop01 sop02 sop05 sop07 gia pt vip tu van rieng khi gap tai phong quan ly xac nhan 11 2026 goi vip 3 900 000d thang chi bao gia khi tu van truc tiep xoa noi dung o nay neu muon mau cau bao thang gia",
       "sortKey": "variable:bien chinh sach gia pt vip",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -22770,13 +22389,7 @@
       "relatedSopIds": [
         "sop01",
         "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop03"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -22784,7 +22397,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "bien chinh sach gio mo cua quan ly xac nhan 11 2026 ca 3 chi nhanh admin bien chinh sach tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 gio mo cua 6 00 22 00 thu hai den thu bay nghi chu nhat quan ly xac nhan 11 2026 ca 3 chi nhanh",
+      "searchText": "bien chinh sach gio mo cua quan ly xac nhan 11 2026 ca 3 chi nhanh admin bien chinh sach tham chieu can duyet sop01 sop02 sop03 gio mo cua 6 00 22 00 thu hai den thu bay nghi chu nhat quan ly xac nhan 11 2026 ca 3 chi nhanh",
       "sortKey": "variable:bien chinh sach gio mo cua",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -22819,14 +22432,8 @@
       ],
       "relatedSopIds": [
         "sop01",
-        "sop02",
         "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop07"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -22834,7 +22441,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "bien chinh sach han gui lich ranh hd ct dieu 4 admin bien chinh sach tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 han gui lich ranh 09 00 sang chu nhat hd ct dieu 4",
+      "searchText": "bien chinh sach han gui lich ranh hd ct dieu 4 admin bien chinh sach tham chieu can duyet sop01 sop03 sop07 han gui lich ranh 09 00 sang chu nhat hd ct dieu 4",
       "sortKey": "variable:bien chinh sach han gui lich ranh",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -22868,15 +22475,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop01"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -22884,7 +22483,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "bien chinh sach hotline so nhan vien dang gui khach tin nhan fanpage 11 2026 quan ly xac nhan dung lam hotline chung admin bien chinh sach tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 hotline 0935 853 964 so nhan vien dang gui khach tin nhan fanpage 11 2026 quan ly xac nhan dung lam hotline chung",
+      "searchText": "bien chinh sach hotline so nhan vien dang gui khach tin nhan fanpage 11 2026 quan ly xac nhan dung lam hotline chung admin bien chinh sach tham chieu can duyet sop01 hotline 0935 853 964 so nhan vien dang gui khach tin nhan fanpage 11 2026 quan ly xac nhan dung lam hotline chung",
       "sortKey": "variable:bien chinh sach hotline",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -22918,15 +22517,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop07"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -22934,7 +22525,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "bien chinh sach phi chuyen nhuong hd ct ghi 1 000 0000 vnd cho quan ly xac nhan admin bien chinh sach tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 phi chuyen nhuong hd ct ghi 1 000 0000 vnd cho quan ly xac nhan",
+      "searchText": "bien chinh sach phi chuyen nhuong hd ct ghi 1 000 0000 vnd cho quan ly xac nhan admin bien chinh sach tham chieu can duyet sop07 phi chuyen nhuong hd ct ghi 1 000 0000 vnd cho quan ly xac nhan",
       "sortKey": "variable:bien chinh sach phi chuyen nhuong",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -22968,15 +22559,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop01"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -22984,7 +22567,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "bien chinh sach quyen loi khac biet cua vip quan ly xac nhan 11 2026 goi pt 1 1 co the ghep them 1 ban luc nghi giua hiep admin bien chinh sach tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 quyen loi khac biet cua vip pt chi kem mot minh chi suot buoi 75 phut luon giu khung gio co dinh cho chi ke ca gio dong 17 20h voi cung mot pt thuc don theo tuan va chi bao nghi truoc thi khong bi tru buoi quan ly xac nhan 11 2026 goi pt 1 1 co the ghep them 1 ban luc nghi giua hiep",
+      "searchText": "bien chinh sach quyen loi khac biet cua vip quan ly xac nhan 11 2026 goi pt 1 1 co the ghep them 1 ban luc nghi giua hiep admin bien chinh sach tham chieu can duyet sop01 quyen loi khac biet cua vip pt chi kem mot minh chi suot buoi 75 phut luon giu khung gio co dinh cho chi ke ca gio dong 17 20h voi cung mot pt thuc don theo tuan va chi bao nghi truoc thi khong bi tru buoi quan ly xac nhan 11 2026 goi pt 1 1 co the ghep them 1 ban luc nghi giua hiep",
       "sortKey": "variable:bien chinh sach quyen loi khac biet cua vip",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -23018,15 +22601,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop01"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -23034,7 +22609,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "bien chinh sach so buoi pt thang tin nhan fanpage 11 2026 admin bien chinh sach tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 so buoi pt thang 3 buoi tuan khoang 12 buoi thang tin nhan fanpage 11 2026",
+      "searchText": "bien chinh sach so buoi pt thang tin nhan fanpage 11 2026 admin bien chinh sach tham chieu can duyet sop01 so buoi pt thang 3 buoi tuan khoang 12 buoi thang tin nhan fanpage 11 2026",
       "sortKey": "variable:bien chinh sach so buoi pt thang",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -23068,15 +22643,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop02"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -23084,7 +22651,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "bien chinh sach so buoi trai nghiem chua co trong hop dong admin bien chinh sach tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 so buoi trai nghiem chua co trong hop dong",
+      "searchText": "bien chinh sach so buoi trai nghiem chua co trong hop dong admin bien chinh sach tham chieu can duyet sop02 so buoi trai nghiem chua co trong hop dong",
       "sortKey": "variable:bien chinh sach so buoi trai nghiem",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -23118,15 +22685,9 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
         "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
         "sop07",
-        "sop08",
-        "sop09"
+        "sop01"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -23134,7 +22695,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "bien chinh sach so slot ranh toi thieu hd ct dieu 4 admin bien chinh sach tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 so slot ranh toi thieu hon 05 slot nen gui 06 08 slot hd ct dieu 4",
+      "searchText": "bien chinh sach so slot ranh toi thieu hd ct dieu 4 admin bien chinh sach tham chieu can duyet sop03 sop07 sop01 so slot ranh toi thieu hon 05 slot nen gui 06 08 slot hd ct dieu 4",
       "sortKey": "variable:bien chinh sach so slot ranh toi thieu",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -23168,15 +22729,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop01"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -23184,7 +22737,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "bien chinh sach thong tin cho gui xe theo tung chi nhanh admin bien chinh sach tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 thong tin cho gui xe theo tung chi nhanh",
+      "searchText": "bien chinh sach thong tin cho gui xe theo tung chi nhanh admin bien chinh sach tham chieu can duyet sop01 thong tin cho gui xe theo tung chi nhanh",
       "sortKey": "variable:bien chinh sach thong tin cho gui xe",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -23218,15 +22771,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop01"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -23234,7 +22779,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "bien chinh sach thong tin doi ngu pt tin nhan fanpage 11 2026 admin bien chinh sach tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 thong tin doi ngu pt co ca pt nu va pt nam chi muon tap voi pt nu thi em xep pt nu tin nhan fanpage 11 2026",
+      "searchText": "bien chinh sach thong tin doi ngu pt tin nhan fanpage 11 2026 admin bien chinh sach tham chieu can duyet sop01 thong tin doi ngu pt co ca pt nu va pt nam chi muon tap voi pt nu thi em xep pt nu tin nhan fanpage 11 2026",
       "sortKey": "variable:bien chinh sach thong tin doi ngu pt",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -23268,15 +22813,7 @@
         "tham chiếu cần duyệt"
       ],
       "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
+        "sop01"
       ],
       "relatedSkillIds": [],
       "contentMetrics": {
@@ -23284,7 +22821,7 @@
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "bien chinh sach tien ich chi nhanh tin nhan fanpage 11 2026 admin bien chinh sach tham chieu can duyet sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 tien ich chi nhanh may lanh cong suat lon phong tam nuoc nong may tap moi chuyen cho nu co nhom may cho vong 3 tin nhan fanpage 11 2026",
+      "searchText": "bien chinh sach tien ich chi nhanh tin nhan fanpage 11 2026 admin bien chinh sach tham chieu can duyet sop01 tien ich chi nhanh may lanh cong suat lon phong tam nuoc nong may tap moi chuyen cho nu co nhom may cho vong 3 tin nhan fanpage 11 2026",
       "sortKey": "variable:bien chinh sach tien ich chi nhanh",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": true,
@@ -23320,24 +22857,14 @@
       "tags": [
         "kênh giao tiếp"
       ],
-      "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
-      ],
+      "relatedSopIds": [],
       "relatedSkillIds": [],
       "contentMetrics": {
         "phraseCount": 0,
         "situationCount": 4,
         "variantCount": 0
       },
-      "searchText": "voice 05 cach giao tiep theo kenh nguyen tac dung fanpage zalo dien thoai va tai quay admin kenh giao tiep sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 channels fanpage inbox fanpage khach moi tu quang cao bai viet phan hoi dau 5 phut co ten nguoi ho tro moi tin toi da 3 4 dong tach doan bang dong trong toi da 1 emoji moi tin dat cuoi cau khach hoi gia bao gia dung ngay hoi nhu cau sau gui bang gia dang anh kho doc hoi qua 2 cau truoc khi dua thong tin huu ich zalo zalo tin nhan hoi vien hoi vien dang tap nhac lich cham soc xung ten hoi vien ngay cau dau tin nhac lich thoi gian chi nhanh nguoi phu trach moi y mot dong gui trong khung 8 00 20 30 khong nhan sau 21 00 mot chu de moi tin viec can hoi vien lam dat o cau cuoi nhan don nhieu tin lien tiep nhac quy dinh hop dong bang giong trach moc phone goi dien lead nong hoi vien rui ro viec can trao doi nhanh mo dau chao ten aura hoi chi noi chuyen 2 phut duoc khong a noi ly do goi trong 1 cau hoi 1 cau mo roi lang nghe nhac lai y chinh truoc khi ket thuc ket thuc bang buoc tiep theo cu the sau do nhan tin tom tat goi truoc 8 00 hoac sau 20 30 goi lai qua 2 lan ngay khi khong bat may counter tai quay truc tiep don tiep check in tu van tai phong chao bang ten trong 30 giay dau giao tiep bang mat moi nuoc chuyen rieng goi het han suc khoe khieu nai moi sang khu rieng noi nho cau ngan cham cho khach thoi gian dat cau hoi ket thuc bang tom tat va dua tai lieu tin nhan de khach xem lai noi ve gia no goi het han truoc mat hoi vien khac vua noi chuyen vua dung dien thoai",
+      "searchText": "voice 05 cach giao tiep theo kenh nguyen tac dung fanpage zalo dien thoai va tai quay admin kenh giao tiep channels fanpage inbox fanpage khach moi tu quang cao bai viet phan hoi dau 5 phut co ten nguoi ho tro moi tin toi da 3 4 dong tach doan bang dong trong toi da 1 emoji moi tin dat cuoi cau khach hoi gia bao gia dung ngay hoi nhu cau sau gui bang gia dang anh kho doc hoi qua 2 cau truoc khi dua thong tin huu ich zalo zalo tin nhan hoi vien hoi vien dang tap nhac lich cham soc xung ten hoi vien ngay cau dau tin nhac lich thoi gian chi nhanh nguoi phu trach moi y mot dong gui trong khung 8 00 20 30 khong nhan sau 21 00 mot chu de moi tin viec can hoi vien lam dat o cau cuoi nhan don nhieu tin lien tiep nhac quy dinh hop dong bang giong trach moc phone goi dien lead nong hoi vien rui ro viec can trao doi nhanh mo dau chao ten aura hoi chi noi chuyen 2 phut duoc khong a noi ly do goi trong 1 cau hoi 1 cau mo roi lang nghe nhac lai y chinh truoc khi ket thuc ket thuc bang buoc tiep theo cu the sau do nhan tin tom tat goi truoc 8 00 hoac sau 20 30 goi lai qua 2 lan ngay khi khong bat may counter tai quay truc tiep don tiep check in tu van tai phong chao bang ten trong 30 giay dau giao tiep bang mat moi nuoc chuyen rieng goi het han suc khoe khieu nai moi sang khu rieng noi nho cau ngan cham cho khach thoi gian dat cau hoi ket thuc bang tom tat va dua tai lieu tin nhan de khach xem lai noi ve gia no goi het han truoc mat hoi vien khac vua noi chuyen vua dung dien thoai",
       "sortKey": "voice:cach giao tiep theo kenh",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -23434,24 +22961,14 @@
         "giọng Aura",
         "câu thay thế"
       ],
-      "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
-      ],
+      "relatedSopIds": [],
       "relatedSkillIds": [],
       "contentMetrics": {
         "phraseCount": 30,
         "situationCount": 0,
         "variantCount": 15
       },
-      "searchText": "voice 02 cach noi thay the theo giong aura doi cau cung hoac gay ap luc thanh cach noi ro rang ton trong admin giong aura cau thay the sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 substitutions beo map voc dang can nang chi khi khach tu nhac giam can cap toc ep can lo trinh phu hop the trang mua goi dang ky bat dau lo trinh ban chot don tu van phuong an phu hop khuyen mai khung sieu sale ten uu dai ap dung den ngay ket thuc luoi tap lich chua thuan tien bo tap tam gian doan lich tap khach vip khach thuong hoi vien khong phan biet khi giao tiep chi phai minh co the em goi y chi dau moi hieu qua tap vua suc tang dan be be oi goi khach chi em ten khach di dung gio giup c nha chi den som khoang 5 phut giup em nhe tap nhom khong co hieu qua dau giai doan dau kem 1 1 giup vung ky thuat sau do co the tap nhom phong tap 100 rieng tu khong gian tap chi danh cho nu phi ben c tu 2 2tr 3 2tr bang gia du thoi han 3 200 000d thang goi 3 thang",
+      "searchText": "voice 02 cach noi thay the theo giong aura doi cau cung hoac gay ap luc thanh cach noi ro rang ton trong admin giong aura cau thay the substitutions beo map voc dang can nang chi khi khach tu nhac giam can cap toc ep can lo trinh phu hop the trang mua goi dang ky bat dau lo trinh ban chot don tu van phuong an phu hop khuyen mai khung sieu sale ten uu dai ap dung den ngay ket thuc luoi tap lich chua thuan tien bo tap tam gian doan lich tap khach vip khach thuong hoi vien khong phan biet khi giao tiep chi phai minh co the em goi y chi dau moi hieu qua tap vua suc tang dan be be oi goi khach chi em ten khach di dung gio giup c nha chi den som khoang 5 phut giup em nhe tap nhom khong co hieu qua dau giai doan dau kem 1 1 giup vung ky thuat sau do co the tap nhom phong tap 100 rieng tu khong gian tap chi danh cho nu phi ben c tu 2 2tr 3 2tr bang gia du thoi han 3 200 000d thang goi 3 thang",
       "sortKey": "voice:cach noi thay the theo giong aura",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -23548,24 +23065,14 @@
         "nhóm khách",
         "giọng Aura"
       ],
-      "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
-      ],
+      "relatedSopIds": [],
       "relatedSkillIds": [],
       "contentMetrics": {
         "phraseCount": 0,
         "situationCount": 4,
         "variantCount": 0
       },
-      "searchText": "voice 06 cach noi theo nhom khach moi quan tam cach tiep can va tu ngu phu hop theo nhom khach admin nhom khach giong aura sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 audiences student sinh vien moi di lam 18 24 ngan sach han che lich hoc ca lam thay doi ngai vi chua biet tap neu chi phi theo thang cua goi dai han minh bach tong tien goi y khung gio vang linh hoat nhan manh co huong dan co ban khi moi bat dau bat dau nhe nhang chi phi moi thang tap theo lich hoc day pt vip khi khach noi ngan sach thap dung tu re lam giam gia tri dich vu tu tap goi dai han pt 1 1 mot thang dau neu can hoc ky thuat office van phong 25 35 it thoi gian tang ca dau moi vai gay ngoi nhieu muon ket qua ro rang dua 2 khung gio co dinh truoc sau gio lam noi ve lo trinh va moc danh gia thay vi hua ket qua nhac lich ngan gon qua zalo lich co dinh moc danh gia d30 buoi 60 phut hua so kg cm goi dien trong gio lam khi chua hen truoc pt 1 1 2 3 buoi tuan hoac tu tap kem giao an mom me bim sau sinh thoi gian phu thuoc con nho lo an toan sau sinh tu ti ve co the hoi thoi gian sau sinh duoi 6 thang gan co an toan can sang loc ky khong binh luan voc dang noi ve suc khoe va nang luong linh hoat khung gio sang trua phuc hoi nhe nhang theo suc cua minh khu tap rieng cho nu lay lai dang nhu con gai tu van bai tap bung qua tin nhan khi chua sang loc pt 1 1 co sang loc suc khoe bat dau voi tan suat thap u40 u40 quan tam suc khoe dau khop huyet ap xuong so chan thuong muon duoc huong dan ky xung co chi theo cach khach tu xung sang loc suc khoe truoc moi bai tap khuyen khich hoi bac si khi co benh nen noi cham ro gui lai huong dan bang tin nhan an toan truoc pt theo sat tang dan so sanh voi hoi vien tre hon bai cuong do cao ngay buoi dau pt 1 1 hoac vip lich 2 buoi tuan tang dan",
+      "searchText": "voice 06 cach noi theo nhom khach moi quan tam cach tiep can va tu ngu phu hop theo nhom khach admin nhom khach giong aura audiences student sinh vien moi di lam 18 24 ngan sach han che lich hoc ca lam thay doi ngai vi chua biet tap neu chi phi theo thang cua goi dai han minh bach tong tien goi y khung gio vang linh hoat nhan manh co huong dan co ban khi moi bat dau bat dau nhe nhang chi phi moi thang tap theo lich hoc day pt vip khi khach noi ngan sach thap dung tu re lam giam gia tri dich vu tu tap goi dai han pt 1 1 mot thang dau neu can hoc ky thuat office van phong 25 35 it thoi gian tang ca dau moi vai gay ngoi nhieu muon ket qua ro rang dua 2 khung gio co dinh truoc sau gio lam noi ve lo trinh va moc danh gia thay vi hua ket qua nhac lich ngan gon qua zalo lich co dinh moc danh gia d30 buoi 60 phut hua so kg cm goi dien trong gio lam khi chua hen truoc pt 1 1 2 3 buoi tuan hoac tu tap kem giao an mom me bim sau sinh thoi gian phu thuoc con nho lo an toan sau sinh tu ti ve co the hoi thoi gian sau sinh duoi 6 thang gan co an toan can sang loc ky khong binh luan voc dang noi ve suc khoe va nang luong linh hoat khung gio sang trua phuc hoi nhe nhang theo suc cua minh khu tap rieng cho nu lay lai dang nhu con gai tu van bai tap bung qua tin nhan khi chua sang loc pt 1 1 co sang loc suc khoe bat dau voi tan suat thap u40 u40 quan tam suc khoe dau khop huyet ap xuong so chan thuong muon duoc huong dan ky xung co chi theo cach khach tu xung sang loc suc khoe truoc moi bai tap khuyen khich hoi bac si khi co benh nen noi cham ro gui lai huong dan bang tin nhan an toan truoc pt theo sat tang dan so sanh voi hoi vien tre hon bai cuong do cao ngay buoi dau pt 1 1 hoac vip lich 2 buoi tuan tang dan",
       "sortKey": "voice:cach noi theo nhom khach",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -23698,24 +23205,14 @@
         "giọng Aura",
         "không nên nói"
       ],
-      "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
-      ],
+      "relatedSopIds": [],
       "relatedSkillIds": [],
       "contentMetrics": {
         "phraseCount": 18,
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "voice 01 cum tu khong duoc dung cac cach noi gay ap luc hua hen qua muc hoac thieu an toan admin giong aura khong nen noi sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 banned rules ap luc khan hiem gia hua ket qua phan xet co the ket luan chuyen mon chi con chi con pressure tao khan hiem thuong khong co can cu neu dung so cho da kiem tra khung gio hien con trong a i mat suat mat suat pressure gay so mat co hoi em giu lich cho chi den gio sau do em mo lai cho khach khac nhe i hom nay moi co chi hom nay hom nay moi co chi hom nay chi trong hom nay pressure ep quyet dinh ngay vi pham neu uu dai khong gioi han that neu dung han uu dai ap dung den ngay ket thuc i sap tang gia het uu dai sap tang gia mai tang gia het uu dai pressure hoi thuc bang gia chi bao khi co thong bao chinh thuc kem ngay ap dung i giam x khai truong da s giam s d s khai truong chi nhanh co so cn pressure giam gia khong co gia goc va thoi han la thong tin khong trung thuc quan ly xac nhan cau giam 20 khai truong cn3 chi la cau moi bao dung bang gia hien hanh chi noi uu dai khi co tren trang uu dai ten uu dai ap dung den ngay ket thuc i cuoi cung suat cuoi co hoi cuoi lan cuoi cung pressure khan hiem gia bo dua thong tin that va de khach tu chon i dang ky luon di dang ky luon di quyet luon di chot luon di pressure ep chot trong 2 phuong an chi thay phuong an nao hop hon a i phi tien phi tien pressure gay cam giac toi loi em hoi tham de minh sap xep lai lich cho phu hop a i cam ket dam bao giam cam ket dam bao chac chan s se s giam tang dat co ket qua thay doi promise hd ct dieu 14 aura khong cam ket ket qua tuyet doi minh se co moc danh gia moi 30 ngay de dieu chinh i giam x kg cm giam tang xuong s d d s kg ky can cm size promise hua so do cu the noi ve muc tieu cach theo doi khong neu con so dam bao i cam ket voi chi em cam ket voi cho chi em e c be ban b p l promise hua ket qua theo ca nhan inbox 11 2026 dung sau moi tin phan hoi so do pt se cung chi dat moc va do lai moi 30 ngay de dieu chinh iu hoan tien neu khong dat hoan tien phi neu khong promise trai chinh sach hoan phi hd tt dieu 11 va dieu 14 khong cam ket ket qua muc tieu va moc danh gia ghi ro trong lo trinh hoan phi theo hop dong i theo doi 24 7 24 s s 7 promise hua muc ho tro khong lam duoc khach nhan toi van cho den sang pt theo doi qua nhom rieng va phan hoi trong gio lam viec 100 100 s promise khang dinh tuyet doi bo con so tuyet doi beo map p l beo map so se bung to bung mo chay xe p l body phan xet ngoai hinh trai tinh than khong phan xet voc dang vung bung muc tieu san chac iu thua can thieu can p l thua can thieu can qua can p l body gan nhan co the khi chua do inbox tung goi khach co chi so binh thuong la thua can em ghi nhan muc tieu cua chi pt se do chi so de dat moc phu hop iu xau tho p l xau tho kech nang ne p l body binh pham ngoai hinh khong nhan xet ngoai hinh hoi muc tieu cua khach iu tap duoc binh thuong van tap binh thuong tap binh thuong duoc cu tap tiep tap nhe thi khong sao medical ket luan chuyen mon khi chua danh gia em nho pt phu trach chuyen mon trao doi truc tiep voi chi truoc khi len bai a i",
+      "searchText": "voice 01 cum tu khong duoc dung cac cach noi gay ap luc hua hen qua muc hoac thieu an toan admin giong aura khong nen noi banned rules ap luc khan hiem gia hua ket qua phan xet co the ket luan chuyen mon chi con chi con pressure tao khan hiem thuong khong co can cu neu dung so cho da kiem tra khung gio hien con trong a i mat suat mat suat pressure gay so mat co hoi em giu lich cho chi den gio sau do em mo lai cho khach khac nhe i hom nay moi co chi hom nay hom nay moi co chi hom nay chi trong hom nay pressure ep quyet dinh ngay vi pham neu uu dai khong gioi han that neu dung han uu dai ap dung den ngay ket thuc i sap tang gia het uu dai sap tang gia mai tang gia het uu dai pressure hoi thuc bang gia chi bao khi co thong bao chinh thuc kem ngay ap dung i giam x khai truong da s giam s d s khai truong chi nhanh co so cn pressure giam gia khong co gia goc va thoi han la thong tin khong trung thuc quan ly xac nhan cau giam 20 khai truong cn3 chi la cau moi bao dung bang gia hien hanh chi noi uu dai khi co tren trang uu dai ten uu dai ap dung den ngay ket thuc i cuoi cung suat cuoi co hoi cuoi lan cuoi cung pressure khan hiem gia bo dua thong tin that va de khach tu chon i dang ky luon di dang ky luon di quyet luon di chot luon di pressure ep chot trong 2 phuong an chi thay phuong an nao hop hon a i phi tien phi tien pressure gay cam giac toi loi em hoi tham de minh sap xep lai lich cho phu hop a i cam ket dam bao giam cam ket dam bao chac chan s se s giam tang dat co ket qua thay doi promise hd ct dieu 14 aura khong cam ket ket qua tuyet doi minh se co moc danh gia moi 30 ngay de dieu chinh i giam x kg cm giam tang xuong s d d s kg ky can cm size promise hua so do cu the noi ve muc tieu cach theo doi khong neu con so dam bao i cam ket voi chi em cam ket voi cho chi em e c be ban b p l promise hua ket qua theo ca nhan inbox 11 2026 dung sau moi tin phan hoi so do pt se cung chi dat moc va do lai moi 30 ngay de dieu chinh iu hoan tien neu khong dat hoan tien phi neu khong promise trai chinh sach hoan phi hd tt dieu 11 va dieu 14 khong cam ket ket qua muc tieu va moc danh gia ghi ro trong lo trinh hoan phi theo hop dong i theo doi 24 7 24 s s 7 promise hua muc ho tro khong lam duoc khach nhan toi van cho den sang pt theo doi qua nhom rieng va phan hoi trong gio lam viec 100 100 s promise khang dinh tuyet doi bo con so tuyet doi beo map p l beo map so se bung to bung mo chay xe p l body phan xet ngoai hinh trai tinh than khong phan xet voc dang vung bung muc tieu san chac iu thua can thieu can p l thua can thieu can qua can p l body gan nhan co the khi chua do inbox tung goi khach co chi so binh thuong la thua can em ghi nhan muc tieu cua chi pt se do chi so de dat moc phu hop iu xau tho p l xau tho kech nang ne p l body binh pham ngoai hinh khong nhan xet ngoai hinh hoi muc tieu cua khach iu tap duoc binh thuong van tap binh thuong tap binh thuong duoc cu tap tiep tap nhe thi khong sao medical ket luan chuyen mon khi chua danh gia em nho pt phu trach chuyen mon trao doi truc tiep voi chi truoc khi len bai a i",
       "sortKey": "voice:cum tu khong duoc dung",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -23902,24 +23399,14 @@
         "giọng Aura",
         "tin nhắn"
       ],
-      "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
-      ],
+      "relatedSopIds": [],
       "relatedSkillIds": [],
       "contentMetrics": {
         "phraseCount": 10,
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "voice 04 quy tac viet tin nhan cau truc va tieu chuan cho tin nhan gui khach admin giong aura tin nhan sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 message rules mo dau bang da ten khach neu biet ky ten nhan vien o tin dau tien moi tin toi da 3 doan ngan xuong dong giua cac y mot tin chi hoi 1 cau emoji toi da 1 moi tin khong dung khi khach phan nan noi ve suc khoe hoan phi khong viet tat ko dc ib k khong viet hoa ca cau khong dung khach hoi gia bao khoang gia ngay trong tin dau hoi so do sau khong bat buoc khong dan mau chao dai dia chi danh sach quyen loi truoc khi tra loi cau khach hoi gia luon ghi du don vi va ky han 399 000d thang goi 12 thang uu dai luon kem dieu kien va ngay ket thuc het han thi khong gui khong gui tin cham soc 21 00 07 00 tru khi khach nhan truoc toi da 2 3 lan lien he chu dong 14 ngay dung ngay khi khach tu choi",
+      "searchText": "voice 04 quy tac viet tin nhan cau truc va tieu chuan cho tin nhan gui khach admin giong aura tin nhan message rules mo dau bang da ten khach neu biet ky ten nhan vien o tin dau tien moi tin toi da 3 doan ngan xuong dong giua cac y mot tin chi hoi 1 cau emoji toi da 1 moi tin khong dung khi khach phan nan noi ve suc khoe hoan phi khong viet tat ko dc ib k khong viet hoa ca cau khong dung khach hoi gia bao khoang gia ngay trong tin dau hoi so do sau khong bat buoc khong dan mau chao dai dia chi danh sach quyen loi truoc khi tra loi cau khach hoi gia luon ghi du don vi va ky han 399 000d thang goi 12 thang uu dai luon kem dieu kien va ngay ket thuc het han thi khong gui khong gui tin cham soc 21 00 07 00 tru khi khach nhan truoc toi da 2 3 lan lien he chu dong 14 ngay dung ngay khi khach tu choi",
       "sortKey": "voice:quy tac viet tin nhan",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
@@ -23966,24 +23453,14 @@
         "giọng Aura",
         "xưng hô"
       ],
-      "relatedSopIds": [
-        "sop01",
-        "sop02",
-        "sop03",
-        "sop04",
-        "sop05",
-        "sop06",
-        "sop07",
-        "sop08",
-        "sop09"
-      ],
+      "relatedSopIds": [],
       "relatedSkillIds": [],
       "contentMetrics": {
         "phraseCount": 4,
         "situationCount": 0,
         "variantCount": 0
       },
-      "searchText": "voice 03 xung ho voi khach hang quy tac goi khach va tu xung theo tung doi tuong admin giong aura xung ho sop01 sop02 sop03 sop04 sop05 sop06 sop07 sop08 sop09 addressing hoc sinh sinh vien duoi 23 tuoi ban em minh chi neu nhan vien lon hon than thien cau ngan giu da o cau mo dau mac dinh 23 45 tuoi chi em dung khi chua ro tuoi tu khoang 45 tuoi chi co theo cach khach tu xung em con theo cach khach xung cau cham ro it emoji khach dang buc xuc khieu nai chi em khong emoji khong dua xin loi ve trai nghiem",
+      "searchText": "voice 03 xung ho voi khach hang quy tac goi khach va tu xung theo tung doi tuong admin giong aura xung ho addressing hoc sinh sinh vien duoi 23 tuoi ban em minh chi neu nhan vien lon hon than thien cau ngan giu da o cau mo dau mac dinh 23 45 tuoi chi em dung khi chua ro tuoi tu khoang 45 tuoi chi co theo cach khach tu xung em con theo cach khach xung cau cham ro it emoji khach dang buc xuc khieu nai chi em khong emoji khong dua xin loi ve trai nghiem",
       "sortKey": "voice:xung ho voi khach hang",
       "sourceSystem": "sop-aura-reference",
       "sourceReviewRequired": false,
