@@ -155,3 +155,29 @@ test('each SOP step names its skill, and a skill page opens the steps that use i
   await page.locator('.sop-center-relations').getByRole('button', { name: /SOP 01 · B04/ }).click()
   await expect(page).toHaveURL(/resource=sop__sop01&step=3/)
 })
+
+test('the centre opens on the tree, old overview links land there, and a library narrows by kind chips', async ({ page }) => {
+  await openSopCenter(page, '#/admin-sop?section=overview')
+  await expect(page.locator('.sop-center-path-rail')).toBeVisible()
+  await expect(page.locator('.sop-center-nav button.is-active')).toHaveText(/Tra cứu/)
+  // One row of tabs, nothing before the tree.
+  await expect(page.locator('.sop-center-nav button')).toHaveText([/Tra cứu/, /SOP/, /Kỹ năng/, /Mẫu câu/, /Tham chiếu/, /Chờ duyệt/])
+  await expect(page.locator('.sop-center-ledger, .sop-center-coverage, .sop-center-help, .sop-center-filter-trigger, .sop-center-governance')).toHaveCount(0)
+
+  await page.locator('.sop-center-nav').getByRole('button', { name: /Mẫu câu/ }).click()
+  await expect(page).toHaveURL(/section=scripts$/)
+  const chips = page.locator('.sop-center-chips button')
+  await expect(chips).toHaveText(['Tất cả 146', 'Kịch bản 90', 'Hội thoại mẫu 37', 'Xử lý băn khoăn 19'])
+  await chips.nth(3).click()
+  await expect(page.locator('.sop-center-resource-row')).toHaveCount(19)
+  await page.locator('.sop-center-sop-select select').selectOption('sop02')
+  await expect(chips.nth(3)).toContainText('Xử lý băn khoăn')
+  await expect(page.locator('.sop-center-library > header span').first()).toContainText('tài liệu')
+
+  // A document page carries its status line in the header, not a side panel.
+  await page.locator('.sop-center-resource-row').first().click()
+  await expect(page.locator('.sop-center-detail-meta')).toContainText('Trạng thái')
+  await expect(page.locator('.sop-center-workspace--single')).toBeVisible()
+  await expect(page.locator('.sop-center-document-heading')).toHaveCount(0)
+})
+

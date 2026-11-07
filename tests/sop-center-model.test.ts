@@ -15,14 +15,14 @@ test('catalog migration excludes the operational scopes and keeps only knowledge
 
 test('Vietnamese search is accent-insensitive and works across sections', () => {
   assert.equal(normalizeSopSearch('Đón tiếp & Chăm sóc'), 'don tiep cham soc')
-  const results = filterSopResources(typedCatalog.resources, 'overview', 'don tiep')
+  const results = filterSopResources(typedCatalog.resources, 'lookup', 'don tiep')
   assert.ok(results.some((resource) => resource.title.toLowerCase().includes('đón tiếp')))
   const policies = filterSopResources(typedCatalog.resources, 'policies', '')
   assert.equal(policies.every((resource) => ['policy', 'variable', 'kpi', 'escalation', 'price', 'promotion', 'voice'].includes(resource.kind)), true)
 })
 
 test('search reaches the phrases inside a script, not only its title', () => {
-  const results = filterSopResources(typedCatalog.resources, 'overview', 'xin loi chi vi phai bao doi lich')
+  const results = filterSopResources(typedCatalog.resources, 'lookup', 'xin loi chi vi phai bao doi lich')
   assert.ok(results.some((resource) => resource.kind === 'script'))
 })
 

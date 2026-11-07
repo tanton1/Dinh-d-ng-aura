@@ -15,13 +15,11 @@ export type SopKnowledgeKind =
 export type SopKnowledgeStatus = 'draft' | 'review' | 'approved' | 'live'
 
 export type SopCenterSection =
-  | 'overview'
   | 'lookup'
   | 'sops'
   | 'skills'
   | 'scripts'
   | 'policies'
-  | 'training'
   | 'approvals'
 
 export interface SopKnowledgeResource {

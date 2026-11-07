@@ -34,11 +34,11 @@ function SopStepContent({ step, index, skill }: { step: SopStepPayload; index: n
         <p>{step.goal || 'Chưa mô tả mục tiêu của bước.'}</p>
       </div>
 
-      <dl className="sop-center-step-meta">
-        <div><dt>Thời điểm / SLA</dt><dd>{step.when || 'Chưa xác định'}</dd></div>
-        <div><dt>Người thực hiện</dt><dd>{step.owner || 'Chưa phân công'}</dd></div>
-        <div><dt>Hoàn thành khi</dt><dd>{step.done || 'Chưa có tiêu chí'}</dd></div>
-      </dl>
+      {(step.when || step.owner || step.done) && <dl className="sop-center-step-meta">
+        {step.when && <div><dt>Thời điểm / SLA</dt><dd>{step.when}</dd></div>}
+        {step.owner && <div><dt>Người thực hiện</dt><dd>{step.owner}</dd></div>}
+        {step.done && <div><dt>Hoàn thành khi</dt><dd>{step.done}</dd></div>}
+      </dl>}
 
       {skill}
 
@@ -104,10 +104,9 @@ function SkillContent({ resource }: { resource: SopKnowledgeResource }) {
     ['Chuyển cấp', texts(contract.escalation)],
   ] as const
   return <div className="sop-center-document">
-    <div className="sop-center-document-heading"><span>Skill contract</span><h2>{resource.title}</h2><p>{resource.summary}</p></div>
     {text(payload.requiredOutput) && <div className="sop-center-callout"><span>Đầu ra bắt buộc</span><strong>{text(payload.requiredOutput)}</strong></div>}
     <div className="sop-center-contract-grid">
-      {groups.map(([label, items]) => <section key={label}><h3>{label}</h3><TextList items={items} /></section>)}
+      {groups.filter(([, items]) => items.length > 0).map(([label, items]) => <section key={label}><h3>{label}</h3><TextList items={items} /></section>)}
     </div>
   </div>
 }
@@ -116,8 +115,9 @@ function ScriptContent({ resource }: { resource: SopKnowledgeResource }) {
   const payload = resource.payload
   const variants = records(payload.variants)
   const branches = records(payload.branches)
+  const situation = text(payload.trigger || payload.situation)
   return <div className="sop-center-document">
-    <div className="sop-center-document-heading"><span>{resource.kind === 'script' ? 'Kịch bản dùng ngay' : 'Hội thoại mẫu'}</span><h2>{resource.title}</h2><p>{text(payload.trigger || payload.situation || resource.summary)}</p></div>
+    {situation && situation !== resource.summary && <div className="sop-center-callout"><span>Tình huống</span><strong>{situation}</strong></div>}
     {text(payload.goal) && <div className="sop-center-callout"><span>Mục tiêu</span><strong>{text(payload.goal)}</strong></div>}
     {text(payload.body) && <section className="sop-center-script-body"><span>Nội dung</span><p>{text(payload.body)}</p></section>}
     {variants.length > 0 && <section className="sop-center-content-section"><div className="sop-center-section-title"><MessageSquareQuote size={18} /><h3>Biến thể theo kênh / nhóm khách</h3><span className="sop-center-count-pill">{variants.length}</span></div><div className="sop-center-case-list">{variants.map((variant, index) => <article key={`${index}-${text(variant.channel || variant.audience)}`}><span>{text(variant.channel || variant.audience) || `Biến thể ${index + 1}`}</span><p>{text(variant.body)}</p>{text(variant.note) && <small>{text(variant.note)}</small>}</article>)}</div></section>}
@@ -142,11 +142,11 @@ function ObjectionContent({ resource }: { resource: SopKnowledgeResource }) {
   const payload = resource.payload
   const responses = records(payload.responses)
   return <div className="sop-center-document">
-    <div className="sop-center-document-heading"><span>Playbook xử lý băn khoăn</span><h2>{text(payload.say) || resource.title}</h2><p>{resource.summary}</p></div>
-    <section className="sop-center-content-section"><div className="sop-center-section-title"><h3>Khách có thể nói</h3></div><div className="sop-center-chip-row">{texts(payload.variants).map((item) => <span key={item}>{item}</span>)}</div></section>
-    <section className="sop-center-content-section"><div className="sop-center-section-title"><h3>Cần làm rõ</h3></div><div className="sop-center-quote-stack">{texts(payload.clarify).map((item) => <blockquote key={item}>{item}</blockquote>)}</div></section>
-    <section className="sop-center-content-section"><div className="sop-center-section-title"><h3>Phản hồi theo nguyên nhân</h3></div><div className="sop-center-case-list">{responses.map((item, index) => <article key={`${index}-${text(item.when)}`}><span>{text(item.when)}</span><p>{text(item.text)}</p></article>)}</div></section>
-    <section className="sop-center-content-section sop-center-content-section--warning"><div className="sop-center-section-title"><ShieldAlert size={18} /><h3>Tránh</h3></div><TextList items={texts(payload.avoid)} /></section>
+    {text(payload.say) && !resource.title.includes(text(payload.say)) && <div className="sop-center-callout"><span>Khách nói</span><strong>“{text(payload.say)}”</strong></div>}
+    {texts(payload.variants).length > 0 && <section className="sop-center-content-section"><div className="sop-center-section-title"><h3>Khách có thể nói</h3></div><div className="sop-center-chip-row">{texts(payload.variants).map((item) => <span key={item}>{item}</span>)}</div></section>}
+    {texts(payload.clarify).length > 0 && <section className="sop-center-content-section"><div className="sop-center-section-title"><h3>Cần làm rõ</h3></div><div className="sop-center-quote-stack">{texts(payload.clarify).map((item) => <blockquote key={item}>{item}</blockquote>)}</div></section>}
+    {responses.length > 0 && <section className="sop-center-content-section"><div className="sop-center-section-title"><h3>Phản hồi theo nguyên nhân</h3></div><div className="sop-center-case-list">{responses.map((item, index) => <article key={`${index}-${text(item.when)}`}><span>{text(item.when)}</span><p>{text(item.text)}</p></article>)}</div></section>}
+    {texts(payload.avoid).length > 0 && <section className="sop-center-content-section sop-center-content-section--warning"><div className="sop-center-section-title"><ShieldAlert size={18} /><h3>Tránh</h3></div><TextList items={texts(payload.avoid)} /></section>}
   </div>
 }
 
@@ -164,7 +164,6 @@ function VoiceContent({ resource }: { resource: SopKnowledgeResource }) {
   const rules = records(resource.payload.rules)
   const stringItems = texts(resource.payload.items)
   return <div className="sop-center-document">
-    <div className="sop-center-document-heading"><span>Chuẩn giọng Aura</span><h2>{resource.title}</h2><p>{resource.summary}</p></div>
     {rules.length > 0 && <div className="sop-center-voice-list">{rules.map((rule, index) => <article key={`${index}-${text(rule.label)}`}><span>{text(rule.group)}</span><strong>{text(rule.label)}</strong><p>{text(rule.why)}</p><small>Mẫu nhận diện: {text(rule.pattern)}</small></article>)}</div>}
     {items.length > 0 && <div className="sop-center-voice-list">{items.map((item, index) => <article key={`${index}-${text(item.from || item.who || item.label || item.id)}`}><span>{text(item.id || item.channel || item.audience || type)}</span><strong>{text(item.label || item.who || item.from)}</strong>{text(item.to) && <p className="is-good">Nên dùng: {text(item.to)}</p>}{text(item.call) && <p>Gọi “{text(item.call)}” · xưng “{text(item.self)}”</p>}{text(item.when) && <p>{text(item.when)}</p>}{texts(item.rules).length > 0 && <TextList items={texts(item.rules)} />}{texts(item.approach).length > 0 && <TextList items={texts(item.approach)} />}{text(item.note) && <small>{text(item.note)}</small>}</article>)}</div>}
     {stringItems.length > 0 && <section className="sop-center-content-section"><TextList items={stringItems} /></section>}
@@ -174,8 +173,7 @@ function VoiceContent({ resource }: { resource: SopKnowledgeResource }) {
 function PolicyContent({ resource }: { resource: SopKnowledgeResource }) {
   const entries = Object.entries(resource.payload).filter(([key, value]) => key !== 'id' && value !== '' && value !== null && value !== undefined)
   return <div className="sop-center-document">
-    <div className="sop-center-document-heading"><span>Tài liệu tham chiếu · cần xác minh</span><h2>{resource.title}</h2><p>{resource.summary}</p></div>
-    <div className="sop-center-reference-warning"><AlertTriangle size={20} /><p>Nội dung này được nhập từ hệ SOP cũ để rà soát. Chỉ trở thành quy định vận hành sau khi được duyệt và xuất bản tại đây.</p></div>
+    {resource.sourceReviewRequired && <div className="sop-center-reference-warning"><AlertTriangle size={20} /><p>Nội dung nhập từ hệ SOP cũ, cần đối chiếu với chính sách hiện hành trước khi xuất bản.</p></div>}
     <dl className="sop-center-policy-list">
       {entries.map(([key, value]) => <div key={key}><dt>{policyLabels[key] ?? key}</dt><dd>{Array.isArray(value) ? value.map(text).join(' · ') : typeof value === 'object' ? JSON.stringify(value) : text(value)}</dd></div>)}
     </dl>

@@ -29,7 +29,7 @@ export const statusLabels: Record<SopKnowledgeStatus, string> = {
   live: 'Đang áp dụng',
 }
 
-export const sectionKinds: Record<Exclude<SopCenterSection, 'overview' | 'lookup' | 'training' | 'approvals'>, SopKnowledgeKind[]> = {
+export const sectionKinds: Record<Exclude<SopCenterSection, 'lookup' | 'approvals'>, SopKnowledgeKind[]> = {
   sops: ['sop'],
   skills: ['skill'],
   scripts: ['script', 'dialogue', 'objection'],
@@ -55,10 +55,9 @@ export function filterSopResources(
   const normalizedQuery = normalizeSopSearch(query)
   const tokens = normalizedQuery.split(' ').filter(Boolean)
   return resources.filter((resource) => {
+    // The tree and a search span every kind; the review queue is a status.
     if (section === 'approvals' && resource.status !== 'review') return false
-    if (section !== 'overview' && section !== 'lookup' && section !== 'training' && section !== 'approvals') {
-      if (!sectionKinds[section].includes(resource.kind)) return false
-    }
+    if (section !== 'lookup' && section !== 'approvals' && !sectionKinds[section].includes(resource.kind)) return false
     if (!tokens.length) return true
     const haystack = resource.searchText || normalizeSopSearch([
       resource.code, resource.title, resource.summary, resource.ownerRole, ...resource.tags,
