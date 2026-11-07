@@ -8,6 +8,8 @@ const {
   PAYMENT_CLAIM_COLLECTION,
   OUTSTANDING_TARGET,
   TransferProfileError,
+  amountIssueMessage,
+  claimAmountIssue,
   dayDistance,
   formatVnd,
   installmentPaymentTarget,
@@ -17,6 +19,7 @@ const {
   studentClaimState,
   targetErrorMessage,
   transferCode,
+  transferContent,
   usableTransferProfile,
   vietnamDateKey,
   vietQrPayload,
@@ -106,9 +109,11 @@ function claimView(claim) {
   }
 }
 
-function transferView(account, contractId, target) {
+// The QR carries the scheduled amount; the app rebuilds the same payload for
+// the amount the student chooses, from the account fields returned here.
+function transferView(account, contractId, target, studentName) {
   if (!account || target.error) return null
-  const content = transferCode(contractId, target.installmentId)
+  const content = transferContent(studentName, contractId, target.installmentId)
   return {
     bankName: account.profile.bankName,
     bankBin: account.profile.bankBin,
@@ -175,8 +180,11 @@ function createInstallmentPaymentFunctions({ db, onCall, now = () => new Date() 
         sequence: target.sequence,
         count: target.count,
         daysUntilDue: target.dueDate ? dayDistance(today, target.dueDate) : null,
+        minAmount: target.minAmount ?? target.amount,
+        maxAmount: target.maxAmount ?? target.amount,
       } : null,
-      transfer: state === 'paid' ? null : transferView(account, contractId, target),
+      laterInstallments: target.later || [],
+      transfer: state === 'paid' ? null : transferView(account, contractId, target, profile.value?.name),
       claim: claimView(claim),
     }
   })
@@ -187,9 +195,11 @@ function createInstallmentPaymentFunctions({ db, onCall, now = () => new Date() 
     const contractId = id(request.data?.contractId, 'Mã hợp đồng')
     const installmentId = installmentIdInput(request.data?.installmentId)
     const note = boundedText(request.data?.note, 'Ghi chú', 300)
-    const expectedAmount = Number(request.data?.expectedAmount)
-    if (action === 'submit' && (!Number.isSafeInteger(expectedAmount) || expectedAmount <= 0)) {
-      throw new HttpsError('invalid-argument', 'Thiếu số tiền đối chiếu.')
+    // The amount the student says they transferred; older clients sent the
+    // scheduled amount as expectedAmount.
+    const amount = Number(request.data?.amount ?? request.data?.expectedAmount)
+    if (action === 'submit' && (!Number.isSafeInteger(amount) || amount <= 0)) {
+      throw new HttpsError('invalid-argument', 'Thiếu số tiền bạn đã chuyển.')
     }
     const contractReference = db.doc(`contracts/${contractId}`)
     const claimReference = db.doc(`${PAYMENT_CLAIM_COLLECTION}/${paymentClaimId(contractId, installmentId)}`)
@@ -211,10 +221,11 @@ function createInstallmentPaymentFunctions({ db, onCall, now = () => new Date() 
       }
       const target = installmentPaymentTarget(contract, installmentId)
       if (target.error) throw new HttpsError('failed-precondition', targetErrorMessage(target.error), { reason: target.error })
-      if (target.amount !== expectedAmount) {
-        throw new HttpsError('failed-precondition', 'Số tiền kỳ này vừa thay đổi. Hãy tải lại và kiểm tra trước khi xác nhận.', { reason: 'amount-changed' })
+      const issue = claimAmountIssue(target, amount)
+      if (issue) {
+        throw new HttpsError('failed-precondition', amountIssueMessage(issue, target), { reason: 'amount-out-of-range', minAmount: target.minAmount, maxAmount: target.maxAmount })
       }
-      if (claim?.status === 'submitted' && Number(claim.amount) === target.amount) {
+      if (claim?.status === 'submitted' && Number(claim.amount) === amount) {
         return { state: 'submitted', unchanged: true, claim: claimView(claim) }
       }
       const revision = Number(claim?.revision || 0) + 1
@@ -230,11 +241,13 @@ function createInstallmentPaymentFunctions({ db, onCall, now = () => new Date() 
         branchId: contract.branchId || '',
         packageName: String(contract.packageName || 'Gói tập Aura').slice(0, 120),
         accountUid: actor.uid,
-        amount: target.amount,
+        amount,
+        installmentAmount: target.amount,
         dueDate: target.dueDate || null,
         sequence: target.sequence,
         installmentCount: target.count,
         transferCode: transferCode(contractId, target.installmentId),
+        transferContent: transferContent(profile.value?.name, contractId, target.installmentId),
         cashAccountId: account?.id || null,
         status: 'submitted',
         note,
@@ -282,7 +295,10 @@ function createInstallmentPaymentFunctions({ db, onCall, now = () => new Date() 
         const claim = document.data()
         const contract = contractById.get(claim.contractId) || null
         const target = contract ? installmentPaymentTarget(contract, claim.installmentId || null) : { error: 'not_found' }
-        const actionable = !target.error && target.amount === Number(claim.amount)
+        const claimAmount = Number(claim.amount || 0)
+        // Any amount up to the remaining debt can be recorded; the payment
+        // command moves a difference from the installment to later ones.
+        const actionable = !target.error && claimAmount > 0 && claimAmount <= target.maxAmount
         const student = studentById.get(claim.studentId)
         return {
           id: document.id,
@@ -293,17 +309,19 @@ function createInstallmentPaymentFunctions({ db, onCall, now = () => new Date() 
           studentPhone: student?.phone || '',
           branchId: claim.branchId || '',
           packageName: claim.packageName || '',
-          amount: Number(claim.amount || 0),
+          amount: claimAmount,
+          installmentAmount: Number(claim.installmentAmount || claim.amount || 0),
           dueDate: claim.dueDate || null,
           sequence: claim.sequence ?? null,
           installmentCount: claim.installmentCount ?? null,
           transferCode: claim.transferCode || '',
+          transferContent: claim.transferContent || claim.transferCode || '',
           cashAccountId: claim.cashAccountId || null,
           note: claim.note || '',
           submittedAt: iso(claim.submittedAt),
           revision: Number(claim.revision || 0),
           actionable,
-          staleReason: actionable ? null : targetErrorMessage(target.error || 'mismatch'),
+          staleReason: actionable ? null : target.error ? targetErrorMessage(target.error) : 'Số tiền báo vượt công nợ còn lại của hợp đồng.',
           contract: contract ? { id: claim.contractId, ...Object.fromEntries(CONTRACT_FIELDS.map((field) => [field, contract[field] ?? null])) } : null,
         }
       }),

@@ -5,11 +5,22 @@ Học viên trả kỳ đến hạn bằng VietQR ngay trong tab **Lịch → H�
 ## Luồng
 
 1. Học viên bấm **Thanh toán** ở một kỳ đang chờ (hoặc **Thanh toán ngay** trên thẻ nhắc, hoặc link trong thông báo `#/schedule?tab=contract&pay=<contractId>~<installmentId|outstanding>`).
-2. `getMyInstallmentPayment` trả số tiền kỳ, hạn, tài khoản nhận và payload VietQR do server tạo. Nội dung chuyển khoản là mã cố định của kỳ: `AURA XXXXXXXX`.
-3. Học viên bấm **Tôi đã chuyển khoản** → `submitMyInstallmentPaymentClaim` ghi `installmentPaymentClaims/{ipc_…}` trạng thái `submitted`. Báo cáo này **không** thay đổi hợp đồng hay sổ cái.
-4. Kế toán thấy báo trong **Chờ xác nhận chuyển khoản**, đối chiếu sao kê theo nội dung, bấm **Ghi nhận**. Form thu tiền có sẵn mở ra đã điền kỳ, số tiền và quỹ.
-5. `recordContractPayment` ghi phiếu thu như mọi khoản thu khác và, trong cùng transaction, chuyển báo sang `confirmed` và gửi thông báo cho học viên. Thu tại quầy cho cùng kỳ cũng tự đóng báo.
-6. Nếu không thấy tiền: **Từ chối** kèm lý do → học viên nhận thông báo và thấy lý do trên màn thanh toán.
+2. `getMyInstallmentPayment` trả số tiền kỳ, khoảng được trả (`minAmount`–`maxAmount`), các kỳ sau, tài khoản nhận và payload VietQR do server tạo. Nội dung chuyển khoản là **tên học viên + mã kỳ**, tối đa 25 ký tự (giới hạn NAPAS), ví dụ `HUYNH THI HAI AU VK669NZ7`. Tên dài giữ họ và tên, rồi chỉ tên; mã 8 ký tự cố định theo kỳ để khớp.
+3. Học viên có thể **sửa số tiền** kỳ này: từ 100.000đ (hoặc đúng số kỳ nếu nhỏ hơn) đến toàn bộ công nợ còn lại. App dựng lại mã QR theo số tiền đã chọn (cùng thuật toán với server) và cho xem trước phần chênh lệch sẽ đi đâu.
+4. Học viên bấm **Tôi đã chuyển khoản** → `submitMyInstallmentPaymentClaim` ghi `installmentPaymentClaims/{ipc_…}` trạng thái `submitted` với `amount` đã chọn và `installmentAmount` của kỳ. Báo cáo này **không** thay đổi hợp đồng hay sổ cái.
+5. Kế toán thấy báo trong **Chờ xác nhận chuyển khoản**, đối chiếu sao kê theo nội dung, bấm **Ghi nhận**. Form thu tiền có sẵn mở ra đã điền kỳ, số tiền và quỹ; kế toán sửa số tiền theo đúng sao kê nếu khác.
+6. `recordContractPayment` ghi phiếu thu như mọi khoản thu khác và, trong cùng transaction, chuyển báo sang `confirmed` và gửi thông báo cho học viên. Thu tại quầy cho cùng kỳ cũng tự đóng báo.
+7. Nếu không thấy tiền: **Từ chối** kèm lý do → học viên nhận thông báo và thấy lý do trên màn thanh toán.
+
+## Trả khác số kỳ
+
+`functions/installment-schedule.js` (bản client: `src/domain/payments/installmentSchedule.ts`) chia lại lịch khi số tiền ghi nhận khác số kỳ:
+
+- Kỳ được trả giữ **đúng số tiền đã nhận** và chuyển sang `paid`.
+- **Thiếu**: phần thiếu cộng vào kỳ chờ kế tiếp; không còn kỳ nào sau thì tạo kỳ mới `<id>-rest`, hạn 30 ngày sau hạn cũ (hoặc sau ngày thu nếu muộn hơn). Đã đủ 24 kỳ thì từ chối.
+- **Dư**: phần dư trừ dần vào các kỳ sau (gần nhất trước), kỳ nào về 0 thì bỏ khỏi lịch.
+- Tổng các kỳ chờ luôn giảm đúng bằng số tiền thu, nên lịch vẫn khớp công nợ còn lại.
+- Phiếu thu lưu `installmentSchedule.before/after`; **đảo phiếu** trả lại lịch cũ nếu lịch chưa đổi từ đó, còn không thì mở lại kỳ với số đã thu.
 
 ## Nhắc hạn
 
@@ -29,11 +40,11 @@ Học viên trả kỳ đến hạn bằng VietQR ngay trong tab **Lịch → H�
 
 ## Kiểm thử
 
-- `npm run test:installment-payments`: payload VietQR (CRC, cấu trúc NAPAS, client khớp server từng byte), mã chuyển khoản, quy tắc kỳ được trả, đóng báo khi ghi phiếu thu, kế hoạch nhắc hạn.
+- `npm run test:installment-payments`: payload VietQR (CRC, cấu trúc NAPAS, client khớp server từng byte), nội dung chuyển khoản theo tên, khoảng số tiền được trả, chia lại lịch khi trả thiếu/dư (client khớp server), đóng báo khi ghi phiếu thu, kế hoạch nhắc hạn.
 - `tests/installment-payment-ui/`: trang thử dựng component thật với callable giả lập (`npx vite --config tests/installment-payment-ui/vite.config.ts`).
 
 ## Chưa làm (giai đoạn 2–3)
 
-- Tự khớp giao dịch qua webhook ngân hàng (SePay/Casso/PayOS). Mã `AURA XXXXXXXX` đã cố định theo kỳ để khớp được.
-- Ảnh biên lai, trả gộp nhiều kỳ, trả một phần, xin dời hạn, ví điện tử, cộng điểm Aura khi trả đúng hạn.
+- Tự khớp giao dịch qua webhook ngân hàng (SePay/Casso/PayOS). Mã 8 ký tự cuối nội dung đã cố định theo kỳ để khớp được.
+- Ảnh biên lai, xin dời hạn, ví điện tử, cộng điểm Aura khi trả đúng hạn.
 - Chính sách quá hạn (hạn chế đặt buổi mới) — chưa chốt.

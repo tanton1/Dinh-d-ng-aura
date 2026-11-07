@@ -5,6 +5,7 @@ const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
 const test = require('node:test')
 const {
+  claimAmountIssue,
   confirmedClaimPatch,
   crc16Ccitt,
   installmentPaymentTarget,
@@ -16,8 +17,10 @@ const {
   reminderMilestone,
   studentClaimState,
   transferCode,
+  transferContent,
   vietQrPayload,
 } = require('./installment-payment-core')
+const { planInstallmentPayment, restoredInstallments } = require('./installment-schedule')
 
 const ledgerSource = readFileSync(join(__dirname, 'finance-ledger.js'), 'utf8')
 const indexSource = readFileSync(join(__dirname, 'index.js'), 'utf8')
@@ -68,14 +71,34 @@ test('claim ids and transfer codes are deterministic per payable target', () => 
   assert.notEqual(paymentClaimId('c1', 'installment-2'), paymentClaimId('c1', 'installment-3'))
   assert.equal(paymentClaimId('c1', null), paymentClaimId('c1', ''))
   const code = transferCode('c1', 'installment-2')
-  assert.match(code, /^AURA [0-9A-HJKMNP-TV-Z]{8}$/)
+  assert.match(code, /^[0-9A-HJKMNP-TV-Z]{8}$/)
   assert.equal(code, transferCode('c1', 'installment-2'))
   assert.notEqual(code, transferCode('c2', 'installment-2'))
 })
 
+test('transfer memo leads with the student name and stays within 25 characters', () => {
+  const code = transferCode('c1', 'installment-2')
+  assert.equal(transferContent('Huỳnh Thị Hải Âu', 'c1', 'installment-2'), `HUYNH THI HAI AU ${code}`)
+  assert.equal(transferContent('Nguyễn Thị Phương Anh', 'c1', 'installment-2'), `NGUYEN ANH ${code}`)
+  assert.equal(transferContent('Nguyễn Thị Phương-Anh Elizabeth', 'c1', 'installment-2'), `NGUYEN ELIZABETH ${code}`)
+  assert.equal(transferContent('Nguyễn Thị Elizabetha', 'c1', 'installment-2'), `ELIZABETHA ${code}`)
+  assert.equal(transferContent('NGUYENTHIPHUONGANHELIZABETH', 'c1', 'installment-2'), `NGUYENTHIPHUONGA ${code}`)
+  assert.equal(transferContent('', 'c1', 'installment-2'), `AURA ${code}`)
+  for (const name of ['Huỳnh Thị Hải Âu', 'Nguyễn Thị Phương Anh', 'Đặng Văn Đức', 'x']) {
+    const memo = transferContent(name, 'c1', 'installment-2')
+    assert.ok(memo.length <= 25, memo)
+    assert.doesNotThrow(() => vietQrPayload({ bankBin: '970436', accountNumber: '0123456789', amount: 1, content: memo }))
+  }
+})
+
 test('payment target mirrors the finance command rules', () => {
   const pending = installmentPaymentTarget(contract(), 'installment-2')
-  assert.deepEqual({ ...pending, amounts: undefined }, { installmentId: 'installment-2', amount: 4_000_000, dueDate: '2026-11-07', sequence: 2, count: 2, amounts: undefined })
+  assert.deepEqual({ ...pending, amounts: undefined }, { installmentId: 'installment-2', amount: 4_000_000, dueDate: '2026-11-07', sequence: 2, count: 2, amounts: undefined, minAmount: 100_000, maxAmount: 4_000_000, later: [] })
+  const three = contract({ totalPrice: 15_000_000, installments: [...contract().installments, { id: 'installment-3', date: '2026-12-07', amount: 3_000_000, status: 'pending' }] })
+  const middle = installmentPaymentTarget(three, 'installment-2')
+  assert.equal(middle.maxAmount, 7_000_000)
+  assert.deepEqual(middle.later, [{ id: 'installment-3', date: '2026-12-07', amount: 3_000_000, sequence: 3 }])
+  assert.equal(installmentPaymentTarget(contract({ installments: [{ id: 'tiny', date: '2026-11-07', amount: 50_000, status: 'pending' }] }), 'tiny').minAmount, 50_000)
   assert.equal(installmentPaymentTarget(contract(), 'installment-1').error, 'paid')
   assert.equal(installmentPaymentTarget(contract(), 'missing').error, 'not_found')
   assert.equal(installmentPaymentTarget(contract({ status: 'cancelled' }), 'installment-2').error, 'closed')
@@ -87,11 +110,24 @@ test('payment target mirrors the finance command rules', () => {
   assert.equal(installmentPaymentTarget(contract({ installments: [], paidAmount: 12_000_000 }), null).error, 'settled')
 })
 
+test('students may claim any amount between the floor and the remaining debt', () => {
+  const target = installmentPaymentTarget(contract({ totalPrice: 15_000_000, installments: [...contract().installments, { id: 'installment-3', date: '2026-12-07', amount: 3_000_000, status: 'pending' }] }), 'installment-2')
+  assert.equal(claimAmountIssue(target, 4_000_000), null)
+  assert.equal(claimAmountIssue(target, 100_000), null)
+  assert.equal(claimAmountIssue(target, 7_000_000), null)
+  assert.equal(claimAmountIssue(target, 99_999), 'below_minimum')
+  assert.equal(claimAmountIssue(target, 7_000_001), 'above_outstanding')
+  assert.equal(claimAmountIssue(target, 1.5), 'invalid')
+  const full = contract({ totalPrice: 100_000_000, paidAmount: 0, installments: Array.from({ length: 24 }, (_, index) => ({ id: `i${index}`, date: `2027-${String(index % 12 + 1).padStart(2, '0')}-01`, amount: index === 23 ? 100_000_000 - 23 * 1_000_000 : 1_000_000, status: 'pending' })) })
+  assert.equal(claimAmountIssue(installmentPaymentTarget(full, 'i23'), 500_000), 'schedule_full')
+})
+
 test('student state follows the contract before the claim', () => {
   const target = installmentPaymentTarget(contract(), 'installment-2')
   assert.equal(studentClaimState(null, target), 'open')
   assert.equal(studentClaimState({ status: 'submitted', amount: 4_000_000 }, target), 'submitted')
-  assert.equal(studentClaimState({ status: 'submitted', amount: 3_000_000 }, target), 'open')
+  assert.equal(studentClaimState({ status: 'submitted', amount: 3_000_000 }, target), 'submitted')
+  assert.equal(studentClaimState({ status: 'withdrawn', amount: 4_000_000 }, target), 'open')
   assert.equal(studentClaimState({ status: 'rejected', amount: 4_000_000 }, target), 'rejected')
   // A reversed payment returns the installment to pending; an old confirmed
   // claim must not stop the student from paying again.
@@ -146,6 +182,46 @@ test('reminder plan skips reported, frozen, unlinked and settled contracts', () 
   assert.ok(plan[0].message.includes('4.000.000đ'))
 })
 
+test('a shortfall moves to the next installment or a new one; an excess settles later ones', () => {
+  const rows = [
+    { id: 'k1', date: '2026-10-07', amount: 8_000_000, status: 'paid' },
+    { id: 'k2', date: '2026-11-07', amount: 4_000_000, status: 'pending' },
+    { id: 'k3', date: '2026-12-07', amount: 3_000_000, status: 'pending' },
+  ]
+  const partial = planInstallmentPayment(rows, 'k2', 2_500_000, { paidOn: '2026-11-07' })
+  assert.deepEqual(partial.installments.map((item) => [item.id, item.amount, item.status]), [['k1', 8_000_000, 'paid'], ['k2', 2_500_000, 'paid'], ['k3', 4_500_000, 'pending']])
+  assert.equal(partial.shortfall, 1_500_000)
+  assert.equal(partial.nextPaymentDate, '2026-12-07')
+  assert.deepEqual(partial.changes, [{ id: 'k3', date: '2026-12-07', from: 3_000_000, to: 4_500_000, created: false }])
+  // Pending total always drops by exactly the amount received.
+  const pendingBefore = rows.filter((item) => item.status === 'pending').reduce((sum, item) => sum + item.amount, 0)
+  const pendingAfter = partial.installments.filter((item) => item.status === 'pending').reduce((sum, item) => sum + item.amount, 0)
+  assert.equal(pendingBefore - pendingAfter, 2_500_000)
+
+  const last = planInstallmentPayment(rows, 'k3', 1_000_000, { paidOn: '2027-01-15' })
+  assert.deepEqual(last.installments.at(-1), { id: 'k3-rest', date: '2027-02-14', amount: 2_000_000, status: 'pending' })
+  assert.equal(last.changes[0].created, true)
+  assert.equal(planInstallmentPayment(rows, 'k3', 1_000_000, { paidOn: '2026-11-20' }).installments.at(-1).date, '2027-01-06')
+
+  const extra = planInstallmentPayment(rows, 'k2', 6_000_000)
+  assert.deepEqual(extra.installments.map((item) => [item.id, item.amount, item.status]), [['k1', 8_000_000, 'paid'], ['k2', 6_000_000, 'paid'], ['k3', 1_000_000, 'pending']])
+  const settles = planInstallmentPayment(rows, 'k2', 7_000_000)
+  assert.deepEqual(settles.installments.map((item) => item.id), ['k1', 'k2'])
+  assert.equal(settles.nextPaymentDate, null)
+  assert.equal(planInstallmentPayment(rows, 'k2', 8_000_000).unallocated, 1_000_000)
+
+  assert.equal(planInstallmentPayment(rows, 'k1', 1).error, 'not_pending')
+  assert.equal(planInstallmentPayment(rows, 'missing', 1).error, 'not_found')
+  assert.equal(planInstallmentPayment(rows, 'k2', 0).error, 'invalid_amount')
+  const full = Array.from({ length: 24 }, (_, index) => ({ id: `i${index}`, date: `2027-01-${String(index + 1).padStart(2, '0')}`, amount: 1_000, status: 'pending' }))
+  assert.equal(planInstallmentPayment(full, 'i23', 500).error, 'schedule_full')
+  assert.equal(planInstallmentPayment(full, 'i22', 500).changes[0].id, 'i23')
+
+  const snapshot = { before: rows, after: partial.installments }
+  assert.deepEqual(restoredInstallments(partial.installments, snapshot).installments, rows)
+  assert.equal(restoredInstallments([...partial.installments, { id: 'k4', date: '2027-01-07', amount: 1, status: 'pending' }], snapshot), null)
+})
+
 test('canonical payment closes the claim inside its own transaction', () => {
   const payment = ledgerSource.match(/const recordContractPayment = async[\s\S]*?\r?\n  }\r?\n/)?.[0] || ''
   assert.ok(payment.length > 1000)
@@ -154,6 +230,9 @@ test('canonical payment closes the claim inside its own transaction', () => {
   assert.match(payment, /transaction\.update\(claimReference, claimPatch\)/)
   // The claim read must happen with the other reads, before the receipt write.
   assert.ok(payment.indexOf('transaction.get(claimReference)') < payment.indexOf('createReceiptVoucher(transaction'))
+  // A re-planned schedule is kept on the ledger entry and restored by a reversal.
+  assert.match(payment, /installmentSchedule: \{ before: replan\.before, after: replan\.after \}/)
+  assert.match(ledgerSource, /'pending', amount, \{ restore: original\.data\(\)\.installmentSchedule \|\| null \}/)
 })
 
 test('claims are callable-only and the reminder job is registered', () => {

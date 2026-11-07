@@ -10,7 +10,7 @@
 .cashbook-workspace .cashbook-filters { display: flex; flex: 1 1 320px; gap: 6px; min-width: 0; }
 .cashbook-workspace .cashbook-filters select { width: 0; min-width: 0; flex: 1; padding: 0 10px; text-overflow: ellipsis; }
 .cashbook-workspace .cashbook-filters button { flex-shrink: 0; }
-.cashbook-workspace .cashbook-create-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.cashbook-workspace .cashbook-create-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 .cashbook-workspace .cashbook-controls button,
 .cashbook-workspace .cashbook-controls select { min-height: 36px; border: 1px solid #e8dce2; border-radius: 9px; background: #fff; color: #493640; font: inherit; font-size: 12px; font-weight: 650; }
 .cashbook-workspace .cashbook-controls button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 10px; white-space: nowrap; cursor: pointer; }
@@ -84,6 +84,10 @@
   .cashbook-workspace .cashbook-controls button,
   .cashbook-workspace .cashbook-controls select { min-height: 38px; }
   .cashbook-workspace .cashbook-filters button span { display: none; }
+  /* Four document actions on one row: Mở quỹ, Lập thu, Lập chi, VietQR. */
+  .cashbook-workspace .cashbook-create-actions { gap: 5px; }
+  .cashbook-workspace .cashbook-create-actions button { gap: 4px; padding: 0 6px; font-size: 11px; }
+  .cashbook-workspace .cashbook-create-actions button svg { width: 14px; height: 14px; }
   .cashbook-workspace .cashbook-ledger-tabs button { padding: 0 4px; font-size: 11px; }
   .cashbook-workspace .expense-voucher-list article { gap: 8px; padding: 10px; }
   .cashbook-workspace .expense-voucher-list__amount > div { flex-direction: column; gap: 4px; }
@@ -92,6 +96,9 @@
   .cashbook-workspace .expense-voucher__steps { grid-template-columns: repeat(4,minmax(0,1fr)); }
   .cashbook-workspace .expense-voucher__steps button { flex-direction: column; gap: 4px; padding: 4px 0; }
   .cashbook-workspace .expense-voucher__steps button span { width: 20px; height: 20px; }
+}
+@media (max-width: 360px) {
+  .cashbook-workspace .cashbook-create-actions button svg { display: none; }
 }
 @media screen and (max-width: 600px) {
   .cashbook-workspace .receipt-voucher-document { padding: 14px; }

@@ -8,6 +8,8 @@ import {
   submitMyInstallmentPaymentClaim,
   type InstallmentPaymentView,
 } from '../../services/installmentPaymentService'
+import { vietQrPayload } from '../../domain/payments/vietQr'
+import { describeInstallmentPlan } from '../../domain/payments/installmentSchedule'
 import type { StudentPtContractSummary } from '../../services/studentPtScheduleService'
 import './InstallmentPaymentSheet.css'
 
@@ -48,6 +50,14 @@ function dueBadge(view: InstallmentPaymentView): { tone: Tone; label: string } {
   return { tone: 'danger', label: `Quá hạn ${Math.abs(days)} ngày` }
 }
 
+function digits(value: string) {
+  return value.replace(/\D/g, '').replace(/^0+(?=\d)/, '').slice(0, 12)
+}
+
+function groupedDigits(value: string) {
+  return value ? Number(value).toLocaleString('vi-VN') : ''
+}
+
 function buildQr(payload: string) {
   const qr = qrcode(0, 'M')
   qr.addData(payload, 'Byte')
@@ -62,7 +72,7 @@ function buildQr(payload: string) {
   return { qr, count, size: count + 8, path }
 }
 
-function saveQrImage(qr: ReturnType<typeof qrcode>, view: InstallmentPaymentView) {
+function saveQrImage(qr: ReturnType<typeof qrcode>, view: InstallmentPaymentView, amount: number) {
   const transfer = view.transfer
   if (!transfer || !view.installment) return
   const count = qr.getModuleCount()
@@ -84,7 +94,7 @@ function saveQrImage(qr: ReturnType<typeof qrcode>, view: InstallmentPaymentView
   }
   context.textAlign = 'center'
   context.font = '700 22px system-ui, sans-serif'
-  context.fillText(money(view.installment.amount), width / 2, width + 22)
+  context.fillText(money(amount), width / 2, width + 22)
   context.font = '15px system-ui, sans-serif'
   context.fillText(`${transfer.bankName} · ${transfer.accountNumber}`, width / 2, width + 52)
   context.fillText(`Nội dung: ${transfer.content}`, width / 2, width + 80)
@@ -127,31 +137,35 @@ export default function InstallmentPaymentSheet({ contractId, installmentId, tod
   const [confirming, setConfirming] = useState(false)
   const [note, setNote] = useState('')
   const [copied, setCopied] = useState('')
+  // What the student will transfer, as typed digits; starts at the scheduled amount.
+  const [amountText, setAmountText] = useState('')
   const sequence = useRef(0)
   const sheetRef = useRef<HTMLElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
 
+  const demoView = useCallback((claimed: number | false) => {
+    if (!demoContract) throw new Error('Không tìm thấy hợp đồng demo.')
+    return demoInstallmentPayment(demoContract, demoContract.installments.find((item) => item.id === installmentId) ?? null, todayKey, claimed)
+  }, [demoContract, installmentId, todayKey])
+
   const load = useCallback(async () => {
     const current = ++sequence.current
     setLoading(true)
     setError('')
     try {
-      let next: InstallmentPaymentView
-      if (isDemo) {
-        if (!demoContract) throw new Error('Không tìm thấy hợp đồng demo.')
-        next = demoInstallmentPayment(demoContract, demoContract.installments.find((item) => item.id === installmentId) ?? null, todayKey)
-      } else {
-        next = await getMyInstallmentPayment(contractId, installmentId)
+      const next = isDemo ? demoView(false) : await getMyInstallmentPayment(contractId, installmentId)
+      if (current === sequence.current) {
+        setView(next)
+        setAmountText(String(next.claim?.status === 'submitted' ? next.claim.amount : next.installment?.amount ?? ''))
       }
-      if (current === sequence.current) setView(next)
     } catch (cause) {
       if (current === sequence.current) setError(installmentPaymentErrorMessage(cause))
     } finally {
       if (current === sequence.current) setLoading(false)
     }
-  }, [contractId, demoContract, installmentId, isDemo, todayKey])
+  }, [contractId, demoView, installmentId, isDemo])
 
   useEffect(() => {
     void load()
@@ -168,7 +182,7 @@ export default function InstallmentPaymentSheet({ contractId, installmentId, tod
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { event.preventDefault(); onCloseRef.current(); return }
       if (event.key !== 'Tab' || !sheetRef.current) return
-      const focusable = [...sheetRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), textarea, a[href]')]
+      const focusable = [...sheetRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), input, textarea, a[href]')]
       if (!focusable.length) return
       const first = focusable[0]
       const last = focusable[focusable.length - 1]
@@ -183,7 +197,27 @@ export default function InstallmentPaymentSheet({ contractId, installmentId, tod
     }
   }, [])
 
-  const qr = useMemo(() => view?.transfer?.qrPayload ? buildQr(view.transfer.qrPayload) : null, [view?.transfer?.qrPayload])
+  const installment = view?.installment ?? null
+  const transfer = view?.transfer ?? null
+  const amount = Number(amountText || 0)
+  const amountIssue = !installment ? '' : !amount ? 'Nhập số tiền bạn sẽ chuyển.'
+    : amount < installment.minAmount ? `Tối thiểu ${money(installment.minAmount)}.`
+    : amount > installment.maxAmount ? `Tối đa ${money(installment.maxAmount)}, là toàn bộ công nợ còn lại.`
+    : ''
+  const amountValid = Boolean(installment) && !amountIssue
+  const planNote = useMemo(() => {
+    if (!view || !installment?.id || !amountValid || amount === installment.amount) return ''
+    const rows = [{ id: installment.id, date: installment.dueDate ?? '', amount: installment.amount, status: 'pending', sequence: installment.sequence ?? undefined }, ...view.laterInstallments.map((item) => ({ ...item, status: 'pending' }))]
+    return describeInstallmentPlan(rows, installment.id, amount, todayKey)
+  }, [amount, amountValid, installment, todayKey, view])
+  const qr = useMemo(() => {
+    if (!transfer || !amountValid) return null
+    try {
+      return buildQr(vietQrPayload({ bankBin: transfer.bankBin, accountNumber: transfer.accountNumber, amount, content: transfer.content }))
+    } catch {
+      return null
+    }
+  }, [amount, amountValid, transfer])
 
   const copy = async (key: string, value: string) => {
     if (await copyText(value)) {
@@ -193,31 +227,32 @@ export default function InstallmentPaymentSheet({ contractId, installmentId, tod
   }
 
   const report = async (action: 'submit' | 'withdraw') => {
-    if (!view?.installment || busy) return
+    if (!view?.installment || busy || (action === 'submit' && !amountValid)) return
     setBusy(true)
     setError('')
     try {
       if (isDemo) {
-        if (demoContract) setView(demoInstallmentPayment(demoContract, demoContract.installments.find((item) => item.id === installmentId) ?? null, todayKey, action === 'submit'))
+        setView(demoView(action === 'submit' ? amount : false))
       } else {
-        const result = await submitMyInstallmentPaymentClaim({ contractId, installmentId, action, expectedAmount: view.installment.amount, note: note.trim() || undefined })
+        const result = await submitMyInstallmentPaymentClaim({ contractId, installmentId, action, amount: action === 'submit' ? amount : undefined, note: note.trim() || undefined })
         setView((current) => current ? { ...current, state: result.state, claim: result.claim } : current)
       }
       setConfirming(false)
       onChanged?.(action === 'submit' ? 'Đã báo Aura. Bạn sẽ nhận thông báo khi khoản thanh toán được ghi nhận.' : 'Đã hủy báo chuyển khoản.')
     } catch (cause) {
       setError(installmentPaymentErrorMessage(cause))
-      if ((cause as { details?: { reason?: string } })?.details?.reason === 'amount-changed') void load()
+      const reason = (cause as { details?: { reason?: string } })?.details?.reason
+      if (reason === 'amount-out-of-range' || reason === 'amount-changed') void load()
     } finally {
       setBusy(false)
     }
   }
 
   const badge = view ? dueBadge(view) : null
-  const installment = view?.installment
   const title = installment?.sequence && installment.count ? `Thanh toán kỳ ${installment.sequence}/${installment.count}` : 'Thanh toán công nợ'
   const progress = view && view.contract.totalAmount > 0 ? Math.min(100, Math.round(view.contract.paidAmount / view.contract.totalAmount * 100)) : 0
-  const transfer = view?.transfer
+  const heroAmount = view?.state === 'submitted' && view.claim ? view.claim.amount : amountValid ? amount : installment?.amount ?? view?.contract.outstandingAmount ?? 0
+  const scheduledLine = installment ? `${installment.sequence ? `Kỳ ${installment.sequence}: ` : 'Công nợ: '}${money(installment.amount)}${installment.dueDate ? ` · hạn ${day(installment.dueDate)}` : ''}` : ''
 
   return (
     <div className="aura-pay" role="dialog" aria-modal="true" aria-labelledby="aura-pay-title">
@@ -234,8 +269,8 @@ export default function InstallmentPaymentSheet({ contractId, installmentId, tod
         {view && badge && <>
           <div className={`aura-pay__hero is-${badge.tone}`}>
             <span className="aura-pay__badge">{badge.tone === 'success' ? <CheckCircle2 size={14} /> : <Clock3 size={14} />} {badge.label}</span>
-            <strong className="aura-pay__amount">{money(installment?.amount ?? view.contract.outstandingAmount)}</strong>
-            <span>{view.contract.packageName}{installment?.dueDate ? ` · hạn ${day(installment.dueDate)}` : ''}</span>
+            <strong className="aura-pay__amount">{money(heroAmount)}</strong>
+            <span>{view.contract.packageName}{heroAmount !== installment?.amount && scheduledLine ? ` · ${scheduledLine}` : installment?.dueDate ? ` · hạn ${day(installment.dueDate)}` : ''}</span>
           </div>
 
           <div className="aura-pay__progress" aria-label={`Đã trả ${progress}% giá trị hợp đồng`}>
@@ -254,43 +289,60 @@ export default function InstallmentPaymentSheet({ contractId, installmentId, tod
             <Hourglass size={22} />
             <div>
               <strong>Đang chờ Aura xác nhận</strong>
-              <p>Bạn đã báo chuyển khoản{view.claim?.submittedAt ? ` lúc ${moment(view.claim.submittedAt)}` : ''}. Kế toán sẽ khớp giao dịch và gửi thông báo cho bạn khi ghi nhận xong.</p>
+              <p>Bạn đã báo chuyển {view.claim ? money(view.claim.amount) : ''}{view.claim?.submittedAt ? ` lúc ${moment(view.claim.submittedAt)}` : ''}. Kế toán sẽ khớp giao dịch và gửi thông báo cho bạn khi ghi nhận xong.{view.claim && installment && view.claim.amount !== installment.amount ? ' Phần chênh lệch so với kỳ sẽ được cập nhật vào các kỳ sau.' : ''}</p>
               {view.claim?.note && <p className="aura-pay__note">Ghi chú: {view.claim.note}</p>}
               <button type="button" className="aura-pay__link" disabled={busy} onClick={() => void report('withdraw')}>Tôi chưa chuyển, hủy báo</button>
             </div>
           </div>}
 
-          {(view.state === 'open' || view.state === 'rejected') && <>
+          {(view.state === 'open' || view.state === 'rejected') && installment && <>
             {view.state === 'rejected' && <div className="aura-pay__alert is-warning" role="status"><AlertCircle size={18} /><span><b>Aura chưa xác nhận được lần chuyển trước.</b> {view.claim?.rejectedReason}</span></div>}
-            {transfer && qr ? <div className="aura-pay__qr-card">
-              <svg className="aura-pay__qr" viewBox={`0 0 ${qr.size} ${qr.size}`} role="img" aria-label={`Mã VietQR chuyển ${money(installment?.amount ?? 0)} tới ${transfer.bankName}`} shapeRendering="crispEdges">
+
+            <div className="aura-pay__amount-field">
+              <label htmlFor="aura-pay-amount">Số tiền bạn chuyển kỳ này</label>
+              <div className={`aura-pay__amount-input${amountIssue ? ' is-invalid' : ''}`}>
+                <input id="aura-pay-amount" inputMode="numeric" autoComplete="off" value={groupedDigits(amountText)} onChange={(event) => setAmountText(digits(event.target.value))} aria-describedby="aura-pay-amount-hint" aria-invalid={Boolean(amountIssue)} />
+                <span aria-hidden="true">đ</span>
+              </div>
+              <div className="aura-pay__chips" aria-label="Chọn nhanh số tiền">
+                <button type="button" aria-pressed={amount === installment.amount} onClick={() => setAmountText(String(installment.amount))}>{installment.sequence ? 'Đủ kỳ này' : 'Toàn bộ nợ'} · {money(installment.amount)}</button>
+                {installment.maxAmount > installment.amount && <button type="button" aria-pressed={amount === installment.maxAmount} onClick={() => setAmountText(String(installment.maxAmount))}>Trả hết · {money(installment.maxAmount)}</button>}
+              </div>
+              <p id="aura-pay-amount-hint" className={`aura-pay__amount-hint${amountIssue ? ' is-error' : ''}`} aria-live="polite">
+                {amountIssue || planNote || `Bạn có thể trả từ ${money(installment.minAmount)} đến ${money(installment.maxAmount)}; phần chênh lệch sẽ tự cập nhật vào các kỳ sau.`}
+              </p>
+            </div>
+
+            {transfer ? <div className="aura-pay__qr-card">
+              {qr ? <svg className="aura-pay__qr" viewBox={`0 0 ${qr.size} ${qr.size}`} role="img" aria-label={`Mã VietQR chuyển ${money(amount)} tới ${transfer.bankName}`} shapeRendering="crispEdges">
                 <rect width={qr.size} height={qr.size} fill="#ffffff" />
                 <path d={qr.path} fill="currentColor" />
-              </svg>
+              </svg> : <div className="aura-pay__qr-placeholder" role="status">Nhập số tiền hợp lệ để tạo mã QR.</div>}
               <p className="aura-pay__qr-hint">Quét bằng ứng dụng ngân hàng bất kỳ. Số tiền và nội dung đã điền sẵn.</p>
               <dl className="aura-pay__details">
                 <div><dt>Ngân hàng</dt><dd>{transfer.bankName}</dd></div>
                 <div><dt>Số tài khoản</dt><dd><span>{transfer.accountNumber}</span><button type="button" onClick={() => void copy('account', transfer.accountNumber)} aria-label="Chép số tài khoản">{copied === 'account' ? <Check size={15} /> : <Copy size={15} />}</button></dd></div>
                 <div><dt>Chủ tài khoản</dt><dd>{transfer.accountName}</dd></div>
-                <div><dt>Số tiền</dt><dd><span>{money(installment?.amount ?? 0)}</span><button type="button" onClick={() => void copy('amount', String(installment?.amount ?? ''))} aria-label="Chép số tiền">{copied === 'amount' ? <Check size={15} /> : <Copy size={15} />}</button></dd></div>
+                <div><dt>Số tiền</dt><dd><span>{amountValid ? money(amount) : '—'}</span><button type="button" disabled={!amountValid} onClick={() => void copy('amount', String(amount))} aria-label="Chép số tiền">{copied === 'amount' ? <Check size={15} /> : <Copy size={15} />}</button></dd></div>
                 <div className="is-key"><dt>Nội dung</dt><dd><span>{transfer.content}</span><button type="button" onClick={() => void copy('content', transfer.content)} aria-label="Chép nội dung chuyển khoản">{copied === 'content' ? <Check size={15} /> : <Copy size={15} />}</button></dd></div>
               </dl>
               <p className="aura-pay__keep">Giữ nguyên nội dung <b>{transfer.content}</b> để Aura khớp đúng kỳ của bạn.</p>
             </div> : <div className="aura-pay__alert is-info" role="status"><Store size={18} /><span>Chi nhánh của bạn chưa bật nhận chuyển khoản qua app. Bạn có thể thanh toán tại quầy lễ tân Aura.</span></div>}
 
             {confirming ? <div className="aura-pay__confirm">
+              <p className="aura-pay__confirm-summary">Bạn xác nhận đã chuyển <b>{money(amount)}</b>{transfer ? <> với nội dung <b>{transfer.content}</b></> : ''}.</p>
               <label><span>Ghi chú cho kế toán (không bắt buộc)</span><textarea maxLength={300} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Tên tài khoản chuyển, giờ chuyển…" /></label>
               <div className="aura-pay__actions">
                 <button type="button" className="aura-pay__secondary" disabled={busy} onClick={() => setConfirming(false)}>Quay lại</button>
-                <button type="button" className="aura-pay__primary" disabled={busy} onClick={() => void report('submit')}>{busy ? 'Đang gửi…' : 'Xác nhận đã chuyển'}</button>
+                <button type="button" className="aura-pay__primary" disabled={busy || !amountValid} onClick={() => void report('submit')}>{busy ? 'Đang gửi…' : 'Xác nhận đã chuyển'}</button>
               </div>
             </div> : <div className="aura-pay__actions">
-              {transfer && qr && <button type="button" className="aura-pay__secondary" onClick={() => saveQrImage(qr.qr, view)}><Download size={16} /> Lưu mã QR</button>}
-              <button type="button" className="aura-pay__primary" onClick={() => setConfirming(true)}>Tôi đã chuyển khoản</button>
+              {transfer && qr && <button type="button" className="aura-pay__secondary" onClick={() => saveQrImage(qr.qr, view, amount)}><Download size={16} /> Lưu mã QR</button>}
+              <button type="button" className="aura-pay__primary" disabled={!amountValid} onClick={() => setConfirming(true)}>Tôi đã chuyển khoản</button>
             </div>}
           </>}
 
-          {view.state !== 'paid' && view.state !== 'unavailable' && <p className="aura-pay__counter"><Store size={15} /><span>Trả tại quầy: {transfer ? <>đọc mã <b>{transfer.content}</b> cho lễ tân để ghi nhận đúng kỳ.</> : 'báo lễ tân tên gói tập và kỳ bạn muốn thanh toán.'}</span></p>}
+          {view.state !== 'paid' && view.state !== 'unavailable' && <p className="aura-pay__counter"><Store size={15} /><span>Trả tại quầy: {transfer ? <>đọc nội dung <b>{transfer.content}</b> cho lễ tân để ghi nhận đúng kỳ.</> : 'báo lễ tân tên gói tập và kỳ bạn muốn thanh toán.'}</span></p>}
           {view.state === 'paid' && <div className="aura-pay__actions"><button type="button" className="aura-pay__primary" onClick={onClose}>Xong</button></div>}
         </>}
       </section>

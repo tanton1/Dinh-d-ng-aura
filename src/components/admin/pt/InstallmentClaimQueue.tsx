@@ -87,7 +87,7 @@ export default function InstallmentClaimQueue({ branchId, refreshKey, onCollect 
 
   const copy = async (claim: InstallmentClaimRow) => {
     try {
-      await navigator.clipboard.writeText(claim.transferCode)
+      await navigator.clipboard.writeText(claim.transferContent || claim.transferCode)
       setCopied(claim.id)
       window.setTimeout(() => setCopied((value) => value === claim.id ? '' : value), 1500)
     } catch { /* Clipboard is optional; the code stays visible. */ }
@@ -117,14 +117,15 @@ export default function InstallmentClaimQueue({ branchId, refreshKey, onCollect 
               <h3><a href={`#/student-360?studentId=${encodeURIComponent(claim.studentId)}&source=admin-pt-students`}>{claim.studentName || `Học viên ${claim.studentId}`}</a></h3>
               <p>{claim.packageName}{claim.sequence && claim.installmentCount ? ` · Kỳ ${claim.sequence}/${claim.installmentCount}` : ''}{claim.dueDate ? ` · hạn ${day(claim.dueDate)}` : ''}{claim.studentPhone ? ` · ${claim.studentPhone}` : ''}</p>
               <p className="installment-claims__code">
-                <span>Nội dung</span><b>{claim.transferCode}</b>
-                <button type="button" onClick={() => void copy(claim)} aria-label={`Chép nội dung ${claim.transferCode}`}>{copied === claim.id ? <Check size={13} /> : <Copy size={13} />}</button>
+                <span>Nội dung</span><b>{claim.transferContent || claim.transferCode}</b>
+                <button type="button" onClick={() => void copy(claim)} aria-label={`Chép nội dung ${claim.transferContent || claim.transferCode}`}>{copied === claim.id ? <Check size={13} /> : <Copy size={13} />}</button>
               </p>
               {claim.note && <p className="installment-claims__note">"{claim.note}"</p>}
               {!claim.actionable && <p className="installment-claims__stale"><AlertCircle size={13} /> {claim.staleReason}</p>}
             </div>
             <div className="installment-claims__side">
               <b>{money(claim.amount)}</b>
+              {claim.installmentAmount > 0 && claim.installmentAmount !== claim.amount && <small className="installment-claims__partial">{claim.amount < claim.installmentAmount ? 'Trả một phần' : 'Trả thêm'} · kỳ {money(claim.installmentAmount)}</small>}
               <small>Báo lúc {moment(claim.submittedAt)}</small>
               <div className="installment-claims__actions">
                 {claim.actionable && claim.contract && <button type="button" className="finance-management__collect-button" onClick={() => onCollect(claim)} aria-label={`Ghi nhận ${money(claim.amount)} của ${claim.studentName}`}>Ghi nhận</button>}

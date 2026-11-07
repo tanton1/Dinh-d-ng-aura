@@ -25,6 +25,23 @@
 .aura-pay__progress i { display: block; height: 6px; overflow: hidden; border-radius: var(--aura-radius-pill); background: var(--aura-line); }
 .aura-pay__progress b { display: block; height: 100%; border-radius: inherit; background: var(--aura-success); }
 
+/* The student chooses how much to transfer; the QR follows the typed amount. */
+.aura-pay__amount-field { display: grid; gap: var(--aura-space-2); }
+.aura-pay__amount-field > label { color: var(--aura-muted); font-size: var(--aura-text-sm); font-weight: 700; }
+.aura-pay__amount-input { display: flex; align-items: center; gap: var(--aura-space-2); min-height: 52px; padding: 0 var(--aura-space-3) 0 var(--aura-space-4); border: 1px solid var(--aura-line); border-radius: var(--aura-radius-sm); background: var(--aura-surface); }
+.aura-pay__amount-input:focus-within { border-color: var(--aura-pink-text); box-shadow: 0 0 0 2px var(--aura-pink-soft); }
+.aura-pay__amount-input.is-invalid { border-color: var(--aura-danger); }
+.aura-pay__amount-input input { flex: 1; min-width: 0; border: 0; padding: 0; color: var(--aura-ink); background: transparent; font: inherit; font-size: var(--aura-text-xl); font-weight: 800; font-variant-numeric: tabular-nums; text-align: right; outline: none; }
+.aura-pay__amount-input span { color: var(--aura-muted); font-size: var(--aura-text-md); font-weight: 700; }
+.aura-pay__chips { display: flex; flex-wrap: wrap; gap: var(--aura-space-2); }
+.aura-pay__chips button { min-height: 36px; padding: 0 var(--aura-space-3); border: 1px solid var(--aura-line); border-radius: var(--aura-radius-pill); color: var(--aura-ink); background: var(--aura-surface); font: inherit; font-size: var(--aura-text-xs); font-weight: 700; cursor: pointer; }
+.aura-pay__chips button[aria-pressed="true"] { border-color: var(--aura-pink-border); color: var(--aura-pink-text); background: var(--aura-pink-soft); }
+.aura-pay__amount-hint { margin: 0; color: var(--aura-muted); font-size: var(--aura-text-xs); line-height: 1.5; }
+.aura-pay__amount-hint.is-error { color: var(--aura-danger); font-weight: 700; }
+.aura-pay__qr-placeholder { display: grid; width: min(64vw, 220px); aspect-ratio: 1; place-items: center; padding: var(--aura-space-4); border: 1px dashed var(--aura-line); border-radius: var(--aura-radius-sm); color: var(--aura-muted); font-size: var(--aura-text-sm); text-align: center; }
+.aura-pay__confirm-summary { margin: 0; color: var(--aura-ink); font-size: var(--aura-text-sm); line-height: 1.5; }
+.aura-pay__confirm-summary b { color: var(--aura-pink-text); }
+
 .aura-pay__qr-card { display: grid; justify-items: center; gap: var(--aura-space-3); padding: var(--aura-space-4); border: 1px solid var(--aura-line); border-radius: var(--aura-radius-md); }
 .aura-pay__qr { width: min(64vw, 220px); height: auto; color: var(--aura-ink); border-radius: var(--aura-radius-xs); }
 .aura-pay__qr-hint { margin: 0; color: var(--aura-muted); font-size: var(--aura-text-xs); text-align: center; }
@@ -36,6 +53,7 @@
 .aura-pay__details dd span { overflow-wrap: anywhere; }
 .aura-pay__details .is-key dd { color: var(--aura-pink-text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; }
 .aura-pay__details button { display: grid; flex: 0 0 auto; width: 36px; height: 36px; place-items: center; border: 0; border-radius: var(--aura-radius-xs); color: var(--aura-pink-text); background: var(--aura-pink-soft); cursor: pointer; }
+.aura-pay__details button:disabled { cursor: default; opacity: .5; }
 .aura-pay__keep { width: 100%; margin: 0; padding: var(--aura-space-2) var(--aura-space-3); border-radius: var(--aura-radius-xs); color: var(--aura-ink); background: var(--aura-surface-soft); font-size: var(--aura-text-xs); line-height: 1.5; }
 
 .aura-pay__alert { --tone: var(--aura-info); display: flex; align-items: flex-start; gap: var(--aura-space-2); padding: var(--aura-space-3); border-radius: var(--aura-radius-sm); color: var(--aura-ink); background: color-mix(in srgb, var(--tone) 9%, var(--aura-surface)); font-size: var(--aura-text-sm); line-height: 1.5; }

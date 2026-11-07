@@ -12,7 +12,14 @@ const CLAIM_STATUSES = new Set(['submitted', 'withdrawn', 'rejected', 'confirmed
 // Crockford base32 without I, L, O and U, so a code read aloud or typed from a
 // screenshot is not confused with 1, 0 or V.
 const TRANSFER_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
-const TRANSFER_PREFIX = 'AURA'
+const TRANSFER_FALLBACK_NAME = 'AURA'
+// NAPAS caps the transfer memo (field 62-08) at 25 characters.
+const MEMO_LENGTH = 25
+// A student may pay part of an installment, or more than it, between this
+// floor and the contract's remaining debt. Finance moves the difference to
+// the following installments when it records the payment.
+const MIN_PARTIAL_AMOUNT = 100_000
+const MAX_INSTALLMENTS = 24
 const REMINDER_OFFSETS = Object.freeze({ before_3: 3, due: 0, after_3: -3 })
 
 function money(value) {
@@ -58,7 +65,7 @@ function paymentClaimId(contractId, installmentId) {
 }
 
 // 40 bits of the same digest: stable for the installment, unique enough for a
-// branch's receivables, and short enough for every Vietnamese bank's memo.
+// branch's receivables, and short enough to share the memo with a name.
 function transferCode(contractId, installmentId) {
   const digest = claimDigest(contractId, installmentId)
   let value = 0n
@@ -68,7 +75,21 @@ function transferCode(contractId, installmentId) {
     code = TRANSFER_ALPHABET[Number(value & 31n)] + code
     value >>= 5n
   }
-  return `${TRANSFER_PREFIX} ${code}`
+  return code
+}
+
+// Bank statements show the memo, so finance recognises the student by name
+// first; the code after it still pins the exact installment for matching.
+// Long names keep their family and given names, then the given name alone.
+function transferContent(studentName, contractId, installmentId) {
+  const code = transferCode(contractId, installmentId)
+  const room = MEMO_LENGTH - code.length - 1
+  const words = asciiUpper(studentName).replace(/[^A-Z0-9 ]/g, '').split(' ').filter(Boolean)
+  const fitting = [words, words.length > 2 ? [words[0], words.at(-1)] : [], words.length > 1 ? [words.at(-1)] : []]
+    .map((parts) => parts.join(' '))
+    .find((text) => text && text.length <= room)
+  const name = fitting || (words.join(' ') || TRANSFER_FALLBACK_NAME).slice(0, room).trim()
+  return `${name} ${code}`
 }
 
 function emvField(id, value) {
@@ -157,12 +178,15 @@ function scheduleRows(contract = {}) {
 }
 
 // Resolve what the student is allowed to pay now. Mirrors the finance command:
-// an installment must still be pending with its exact amount; a contract
-// without a schedule may only settle its whole outstanding balance.
+// an installment must still be pending; the student may pay between the
+// partial floor and the remaining debt. A contract without a schedule pays
+// against its outstanding balance. `later` lists the pending installments
+// that absorb a shortfall or an excess, for the preview in the app.
 function installmentPaymentTarget(contract, installmentId) {
   if (!contract || CLOSED_CONTRACT_STATUSES.has(contract.status)) return { error: 'closed' }
   const amounts = contractAmounts(contract)
   const rows = scheduleRows(contract)
+  const limits = (amount) => ({ minAmount: Math.min(MIN_PARTIAL_AMOUNT, amount), maxAmount: amounts.outstanding })
   if (installmentId) {
     const index = rows.findIndex((item) => item.id === installmentId)
     if (index < 0) return { error: 'not_found', amounts }
@@ -171,11 +195,33 @@ function installmentPaymentTarget(contract, installmentId) {
     if (row.status === 'cancelled') return { error: 'cancelled', amounts }
     if (amounts.outstanding <= 0) return { error: 'settled', amounts }
     if (row.amount > amounts.outstanding) return { error: 'mismatch', amounts }
-    return { installmentId, amount: row.amount, dueDate: row.date, sequence: index + 1, count: rows.length, amounts }
+    const later = rows
+      .map((item, position) => ({ id: item.id, date: item.date, amount: item.amount, sequence: position + 1, status: item.status }))
+      .filter((item) => item.sequence > index + 1 && item.status === 'pending')
+      .map(({ status, ...item }) => item)
+    return { installmentId, amount: row.amount, dueDate: row.date, sequence: index + 1, count: rows.length, amounts, ...limits(row.amount), later }
   }
   if (amounts.outstanding <= 0) return { error: 'settled', amounts }
   if (rows.some((item) => item.status === 'pending')) return { error: 'installment_required', amounts }
-  return { installmentId: null, amount: amounts.outstanding, dueDate: dateKey(contract.nextPaymentDate) || null, sequence: null, count: null, amounts }
+  return { installmentId: null, amount: amounts.outstanding, dueDate: dateKey(contract.nextPaymentDate) || null, sequence: null, count: null, amounts, ...limits(amounts.outstanding), later: [] }
+}
+
+// Why a student-chosen amount cannot be claimed against the target.
+function claimAmountIssue(target, amount) {
+  if (!Number.isSafeInteger(amount) || amount <= 0) return 'invalid'
+  if (amount < target.minAmount) return 'below_minimum'
+  if (amount > target.maxAmount) return 'above_outstanding'
+  if (amount < target.amount && target.installmentId && !target.later.length && target.count >= MAX_INSTALLMENTS) return 'schedule_full'
+  return null
+}
+
+function amountIssueMessage(issue, target) {
+  return {
+    invalid: 'Số tiền không hợp lệ.',
+    below_minimum: `Số tiền tối thiểu cho kỳ này là ${formatVnd(target.minAmount)}.`,
+    above_outstanding: `Số tiền vượt công nợ còn lại ${formatVnd(target.maxAmount)}.`,
+    schedule_full: 'Lịch trả góp đã đủ 24 kỳ nên không thể trả một phần kỳ cuối. Hãy liên hệ Aura.',
+  }[issue] || 'Số tiền không hợp lệ.'
 }
 
 function targetErrorMessage(error) {
@@ -208,12 +254,13 @@ function confirmedClaimPatch(claim, { amount, installmentId, ledgerEntryId, rece
   }
 }
 
-// How the student sees their claim against the current contract state.
+// How the student sees their claim against the current contract state. The
+// claim carries the amount the student chose, so any open claim counts.
 function studentClaimState(claim, target) {
   if (target.error === 'paid') return 'paid'
   if (target.error) return 'unavailable'
-  if (claim?.status === 'submitted' && money(claim.amount) === target.amount) return 'submitted'
-  if (claim?.status === 'rejected' && money(claim.amount) === target.amount) return 'rejected'
+  if (claim?.status === 'submitted') return 'submitted'
+  if (claim?.status === 'rejected') return 'rejected'
   return 'open'
 }
 
@@ -282,9 +329,12 @@ module.exports = {
   PAYMENT_CLAIM_COLLECTION,
   OUTSTANDING_TARGET,
   CLOSED_CONTRACT_STATUSES,
+  MIN_PARTIAL_AMOUNT,
   TransferProfileError,
   addDays,
+  amountIssueMessage,
   asciiUpper,
+  claimAmountIssue,
   confirmedClaimPatch,
   contractAmounts,
   crc16Ccitt,
@@ -301,6 +351,7 @@ module.exports = {
   studentClaimState,
   targetErrorMessage,
   transferCode,
+  transferContent,
   usableTransferProfile,
   vietnamDateKey,
   vietQrPayload,

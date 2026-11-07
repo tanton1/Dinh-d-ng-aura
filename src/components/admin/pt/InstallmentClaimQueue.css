@@ -26,6 +26,7 @@
 .installment-claims__side { display: grid; justify-items: end; gap: 4px; text-align: right; }
 .installment-claims__side b { color: var(--fm-ink); font-size: 16px; }
 .installment-claims__side small { color: var(--fm-muted); font-size: 12px; }
+.installment-claims__side .installment-claims__partial { color: var(--aura-warning); font-weight: 700; }
 .installment-claims__actions { display: flex; gap: 6px; margin-top: 4px; }
 .installment-claims__reject { min-height: 36px; padding: 0 12px; border: 1px solid var(--fm-line); border-radius: 9px; color: var(--fm-ink); background: var(--aura-surface); font-size: 12px; font-weight: 800; cursor: pointer; }
 .installment-claims__reject-form { display: grid; gap: 8px; margin-top: 10px; }
@@ -43,3 +44,4 @@
 
 .finance-payment-claim-note { margin: 10px 0 0; padding: 10px 12px; border-radius: 12px; color: var(--aura-ink); background: color-mix(in srgb, var(--aura-info) 10%, var(--aura-surface)); font-size: 13px; line-height: 1.5; }
 .finance-payment-claim-note b { color: var(--aura-pink-text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.finance-payment-plan-note { margin: 8px 0 0; padding: 10px 12px; border-radius: 12px; color: var(--aura-ink); background: color-mix(in srgb, var(--aura-warning) 12%, var(--aura-surface)); font-size: 13px; line-height: 1.5; }

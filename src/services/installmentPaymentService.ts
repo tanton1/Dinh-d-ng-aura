@@ -23,7 +23,11 @@ export interface InstallmentPaymentView {
   unavailableReason: string | null
   message: string | null
   contract: { id: string; packageName: string; totalAmount: number; paidAmount: number; outstandingAmount: number }
-  installment: { id: string | null; amount: number; dueDate: string | null; sequence: number | null; count: number | null; daysUntilDue: number | null } | null
+  /** `amount` is the scheduled amount; the student may claim anything from minAmount to maxAmount (the remaining debt). */
+  installment: { id: string | null; amount: number; dueDate: string | null; sequence: number | null; count: number | null; daysUntilDue: number | null; minAmount: number; maxAmount: number } | null
+  /** Pending installments after this one; a shortfall or an excess moves into them. */
+  laterInstallments: Array<{ id: string; date: string; amount: number; sequence: number }>
+  /** `qrPayload` is for the scheduled amount; the app rebuilds it for the chosen amount. */
   transfer: { bankName: string; bankBin: string; accountNumber: string; accountName: string; content: string; qrPayload: string } | null
   claim: InstallmentPaymentClaim | null
 }
@@ -37,11 +41,16 @@ export interface InstallmentClaimRow {
   studentPhone: string
   branchId: string
   packageName: string
+  /** What the student says they transferred. */
   amount: number
+  /** What the schedule asked for; differs from `amount` on a partial or larger payment. */
+  installmentAmount: number
   dueDate: string | null
   sequence: number | null
   installmentCount: number | null
   transferCode: string
+  /** The memo the student was asked to use: student name + code. */
+  transferContent: string
   cashAccountId: string | null
   note: string
   submittedAt: string | null
@@ -87,7 +96,7 @@ export async function getMyInstallmentPayment(contractId: string, installmentId:
   return result.data
 }
 
-export async function submitMyInstallmentPaymentClaim(input: { contractId: string; installmentId: string | null; action: 'submit' | 'withdraw'; expectedAmount?: number; note?: string }) {
+export async function submitMyInstallmentPaymentClaim(input: { contractId: string; installmentId: string | null; action: 'submit' | 'withdraw'; amount?: number; note?: string }) {
   const result = await callable<typeof input, { state: InstallmentPaymentState; unchanged: boolean; claim: InstallmentPaymentClaim | null }>('submitMyInstallmentPaymentClaim')({ ...input, installmentId: input.installmentId || OUTSTANDING_TARGET })
   return result.data
 }
@@ -121,22 +130,28 @@ function dayDistance(from: string, to: string) {
   return Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000)
 }
 
+/** Same floor as functions/installment-payment-core.js#MIN_PARTIAL_AMOUNT. */
+export const MIN_PARTIAL_AMOUNT = 100_000
+
 /** Local preview for demo mode. Never used when Firebase is configured. */
-export function demoInstallmentPayment(contract: StudentPtContractSummary, installment: StudentPtInstallmentSummary | null, todayKey: string, submitted = false): InstallmentPaymentView {
+export function demoInstallmentPayment(contract: StudentPtContractSummary, installment: StudentPtInstallmentSummary | null, todayKey: string, submitted: number | boolean = false): InstallmentPaymentView {
   const rows = contract.installments ?? []
-  const sequence = installment ? rows.findIndex((item) => item.id === installment.id) + 1 : null
+  const index = installment ? rows.findIndex((item) => item.id === installment.id) : -1
+  const sequence = installment ? index + 1 : null
   const amount = installment?.amount ?? contract.outstandingAmount
   const dueDate = installment?.date ?? contract.nextPaymentDate
-  const content = 'AURA DEMO2026'
+  const content = 'HOC VIEN DEMO 7K3QX9M2'
   const paid = installment?.status === 'paid'
+  const claimed = typeof submitted === 'number' ? submitted : submitted ? amount : 0
   return {
     schemaVersion: 1,
-    state: paid ? 'paid' : submitted ? 'submitted' : 'open',
+    state: paid ? 'paid' : claimed ? 'submitted' : 'open',
     unavailableReason: null,
     message: null,
     contract: { id: contract.id, packageName: contract.packageName, totalAmount: contract.totalAmount, paidAmount: contract.paidAmount, outstandingAmount: contract.outstandingAmount },
-    installment: { id: installment?.id ?? null, amount, dueDate, sequence, count: rows.length || null, daysUntilDue: dueDate ? dayDistance(todayKey, dueDate) : null },
+    installment: { id: installment?.id ?? null, amount, dueDate, sequence, count: rows.length || null, daysUntilDue: dueDate ? dayDistance(todayKey, dueDate) : null, minAmount: Math.min(MIN_PARTIAL_AMOUNT, amount), maxAmount: contract.outstandingAmount },
+    laterInstallments: installment ? rows.map((item, position) => ({ id: item.id, date: item.date, amount: item.amount, sequence: position + 1, status: item.status })).filter((item) => item.sequence > index + 1 && item.status === 'pending').map(({ status: _status, ...item }) => item) : [],
     transfer: paid ? null : { bankName: 'Vietcombank', bankBin: '970436', accountNumber: '0123456789', accountName: 'AURA FITNESS DEMO', content, qrPayload: vietQrPayload({ bankBin: '970436', accountNumber: '0123456789', amount, content }) },
-    claim: submitted ? { status: 'submitted', amount, note: '', submittedAt: new Date().toISOString(), rejectedReason: '', reviewedAt: null, confirmedAt: null, receiptVoucherNumber: null, revision: 1 } : null,
+    claim: claimed ? { status: 'submitted', amount: claimed, note: '', submittedAt: new Date().toISOString(), rejectedReason: '', reviewedAt: null, confirmedAt: null, receiptVoucherNumber: null, revision: 1 } : null,
   }
 }

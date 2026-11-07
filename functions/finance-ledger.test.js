@@ -11,6 +11,7 @@ const {
   receiptVoucherNumber,
   summarizeLedgerDocuments,
   updatedInstallments,
+  installmentReplan,
 } = require('./finance-ledger')
 const { Timestamp } = require('firebase-admin/firestore')
 const { settlementCashPlan, assertContractPaymentReversalAllowed } = require('./contract-settlement-cash')
@@ -186,7 +187,36 @@ test('installment transition is atomic-ready and advances the next due date', ()
   const refunded = updatedInstallments({ installments: paid.installments }, 'first', 'pending', 100_000)
   assert.equal(refunded.installments.find((item) => item.id === 'first').status, 'pending')
   assert.equal(refunded.nextPaymentDate, '2026-08-20')
-  assert.throws(() => updatedInstallments(contract, 'first', 'paid', 99_000), /không khớp/)
+  assert.throws(() => updatedInstallments({ installments: paid.installments }, 'first', 'pending', 99_000), /không khớp/)
+})
+
+test('a different amount re-plans the schedule and a reversal restores it', () => {
+  const contract = {
+    installments: [
+      { id: 'first', amount: 100_000, date: '2026-08-20', status: 'pending' },
+      { id: 'next', amount: 150_000, date: '2026-09-01', status: 'pending' },
+    ],
+  }
+  const partial = updatedInstallments(contract, 'first', 'paid', 99_000, { paidOn: '2026-08-21' })
+  assert.deepEqual(partial.installments, [
+    { id: 'first', amount: 99_000, date: '2026-08-20', status: 'paid' },
+    { id: 'next', amount: 151_000, date: '2026-09-01', status: 'pending' },
+  ])
+  const replan = installmentReplan(contract, partial, 'first', 99_000)
+  assert.equal(replan.shortfall, 1_000)
+  assert.equal(replan.scheduledAmount, 100_000)
+  assert.equal(installmentReplan(contract, updatedInstallments(contract, 'first', 'paid', 100_000), 'first', 100_000), null)
+  // Reversal of that receipt puts the earlier schedule back, unless the schedule moved on since.
+  const restored = updatedInstallments({ installments: partial.installments }, 'first', 'pending', 99_000, { restore: replan })
+  assert.deepEqual(restored.installments, contract.installments)
+  assert.equal(restored.nextPaymentDate, '2026-08-20')
+  const movedOn = { installments: [{ ...partial.installments[0] }, { ...partial.installments[1], status: 'paid' }] }
+  const fallback = updatedInstallments(movedOn, 'first', 'pending', 99_000, { restore: replan })
+  assert.deepEqual(fallback.installments.map((item) => [item.id, item.amount, item.status]), [['first', 99_000, 'pending'], ['next', 151_000, 'paid']])
+  // Paying more than the installment settles the following one.
+  const extra = updatedInstallments(contract, 'first', 'paid', 250_000)
+  assert.deepEqual(extra.installments, [{ id: 'first', amount: 250_000, date: '2026-08-20', status: 'paid' }])
+  assert.equal(extra.nextPaymentDate, null)
 })
 
 test('admin reporting cannot fabricate or destructively synchronize legacy payments', () => {

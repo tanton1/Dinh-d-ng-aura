@@ -6,6 +6,7 @@ const { readContractRecognizedRevenue } = require('./finance-recognition-balance
 const { readSettlementCashPlan, writeSettlementCashProgress, assertContractPaymentReversalAllowed } = require('./contract-settlement-cash')
 const { contractPaymentJournal, reversedJournalLines, amountInVietnameseWords } = require('./accounting-core')
 const { PAYMENT_CLAIM_COLLECTION, paymentClaimId, confirmedClaimPatch, formatVnd } = require('./installment-payment-core')
+const { planInstallmentPayment, restoredInstallments, scheduleSnapshot } = require('./installment-schedule')
 
 // `payment` is a cash collection, while `revenue_recognition` is the
 // management P&L event.  Keeping both types prevents cash flow from being
@@ -683,14 +684,31 @@ async function assertFinancePeriodOpen(transaction, db, value) {
   }
 }
 
-function updatedInstallments(contractData, installmentId, nextStatus, amount) {
+// Contract fields only: callers spread the result into the contract update.
+// `paidOn` dates a carried-over installment; `restore` is the schedule
+// snapshot a reversed payment stored when it re-planned the schedule.
+function updatedInstallments(contractData, installmentId, nextStatus, amount, { paidOn = '', restore = null } = {}) {
   if (!installmentId) return null
   if (!Array.isArray(contractData.installments)) throw new HttpsError('failed-precondition', 'Hợp đồng không có lịch trả góp.')
+  if (nextStatus === 'pending' && restore) {
+    const restored = restoredInstallments(contractData.installments, restore)
+    if (restored) return restored
+    // The schedule moved on since that payment; fall back to reopening the
+    // installment with the amount it received, which keeps pending == debt.
+  }
   const current = contractData.installments.find((item) => item?.id === installmentId)
   if (!current) throw new HttpsError('not-found', 'Không tìm thấy kỳ trả góp.')
   const expectedStatus = nextStatus === 'paid' ? 'pending' : 'paid'
   if (current.status !== expectedStatus) {
     throw new HttpsError('failed-precondition', nextStatus === 'paid' ? 'Kỳ trả góp đã được thanh toán hoặc không còn hiệu lực.' : 'Kỳ trả góp chưa được thanh toán.')
+  }
+  if (nextStatus === 'paid' && Number(current.amount || 0) !== amount) {
+    // Finance records what actually arrived; the difference moves to the
+    // following installments so the schedule still adds up to the debt.
+    const plan = planInstallmentPayment(contractData.installments, installmentId, amount, { paidOn })
+    if (plan.error === 'schedule_full') throw new HttpsError('failed-precondition', 'Lịch trả góp đã có 24 kỳ nên phần còn thiếu không thể tách thành kỳ mới. Hãy gộp kỳ trước khi ghi nhận.')
+    if (plan.error) throw new HttpsError('failed-precondition', 'Không thể ghi nhận số tiền này cho kỳ trả góp.')
+    return { installments: plan.installments, nextPaymentDate: plan.nextPaymentDate }
   }
   if (Number(current.amount || 0) !== amount) throw new HttpsError('failed-precondition', 'Số tiền không khớp với kỳ trả góp.')
   const installments = contractData.installments.map((item) => item.id === installmentId ? { ...item, status: nextStatus } : item)
@@ -698,6 +716,15 @@ function updatedInstallments(contractData, installmentId, nextStatus, amount) {
     .filter((item) => item.status === 'pending' && item.date)
     .sort((a, b) => String(a.date).localeCompare(String(b.date)))[0]
   return { installments, nextPaymentDate: nextPending?.date || null }
+}
+
+// What a payment changed beyond flipping its installment to paid, kept on the
+// ledger entry so a reversal can put the earlier schedule back.
+function installmentReplan(contractData, installmentPatch, installmentId, amount) {
+  if (!installmentPatch) return null
+  const scheduled = Number(contractData.installments.find((item) => item?.id === installmentId)?.amount || 0)
+  if (scheduled === amount) return null
+  return { before: scheduleSnapshot(contractData.installments), after: scheduleSnapshot(installmentPatch.installments), scheduledAmount: scheduled, shortfall: Math.max(0, scheduled - amount) }
 }
 
 function createFinanceLedgerFunctions({ db, onCall }) {
@@ -767,7 +794,8 @@ function createFinanceLedgerFunctions({ db, onCall }) {
       const totalDue = settlement ? settlement.recognizedReceivableTarget : Number(data.totalPrice || 0) - Number(data.discount || 0)
       const nextPaid = Number(data.paidAmount || 0) + amount
       if (nextPaid > totalDue) throw new HttpsError('failed-precondition', 'Khoản thu vượt số tiền hợp đồng còn lại.')
-      const installmentPatch = updatedInstallments(data, installmentId, 'paid', amount)
+      const installmentPatch = updatedInstallments(data, installmentId, 'paid', amount, { paidOn: vietnamDateKey(effectiveAt) })
+      const replan = installmentReplan(data, installmentPatch, installmentId, amount)
       const code = referenceCode('THU', ledgerReference)
       const recognisedToDate = settlement ? settlement.recognizedReceivableTarget : await readContractRecognizedRevenue(transaction, db, contractId)
       const receivableSettlement = Math.min(amount, Math.max(0, recognisedToDate - Number(data.paidAmount || 0)))
@@ -793,7 +821,7 @@ function createFinanceLedgerFunctions({ db, onCall }) {
         source: 'pt_gym',
         installmentId,
       })
-      transaction.create(ledgerReference, { schemaVersion: 4, type: 'payment', eventClass: 'cash_collection', source: 'pt_gym', renewalCaseId: data.renewalCaseId || null, contractId, studentId: data.studentId || '', branchId: data.branchId || '', installmentId: installmentId || null, cashAccountId: cashAccountId || null, journalEntryId: journalReference.id, accountingDocumentId: receipt.reference.id, voucherNumber: receipt.voucherNumber, accountingCashAccountType, accountingAdvanceAccountCode: advanceAccountCode, cashbookReconciliationRequired: false, ...referralSnapshot(data), amount, cashImpact: amount, revenueImpact: 0, expenseImpact: 0, receivableImpact: -receivableSettlement, deferredRevenueImpact: amount - receivableSettlement, effectiveAt, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid, paymentMethod, referenceCode: code, idempotencyKey, requestExpectedPaidAmount: expectedPaid, ...(expectedSettlement !== null ? { requestExpectedSettlementRevision: expectedSettlement } : {}), status: 'posted', note })
+      transaction.create(ledgerReference, { schemaVersion: 4, type: 'payment', eventClass: 'cash_collection', source: 'pt_gym', renewalCaseId: data.renewalCaseId || null, contractId, studentId: data.studentId || '', branchId: data.branchId || '', installmentId: installmentId || null, cashAccountId: cashAccountId || null, journalEntryId: journalReference.id, accountingDocumentId: receipt.reference.id, voucherNumber: receipt.voucherNumber, accountingCashAccountType, accountingAdvanceAccountCode: advanceAccountCode, cashbookReconciliationRequired: false, ...referralSnapshot(data), amount, cashImpact: amount, revenueImpact: 0, expenseImpact: 0, receivableImpact: -receivableSettlement, deferredRevenueImpact: amount - receivableSettlement, effectiveAt, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid, paymentMethod, referenceCode: code, idempotencyKey, requestExpectedPaidAmount: expectedPaid, ...(expectedSettlement !== null ? { requestExpectedSettlementRevision: expectedSettlement } : {}), ...(replan ? { installmentAmount: replan.scheduledAmount, installmentSchedule: { before: replan.before, after: replan.after } } : {}), status: 'posted', note })
       createJournalEntry(transaction, journalReference, { documentType: 'receipt_voucher', documentId: receipt.reference.id, referenceCode: receipt.voucherNumber, branchId: data.branchId, effectiveAt, lines: journal.lines, actorUid: actor.uid, sourceLedgerEntryId: ledgerReference.id })
       const settlementPatch = writeSettlementCashProgress(transaction, settlement, ledgerReference.id, actor.uid)
       transaction.update(contractReference, { paidAmount: nextPaid, ...(installmentPatch || {}), ...settlementPatch, accountingAdvanceAccountCode: advanceAccountCode, financeProjectionUpdatedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
@@ -808,7 +836,7 @@ function createFinanceLedgerFunctions({ db, onCall }) {
             id: notification.id,
             userId: claimData.accountUid,
             title: claimData.sequence ? `Đã ghi nhận thanh toán kỳ ${claimData.sequence}` : 'Đã ghi nhận thanh toán',
-            message: `${claimData.packageName || 'Gói tập Aura'} · ${formatVnd(amount)} · phiếu thu ${receipt.voucherNumber}`,
+            message: `${claimData.packageName || 'Gói tập Aura'} · ${formatVnd(amount)} · phiếu thu ${receipt.voucherNumber}${replan?.shortfall ? `. Phần còn thiếu ${formatVnd(replan.shortfall)} đã chuyển sang kỳ sau.` : replan ? '. Phần trả thêm đã trừ vào các kỳ sau.' : ''}`,
             type: 'PAYMENT',
             category: 'payment',
             actionUrl: '#/schedule?tab=contract',
@@ -866,7 +894,7 @@ function createFinanceLedgerFunctions({ db, onCall }) {
       if (!Number.isSafeInteger(paidAmount) || paidAmount < amount) {
         throw new HttpsError('failed-precondition', 'Khoản đảo vượt số tiền đã thu còn lại. Hãy đối soát các khoản hoàn tiền trước khi tiếp tục.', { reason: 'finance-reversal-exceeds-paid' })
       }
-      const installmentPatch = contract.data().status === 'cancelled' ? null : updatedInstallments(contract.data(), original.data().installmentId || '', 'pending', amount)
+      const installmentPatch = contract.data().status === 'cancelled' ? null : updatedInstallments(contract.data(), original.data().installmentId || '', 'pending', amount, { restore: original.data().installmentSchedule || null })
       const hasOriginalReceivableImpact = original.data().receivableImpact != null && Number.isFinite(Number(original.data().receivableImpact))
       const hasOriginalDeferredRevenueImpact = original.data().deferredRevenueImpact != null && Number.isFinite(Number(original.data().deferredRevenueImpact))
       const recognisedToDate = hasOriginalReceivableImpact && hasOriginalDeferredRevenueImpact
@@ -1065,6 +1093,7 @@ module.exports = {
   ledgerExpenseImpact,
   contractAdvanceAccountCode,
   updatedInstallments,
+  installmentReplan,
   cashAccountForMovement,
   createCashMovement,
   createReceiptVoucher,

@@ -19,6 +19,7 @@ import { listCashAccounts, type CashAccount } from '../../../services/cashbookSe
 import FinanceIntentBoundary, { FinancePendingOperations } from './FinanceIntentBoundary'
 import InstallmentClaimQueue from './InstallmentClaimQueue'
 import type { InstallmentClaimRow } from '../../../services/installmentPaymentService'
+import { describeInstallmentPlan } from '../../../domain/payments/installmentSchedule'
 import type { FinanceIntentOutcome, FinanceOperationDraft } from '../../../services/financeOperationIntent'
 import '../../../styles-finance-management.css'
 
@@ -411,6 +412,19 @@ function FinanceWorkspace({ profile, category: initialCategory = 'all', initialF
     void loadPaymentCashAccounts(contract, claim.cashAccountId)
   }
 
+  // A payment that differs from the selected installment re-plans the
+  // schedule on the server; show the same outcome before posting.
+  const installmentPlanNote = useMemo(() => {
+    const amount = Number(payAmount)
+    const rows = selectedContract?.installments
+    if (!selectedInstallmentId || !rows || !Number.isSafeInteger(amount) || amount <= 0) return ''
+    const sorted = [...rows].sort((left, right) => String(left.date).localeCompare(String(right.date)) || left.id.localeCompare(right.id)).map((item, index) => ({ ...item, sequence: index + 1 }))
+    const target = sorted.find((item) => item.id === selectedInstallmentId)
+    if (!target || Number(target.amount) === amount) return ''
+    const note = describeInstallmentPlan(sorted, selectedInstallmentId, amount, todayKey)
+    return note ? `Kỳ ${target.sequence} ghi nhận ${money(amount)} thay vì ${money(Number(target.amount))}. ${note}` : ''
+  }, [payAmount, selectedContract, selectedInstallmentId, todayKey])
+
   const submitPayment = async (submit: (draft: FinanceOperationDraft) => Promise<void>) => {
     if (!selectedContract || cashAccountsLoading || cashAccountsError) return
     if (selectedContract.status === 'cancelled' || contracts.find(item => item.id === selectedContract.id)?.status === 'cancelled') {
@@ -428,7 +442,7 @@ function FinanceWorkspace({ profile, category: initialCategory = 'all', initialF
     }
     const payload = { contractId: selectedContract.id, amount: Math.abs(amount), effectiveAt: new Date().toISOString(), paymentMethod: 'transfer', cashAccountId: selectedCashAccountId, installmentId: selectedInstallmentId || undefined, expectedPaidAmount: Number(selectedContract.paidAmount || 0) }
     await submit(amount > 0
-      ? { type: 'payment', payload: { ...payload, note: paymentClaim ? `Chuyển khoản ${paymentClaim.transferCode}` : selectedInstallmentId ? 'Thanh toán kỳ trả góp' : 'Thanh toán công nợ' } }
+      ? { type: 'payment', payload: { ...payload, note: paymentClaim ? `Chuyển khoản ${paymentClaim.transferContent || paymentClaim.transferCode}` : selectedInstallmentId ? 'Thanh toán kỳ trả góp' : 'Thanh toán công nợ' } }
       : { type: 'refund', payload: { ...payload, reason: selectedInstallmentId ? 'Hoàn tiền kỳ trả góp' : 'Hoàn tiền từ trang tài chính' } })
   }
 
@@ -576,11 +590,12 @@ function FinanceWorkspace({ profile, category: initialCategory = 'all', initialF
         {selectedContract && <Modal onClose={closePayment} title={contractBalance(selectedContract) < 0 ? 'Hoàn thanh toán dư' : 'Thu công nợ'}>
           <FinanceIntentBoundary contractId={selectedContract.id} onCompleted={financeCompleted}>{({ blocked, busy, submit }) => <fieldset disabled={blocked || busy} className="finance-payment-fields">
           <p className="text-sm text-zinc-400">Học viên: <b className="text-white">{studentName(selectedContract.studentId)}</b></p>
-          {paymentClaim && <p className="finance-payment-claim-note">Học viên báo đã chuyển khoản. Đối chiếu sao kê với nội dung <b>{paymentClaim.transferCode}</b> trước khi ghi nhận.</p>}
+          {paymentClaim && <p className="finance-payment-claim-note">Học viên báo đã chuyển <b>{money(paymentClaim.amount)}</b>{paymentClaim.installmentAmount > 0 && paymentClaim.installmentAmount !== paymentClaim.amount ? ` cho kỳ ${money(paymentClaim.installmentAmount)}` : ''}. Đối chiếu sao kê với nội dung <b>{paymentClaim.transferContent || paymentClaim.transferCode}</b>, sửa số tiền theo đúng sao kê rồi ghi nhận.</p>}
           <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950 p-4 text-sm"><div className="flex justify-between text-zinc-500"><span>Tổng hợp đồng</span><span className="text-zinc-300">{money(Number(selectedContract.totalPrice || 0) - Number(selectedContract.discount || 0))}</span></div><div className="mt-2 flex justify-between text-zinc-500"><span>Đã thanh toán</span><span className="text-zinc-300">{money(Number(selectedContract.paidAmount || 0))}</span></div></div>
-          {contractBalance(selectedContract) > 0 && (selectedContract.installments || []).some((item) => item.status === 'pending') && <div className="mt-4"><p className="mb-2 text-xs font-bold text-zinc-500">Chọn nhanh kỳ trả góp</p><div className="flex flex-wrap gap-2">{selectedContract.installments?.filter((item) => item.status === 'pending').map((item) => <button key={item.id} onClick={() => { setSelectedInstallmentId(item.id); setPayAmount(String(item.amount)) }} className={`rounded-lg border px-3 py-2 text-xs ${selectedInstallmentId === item.id ? 'border-pink-500 bg-pink-500/10 text-pink-300' : 'border-zinc-700 bg-zinc-900 text-zinc-300'}`}>{new Date(item.date).toLocaleDateString('vi-VN')} · {money(item.amount)}</button>)}</div></div>}
+          {contractBalance(selectedContract) > 0 && (selectedContract.installments || []).some((item) => item.status === 'pending') && <div className="mt-4"><p className="mb-2 text-xs font-bold text-zinc-500">Chọn kỳ trả góp; bấm lại để thu không gắn kỳ</p><div className="flex flex-wrap gap-2">{selectedContract.installments?.filter((item) => item.status === 'pending').map((item) => <button key={item.id} aria-pressed={selectedInstallmentId === item.id} onClick={() => { if (selectedInstallmentId === item.id) { setSelectedInstallmentId(null); return } setSelectedInstallmentId(item.id); setPayAmount(String(item.amount)) }} className={`rounded-lg border px-3 py-2 text-xs ${selectedInstallmentId === item.id ? 'border-pink-500 bg-pink-500/10 text-pink-300' : 'border-zinc-700 bg-zinc-900 text-zinc-300'}`}>{new Date(item.date).toLocaleDateString('vi-VN')} · {money(item.amount)}</button>)}</div></div>}
           <label className="mt-4 block text-xs font-bold text-zinc-500">Số tiền; nhập số âm để hoàn tiền</label>
-          <input type="number" value={payAmount} onChange={(event) => { setPayAmount(event.target.value); setSelectedInstallmentId(null) }} className="mt-2 min-h-12 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 text-lg font-bold text-white" />
+          <input type="number" value={payAmount} onChange={(event) => { setPayAmount(event.target.value); if (Number(event.target.value) <= 0) setSelectedInstallmentId(null) }} className="mt-2 min-h-12 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 text-lg font-bold text-white" />
+          {installmentPlanNote && <p className="finance-payment-plan-note" role="status">{installmentPlanNote}</p>}
           <label className="mt-4 block text-xs font-bold text-zinc-500">Quỹ nhận/chi</label>
           <select aria-label="Quỹ nhận/chi" required disabled={cashAccountsLoading || Boolean(cashAccountsError)} value={selectedCashAccountId} onChange={(event) => setSelectedCashAccountId(event.target.value)} className="mt-2 min-h-12 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 text-sm font-bold text-white"><option value="">Chọn quỹ bắt buộc</option>{cashAccounts.map((item) => <option key={item.id} value={item.id}>{item.name} · {money(item.balance)}</option>)}</select>
           {cashAccountsLoading && <p role="status" className="mt-2 text-xs text-zinc-400">Đang tải danh sách quỹ…</p>}
