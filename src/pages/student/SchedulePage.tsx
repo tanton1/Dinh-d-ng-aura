@@ -416,7 +416,9 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
     ?? displayContract
     ?? contracts[0]
   const contractAlerts = data?.contractAlerts ?? []
-  const openPayment = (contractId: string, installmentId: string | null) => {
+  // V4 has no contract tab in its tab bar; the header button carries this count.
+  const paymentAlertCount = contractAlerts.filter((alert) => alert.code.startsWith('PAYMENT_')).length
+  const openPayment =(contractId: string, installmentId: string | null) => {
     setSelectedContractId(contractId)
     setActiveTab('contract')
     setPaymentTarget({ contractId, installmentId })
@@ -516,7 +518,7 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
       {!loading && !loadIssue && data && !data.linked && <div className="student-schedule-state is-warning"><Link2 size={28} /><strong>Chưa liên kết hồ sơ học viên</strong><span>{missingProfileDescription}</span></div>}
 
       {!loading && data?.student && <>
-        {scheduleV4 ? <section className="student-schedule-v4-header"><div><small>AURA · LỊCH TẬP</small><h1>Lịch của bạn</h1><p>{weekSessions.length ? `${weekSessions.length} buổi trong tuần · ${weekCompletion}% đã hoàn thành` : 'Chưa có buổi tập trong tuần đang xem.'}</p></div><div><button type="button" onClick={() => onNavigate('student-availability')}><CalendarRange size={17} /> Lịch rảnh</button></div></section> : <section className="student-schedule-hero" aria-roledescription="carousel" aria-label="Tổng quan lịch học viên">
+        {scheduleV4 ? <section className="student-schedule-v4-header"><div><small>AURA · LỊCH TẬP</small><h1>Lịch của bạn</h1><p>{weekSessions.length ? `${weekSessions.length} buổi trong tuần · ${weekCompletion}% đã hoàn thành` : 'Chưa có buổi tập trong tuần đang xem.'}</p></div><div><button type="button" onClick={() => onNavigate('student-availability')}><CalendarRange size={17} /> Lịch rảnh</button>{contracts.length > 0 && <button type="button" className={paymentAlertCount > 0 ? 'has-payment-due' : ''} onClick={() => setActiveTab('contract')} aria-label={paymentAlertCount > 0 ? `Gói tập và thanh toán, ${paymentAlertCount} kỳ cần thanh toán` : 'Gói tập và thanh toán'}><WalletCards size={17} /> Gói tập{paymentAlertCount > 0 && <i>{paymentAlertCount}</i>}</button>}</div></section> : <section className="student-schedule-hero" aria-roledescription="carousel" aria-label="Tổng quan lịch học viên">
           <div
             ref={heroTrackRef}
             className="student-schedule-hero__track"

@@ -488,6 +488,8 @@
 .student-payment-pay:focus-visible { outline:2px solid var(--aura-pink-text); outline-offset:2px; }
 .student-payment-schedule article > .student-payment-pay { grid-column:2 / -1; justify-self:start; }
 .student-session-empty > .student-payment-pay { margin-top:var(--aura-space-2); }
+.student-schedule-v4-header button.has-payment-due { border-color:var(--aura-pink-border); color:var(--aura-pink-text); background:var(--aura-pink-soft); }
+.student-schedule-v4-header button > i { display:inline-grid; min-width:20px; height:20px; place-items:center; padding:0 6px; border-radius:var(--aura-radius-pill); color:#ffffff; background:var(--aura-danger); font-size:var(--aura-text-xs); font-style:normal; font-weight:800; }
 .student-contract-pause-action { display:inline-flex; align-items:center; gap:7px; min-height:40px; margin-top:11px; padding:0 13px; border:1px solid #efb9cc; border-radius:12px; color:#d4266e; background:#fff4f8; font:inherit; font-size:10px; font-weight:900; cursor:pointer; }
 
 .student-request-center {

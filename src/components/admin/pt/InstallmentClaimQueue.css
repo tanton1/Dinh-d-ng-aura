@@ -1,6 +1,8 @@
 .installment-claims *, .installment-claims *::before, .installment-claims *::after { box-sizing: border-box; }
 .installment-claims { box-sizing: border-box; display: grid; gap: 8px; padding: 14px; border: 1px solid color-mix(in srgb, var(--aura-info) 28%, transparent); border-radius: 18px; background: color-mix(in srgb, var(--aura-info) 5%, var(--aura-surface)); }
 .installment-claims .finance-management__section-head h2 svg { color: var(--aura-info); }
+.installment-claims.is-empty { border-color: var(--fm-line); background: var(--aura-surface); }
+.installment-claims.is-empty .finance-management__section-head h2 svg { color: var(--fm-muted); }
 .installment-claims__head-tools { display: flex; align-items: center; gap: 6px; }
 .installment-claims__head-tools strong { color: var(--fm-muted); font-size: 12px; font-weight: 700; white-space: nowrap; }
 .installment-claims .finance-management__collect-button { min-height: 36px; padding: 0 14px; font-size: 13px; }

@@ -93,11 +93,12 @@ export default function InstallmentClaimQueue({ branchId, refreshKey, onCollect 
     } catch { /* Clipboard is optional; the code stays visible. */ }
   }
 
-  // Keep the receivables screen unchanged when nobody is waiting.
-  if (!loading && !error && claims.length === 0) return null
+  // Always visible, so finance can find where transfer reports arrive even
+  // before the first one; the empty state stays a single compact row.
+  const empty = !loading && !error && claims.length === 0
 
   return (
-    <section className="installment-claims" aria-labelledby="installment-claims-title">
+    <section className={`installment-claims${empty ? ' is-empty' : ''}`} aria-labelledby="installment-claims-title">
       <div className="finance-management__section-head">
         <h2 id="installment-claims-title"><Hourglass size={17} /> Chờ xác nhận chuyển khoản</h2>
         <div className="installment-claims__head-tools">
@@ -105,7 +106,9 @@ export default function InstallmentClaimQueue({ branchId, refreshKey, onCollect 
           <button type="button" onClick={() => void load(false)} disabled={loading} aria-label="Làm mới danh sách chờ xác nhận"><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /></button>
         </div>
       </div>
-      <p className="installment-claims__hint">Học viên đã bấm "Tôi đã chuyển khoản". Tìm giao dịch trong sao kê theo nội dung chuyển khoản, rồi ghi nhận để phiếu thu và lịch trả góp tự cập nhật.</p>
+      <p className="installment-claims__hint">{empty
+        ? 'Chưa có học viên nào báo chuyển khoản. Khi học viên bấm "Tôi đã chuyển khoản" trên trang thanh toán, báo sẽ hiện ở đây để bạn đối chiếu sao kê và ghi nhận. Tài khoản nhận VietQR cấu hình ở Sổ quỹ → VietQR.'
+        : 'Học viên đã bấm "Tôi đã chuyển khoản". Tìm giao dịch trong sao kê theo nội dung chuyển khoản, rồi ghi nhận để phiếu thu và lịch trả góp tự cập nhật.'}</p>
       {error && <p role="alert" className="finance-management__notice"><AlertCircle size={14} /> {error}</p>}
       <div className="installment-claims__list">
         {claims.map((claim) => <article key={claim.id} className={claim.actionable ? '' : 'is-stale'}>
