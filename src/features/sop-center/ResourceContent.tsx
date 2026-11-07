@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { AlertTriangle, CheckCircle2, MessageSquareQuote, ShieldAlert } from 'lucide-react'
 import type { SopKnowledgeResource, SopStepPayload } from './types'
 
@@ -22,7 +23,7 @@ function TextList({ items, empty = 'Chưa có nội dung.' }: { items: string[];
   return <ul className="sop-center-check-list">{items.map((item, index) => <li key={`${index}-${item}`}><CheckCircle2 size={17} aria-hidden="true" /><span>{item}</span></li>)}</ul>
 }
 
-function SopStepContent({ step, index }: { step: SopStepPayload; index: number }) {
+function SopStepContent({ step, index, skill }: { step: SopStepPayload; index: number; skill?: ReactNode }) {
   const cases = Array.isArray(step.cases) ? step.cases : []
   const quizzes = Array.isArray(step.quiz) ? step.quiz : []
   return (
@@ -38,6 +39,8 @@ function SopStepContent({ step, index }: { step: SopStepPayload; index: number }
         <div><dt>Người thực hiện</dt><dd>{step.owner || 'Chưa phân công'}</dd></div>
         <div><dt>Hoàn thành khi</dt><dd>{step.done || 'Chưa có tiêu chí'}</dd></div>
       </dl>
+
+      {skill}
 
       <section className="sop-center-content-section">
         <div className="sop-center-section-title"><CheckCircle2 size={18} /><h3>Việc cần làm</h3></div>
@@ -179,10 +182,10 @@ function PolicyContent({ resource }: { resource: SopKnowledgeResource }) {
   </div>
 }
 
-export default function ResourceContent({ resource, activeStep }: { resource: SopKnowledgeResource; activeStep: number }) {
+export default function ResourceContent({ resource, activeStep, stepSkill }: { resource: SopKnowledgeResource; activeStep: number; stepSkill?: ReactNode }) {
   if (resource.kind === 'sop') {
     const playbook = Array.isArray(resource.payload.playbook) ? resource.payload.playbook as SopStepPayload[] : []
-    return <SopStepContent step={playbook[activeStep] ?? { title: resource.title, goal: resource.summary }} index={activeStep} />
+    return <SopStepContent step={playbook[activeStep] ?? { title: resource.title, goal: resource.summary }} index={activeStep} skill={playbook[activeStep] ? stepSkill : undefined} />
   }
   if (resource.kind === 'skill') return <SkillContent resource={resource} />
   if (resource.kind === 'script' || resource.kind === 'dialogue') return <ScriptContent resource={resource} />
