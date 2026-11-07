@@ -1,7 +1,7 @@
 .aura-pay { position: fixed; inset: 0; z-index: 240; display: grid; grid-template-columns: minmax(0, 1fr); place-items: end center; font-family: var(--aura-font); }
 .aura-pay *, .aura-pay *::before, .aura-pay *::after { box-sizing: border-box; }
 .aura-pay__backdrop { position: absolute; inset: 0; width: 100%; border: 0; background: rgba(24, 16, 29, .58); backdrop-filter: blur(6px); cursor: pointer; }
-.aura-pay__sheet { position: relative; display: grid; gap: var(--aura-space-3); width: min(100%, 480px); max-height: min(92dvh, 820px); overflow: auto; overscroll-behavior: contain; padding: 10px var(--aura-space-4) calc(var(--aura-space-6) + env(safe-area-inset-bottom, 0px)); border-radius: 28px 28px 0 0; color: var(--aura-ink); background: var(--aura-surface); box-shadow: 0 -20px 60px rgba(34, 17, 30, .24); }
+.aura-pay__sheet { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--aura-space-3); width: min(100%, 480px); max-height: min(92dvh, 820px); overflow: auto; overscroll-behavior: contain; padding: 10px var(--aura-space-4) calc(var(--aura-space-6) + env(safe-area-inset-bottom, 0px)); border-radius: 28px 28px 0 0; color: var(--aura-ink); background: var(--aura-surface); box-shadow: 0 -20px 60px rgba(34, 17, 30, .24); }
 .aura-pay__sheet::before { content: ''; display: block; width: 44px; height: 5px; margin: 0 auto; border-radius: var(--aura-radius-pill); background: var(--aura-line); }
 
 .aura-pay__header { display: flex; align-items: center; justify-content: space-between; gap: var(--aura-space-3); }
@@ -31,7 +31,7 @@
 .aura-pay__amount-input { display: flex; align-items: center; gap: var(--aura-space-2); min-height: 52px; padding: 0 var(--aura-space-3) 0 var(--aura-space-4); border: 1px solid var(--aura-line); border-radius: var(--aura-radius-sm); background: var(--aura-surface); }
 .aura-pay__amount-input:focus-within { border-color: var(--aura-pink-text); box-shadow: 0 0 0 2px var(--aura-pink-soft); }
 .aura-pay__amount-input.is-invalid { border-color: var(--aura-danger); }
-.aura-pay__amount-input input { flex: 1; min-width: 0; border: 0; padding: 0; color: var(--aura-ink); background: transparent; font: inherit; font-size: var(--aura-text-xl); font-weight: 800; font-variant-numeric: tabular-nums; text-align: right; outline: none; }
+.aura-pay__amount-input input { flex: 1; width: 100%; min-width: 0; border: 0; padding: 0; color: var(--aura-ink); background: transparent; font: inherit; font-size: var(--aura-text-xl); font-weight: 800; font-variant-numeric: tabular-nums; text-align: right; outline: none; }
 .aura-pay__amount-input span { color: var(--aura-muted); font-size: var(--aura-text-md); font-weight: 700; }
 .aura-pay__chips { display: flex; flex-wrap: wrap; gap: var(--aura-space-2); }
 .aura-pay__chips button { min-height: 36px; padding: 0 var(--aura-space-3); border: 1px solid var(--aura-line); border-radius: var(--aura-radius-pill); color: var(--aura-ink); background: var(--aura-surface); font: inherit; font-size: var(--aura-text-xs); font-weight: 700; cursor: pointer; }
@@ -71,7 +71,30 @@
 .aura-pay__note { font-style: italic; }
 .aura-pay__link { min-height: var(--aura-touch-target); margin-top: var(--aura-space-1); padding: 0; border: 0; color: var(--aura-pink-text); background: none; font-size: var(--aura-text-sm); font-weight: 700; text-decoration: underline; cursor: pointer; }
 
-.aura-pay__confirm { display: grid; gap: var(--aura-space-3); }
+.aura-pay__confirm { display: grid; gap: var(--aura-space-3); padding: var(--aura-space-4); border: 1px solid var(--aura-pink-border); border-radius: var(--aura-radius-md); background: color-mix(in srgb, var(--aura-pink-soft) 45%, var(--aura-surface)); }
+.aura-pay__confirm h3, .aura-pay__evidence h3 { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--aura-ink); font-size: var(--aura-text-md); }
+.aura-pay__confirm h3 svg, .aura-pay__evidence h3 svg { color: var(--aura-pink-text); }
+
+/* Receipt evidence: one image the student attaches after transferring. */
+.aura-pay__evidence { display: grid; gap: var(--aura-space-3); padding: var(--aura-space-4); border: 1px solid var(--aura-line); border-radius: var(--aura-radius-md); }
+.aura-pay__proof-pick { display: flex; align-items: center; gap: var(--aura-space-3); width: 100%; min-height: 64px; padding: var(--aura-space-3); border: 1.5px dashed var(--aura-pink-border); border-radius: var(--aura-radius-sm); color: var(--aura-pink-text); background: var(--aura-surface); font: inherit; text-align: left; cursor: pointer; }
+.aura-pay__proof-pick:disabled { cursor: progress; opacity: .6; }
+.aura-pay__proof-pick > svg { flex: 0 0 auto; }
+.aura-pay__proof-pick span { display: grid; gap: 2px; min-width: 0; }
+.aura-pay__proof-pick strong { font-size: var(--aura-text-sm); }
+.aura-pay__proof-pick small { color: var(--aura-muted); font-size: var(--aura-text-xs); line-height: 1.45; }
+.aura-pay__proof-preview, .aura-pay__proof-sent { display: grid; grid-template-columns: 72px minmax(0, 1fr); align-items: start; gap: var(--aura-space-3); }
+.aura-pay__proof-preview img, .aura-pay__proof-sent img, .aura-pay__proof-thumb { display: grid; width: 72px; height: 96px; place-items: center; border: 1px solid var(--aura-line); border-radius: var(--aura-radius-xs); color: var(--aura-muted); background: var(--aura-canvas); object-fit: cover; }
+.aura-pay__proof-sent a { display: block; border-radius: var(--aura-radius-xs); }
+.aura-pay__proof-preview > div, .aura-pay__proof-sent > div { display: grid; gap: 4px; min-width: 0; }
+.aura-pay__proof-preview strong, .aura-pay__proof-sent strong { display: flex; align-items: center; gap: 4px; font-size: var(--aura-text-sm); }
+.aura-pay__proof-sent strong svg { color: var(--aura-success); }
+.aura-pay__proof-preview span, .aura-pay__proof-sent > div > span { overflow: hidden; color: var(--aura-muted); font-size: var(--aura-text-xs); line-height: 1.45; text-overflow: ellipsis; }
+.aura-pay__proof-preview span { white-space: nowrap; }
+.aura-pay__proof-sent .aura-pay__proof { margin-top: var(--aura-space-1); }
+.aura-pay__proof-sent .aura-pay__proof-pick { min-height: 48px; padding: var(--aura-space-2) var(--aura-space-3); }
+.aura-pay__proof-actions { display: flex; flex-wrap: wrap; gap: var(--aura-space-2); margin-top: 2px; }
+.aura-pay__proof-actions button { min-height: 36px; padding: 0 var(--aura-space-3); border: 1px solid var(--aura-line); border-radius: var(--aura-radius-xs); color: var(--aura-ink); background: var(--aura-surface); font: inherit; font-size: var(--aura-text-xs); font-weight: 700; cursor: pointer; }
 .aura-pay__confirm label { display: grid; gap: 6px; color: var(--aura-muted); font-size: var(--aura-text-sm); }
 .aura-pay__confirm textarea { min-height: 76px; padding: var(--aura-space-3); border: 1px solid var(--aura-line); border-radius: var(--aura-radius-sm); color: var(--aura-ink); font: inherit; font-size: var(--aura-text-md); resize: vertical; }
 .aura-pay__confirm textarea:focus-visible { outline: 2px solid var(--aura-pink-text); outline-offset: 1px; }

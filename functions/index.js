@@ -1143,7 +1143,7 @@ const ptScheduleOverflowOnCall = (optionsOrHandler, maybeHandler) => {
 const ptScheduleOverflowFunctions = createPtScheduleV2Functions({ db, onCall: ptScheduleOverflowOnCall })
 exports.generatePtScheduleDraftV4 = ptScheduleOverflowFunctions.generatePtScheduleDraft
 Object.assign(exports, createFinanceLedgerFunctions({ db, onCall, logger }))
-Object.assign(exports, createInstallmentPaymentFunctions({ db, onCall }))
+Object.assign(exports, createInstallmentPaymentFunctions({ db, onCall, storage }))
 // Reporting uses the existing overflow pool. A shared lease coalesces summary
 // scans across instances; detailed pages remain bounded independently.
 Object.assign(exports, createReportingReadFunctions({ db, logger, onCall: asiaEastOnCall }))

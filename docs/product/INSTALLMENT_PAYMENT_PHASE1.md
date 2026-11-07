@@ -7,10 +7,18 @@ Học viên trả kỳ đến hạn bằng VietQR ngay trong tab **Lịch → H�
 1. Học viên bấm **Thanh toán** ở một kỳ đang chờ (hoặc **Thanh toán ngay** trên thẻ nhắc, hoặc link trong thông báo `#/schedule?tab=contract&pay=<contractId>~<installmentId|outstanding>`).
 2. `getMyInstallmentPayment` trả số tiền kỳ, khoảng được trả (`minAmount`–`maxAmount`), các kỳ sau, tài khoản nhận và payload VietQR do server tạo. Nội dung chuyển khoản là **tên học viên + mã kỳ**, tối đa 25 ký tự (giới hạn NAPAS), ví dụ `HUYNH THI HAI AU VK669NZ7`. Tên dài giữ họ và tên, rồi chỉ tên; mã 8 ký tự cố định theo kỳ để khớp.
 3. Học viên có thể **sửa số tiền** kỳ này: từ 100.000đ (hoặc đúng số kỳ nếu nhỏ hơn) đến toàn bộ công nợ còn lại. App dựng lại mã QR theo số tiền đã chọn (cùng thuật toán với server) và cho xem trước phần chênh lệch sẽ đi đâu.
-4. Học viên bấm **Tôi đã chuyển khoản** → `submitMyInstallmentPaymentClaim` ghi `installmentPaymentClaims/{ipc_…}` trạng thái `submitted` với `amount` đã chọn và `installmentAmount` của kỳ. Báo cáo này **không** thay đổi hợp đồng hay sổ cái.
+4. Học viên bấm **Tôi đã chuyển khoản** → bước **Gửi bằng chứng chuyển khoản**: chọn ảnh chụp màn hình giao dịch thành công (không bắt buộc) và ghi chú → `submitMyInstallmentPaymentClaim` ghi `installmentPaymentClaims/{ipc_…}` trạng thái `submitted` với `amount` đã chọn và `installmentAmount` của kỳ. Báo cáo này **không** thay đổi hợp đồng hay sổ cái. Nếu chưa gửi ảnh, màn chờ xác nhận có mục **Bằng chứng chuyển khoản** để gửi sau (`action: 'attach_proof'`), hoặc gửi ảnh khác thay ảnh cũ.
 5. Kế toán thấy báo trong **Chờ xác nhận chuyển khoản**, đối chiếu sao kê theo nội dung, bấm **Ghi nhận**. Form thu tiền có sẵn mở ra đã điền kỳ, số tiền và quỹ; kế toán sửa số tiền theo đúng sao kê nếu khác.
 6. `recordContractPayment` ghi phiếu thu như mọi khoản thu khác và, trong cùng transaction, chuyển báo sang `confirmed` và gửi thông báo cho học viên. Thu tại quầy cho cùng kỳ cũng tự đóng báo.
 7. Nếu không thấy tiền: **Từ chối** kèm lý do → học viên nhận thông báo và thấy lý do trên màn thanh toán.
+
+## Ảnh biên lai
+
+- App thu nhỏ ảnh về JPEG tối đa 1600px cạnh dài (giữ chữ sao kê đọc được, đổi HEIC thành JPEG) rồi tải lên `installment-proofs/{uid}/{claimId}/proof-<thời điểm>.jpg` trước khi gọi callable. Storage SDK chỉ tải khi học viên gửi ảnh.
+- `storage.rules`: chỉ chủ tài khoản được tạo, tối đa 8MB, JPG/PNG/WebP, metadata `ownerUid`, `claimId`, `resourceKind: installment-payment-proof` phải khớp đường dẫn; không ai sửa hay xóa, kể cả admin không đọc trực tiếp.
+- Callable kiểm lại đường dẫn và metadata trong Storage trước khi gắn ảnh vào báo; nếu báo không nhận ảnh (lỗi, sai số tiền…) server xóa ảnh vừa tải.
+- Học viên và kế toán xem ảnh qua link ký 30 phút. Kế toán thấy ảnh ngay trong **Chờ xác nhận chuyển khoản** và trong form **Ghi nhận**; link hết hạn thì bấm làm mới.
+- Gửi ảnh sau tăng `revision` của báo, nên kế toán đang mở bản cũ phải tải lại trước khi từ chối. Tối đa 10 lần gửi ảnh mỗi báo.
 
 ## Trả khác số kỳ
 
@@ -46,5 +54,5 @@ Học viên trả kỳ đến hạn bằng VietQR ngay trong tab **Lịch → H�
 ## Chưa làm (giai đoạn 2–3)
 
 - Tự khớp giao dịch qua webhook ngân hàng (SePay/Casso/PayOS). Mã 8 ký tự cuối nội dung đã cố định theo kỳ để khớp được.
-- Ảnh biên lai, xin dời hạn, ví điện tử, cộng điểm Aura khi trả đúng hạn.
+- Xin dời hạn, ví điện tử, cộng điểm Aura khi trả đúng hạn.
 - Chính sách quá hạn (hạn chế đặt buổi mới) — chưa chốt.

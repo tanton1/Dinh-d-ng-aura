@@ -22,6 +22,14 @@
 .installment-claims__code b { color: var(--aura-pink-text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; }
 .installment-claims__code button { display: grid; width: 28px; height: 28px; place-items: center; border: 0; border-radius: 8px; color: var(--aura-pink-text); background: var(--aura-pink-soft); cursor: pointer; }
 .installment-claims__note { font-style: italic; }
+.installment-claims__proof { display: inline-flex; align-items: center; gap: 10px; max-width: 100%; margin-top: 8px; padding: 6px 12px 6px 6px; border: 1px solid var(--fm-line); border-radius: 12px; color: var(--fm-ink); background: var(--aura-surface); text-decoration: none; }
+.installment-claims__proof:hover { border-color: var(--aura-pink-border); }
+.installment-claims__proof:focus-visible { outline: 2px solid var(--aura-pink-text); outline-offset: 2px; }
+.installment-claims__proof img { width: 44px; height: 58px; flex: 0 0 auto; border-radius: 8px; background: var(--aura-canvas); object-fit: cover; }
+.installment-claims__proof span { display: grid; gap: 2px; min-width: 0; }
+.installment-claims__proof b { font-size: 13px; }
+.installment-claims__proof small { color: var(--fm-muted); font-size: 12px; }
+.installment-claims__no-proof { color: var(--fm-muted) !important; font-size: 12px; }
 .installment-claims__stale { display: flex; align-items: center; gap: 4px; color: var(--aura-warning) !important; font-weight: 700; }
 .installment-claims__side { display: grid; justify-items: end; gap: 4px; text-align: right; }
 .installment-claims__side b { color: var(--fm-ink); font-size: 16px; }
@@ -44,4 +52,5 @@
 
 .finance-payment-claim-note { margin: 10px 0 0; padding: 10px 12px; border-radius: 12px; color: var(--aura-ink); background: color-mix(in srgb, var(--aura-info) 10%, var(--aura-surface)); font-size: 13px; line-height: 1.5; }
 .finance-payment-claim-note b { color: var(--aura-pink-text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.finance-payment-claim-note a { color: var(--aura-pink-text); font-weight: 700; text-decoration: underline; }
 .finance-payment-plan-note { margin: 8px 0 0; padding: 10px 12px; border-radius: 12px; color: var(--aura-ink); background: color-mix(in srgb, var(--aura-warning) 12%, var(--aura-surface)); font-size: 13px; line-height: 1.5; }

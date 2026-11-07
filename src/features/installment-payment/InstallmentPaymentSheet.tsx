@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import qrcode from 'qrcode-generator'
-import { AlertCircle, Check, CheckCircle2, Clock3, Copy, Download, Hourglass, LoaderCircle, RefreshCw, Store, X } from 'lucide-react'
+import { AlertCircle, Camera, Check, CheckCircle2, Clock3, Copy, Download, Hourglass, ImageUp, LoaderCircle, RefreshCw, Store, X } from 'lucide-react'
 import {
   demoInstallmentPayment,
   getMyInstallmentPayment,
@@ -111,6 +111,41 @@ function saveQrImage(qr: ReturnType<typeof qrcode>, view: InstallmentPaymentView
   }, 'image/png')
 }
 
+interface ProofPickerProps {
+  file: File | null
+  preview: string
+  busy: boolean
+  progress: number | null
+  title: string
+  hint: string
+  onPick: (file: File) => void
+  onClear: () => void
+}
+
+// One receipt image: a large tap target before choosing, then a preview the
+// student can swap or drop before it is sent.
+function ProofPicker({ file, preview, busy, progress, title, hint, onPick, onClear }: ProofPickerProps) {
+  const input = useRef<HTMLInputElement>(null)
+  const choose = () => input.current?.click()
+  return <div className="aura-pay__proof">
+    <input ref={input} type="file" accept="image/*" hidden onChange={(event) => { const picked = event.target.files?.[0]; event.target.value = ''; if (picked) onPick(picked) }} />
+    {file && preview ? <div className="aura-pay__proof-preview">
+      <img src={preview} alt="Ảnh biên lai đã chọn" />
+      <div>
+        <strong>{busy && progress !== null ? `Đang tải ảnh… ${progress}%` : 'Ảnh biên lai'}</strong>
+        <span>{file.name || 'Ảnh đã chọn'}</span>
+        {!busy && <div className="aura-pay__proof-actions">
+          <button type="button" onClick={choose}>Đổi ảnh</button>
+          <button type="button" onClick={onClear}>Bỏ ảnh</button>
+        </div>}
+      </div>
+    </div> : <button type="button" className="aura-pay__proof-pick" disabled={busy} onClick={choose}>
+      <Camera size={20} />
+      <span><strong>{title}</strong><small>{hint}</small></span>
+    </button>}
+  </div>
+}
+
 async function copyText(value: string) {
   try {
     await navigator.clipboard.writeText(value)
@@ -139,6 +174,11 @@ export default function InstallmentPaymentSheet({ contractId, installmentId, tod
   const [copied, setCopied] = useState('')
   // What the student will transfer, as typed digits; starts at the scheduled amount.
   const [amountText, setAmountText] = useState('')
+  // Transfer receipt chosen in this sheet, before or after reporting the transfer.
+  const [proofFile, setProofFile] = useState<File | null>(null)
+  const [proofPreview, setProofPreview] = useState('')
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null)
+  const objectUrls = useRef<string[]>([])
   const sequence = useRef(0)
   const sheetRef = useRef<HTMLElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
@@ -172,6 +212,27 @@ export default function InstallmentPaymentSheet({ contractId, installmentId, tod
     return () => { sequence.current += 1 }
   }, [load])
 
+  useEffect(() => () => { objectUrls.current.forEach((url) => URL.revokeObjectURL(url)) }, [])
+
+  const pickProof = (file: File) => {
+    if (file.size > 40 * 1024 * 1024) { setError('Ảnh quá lớn. Hãy chụp màn hình biên lai rồi chọn lại.'); return }
+    const url = URL.createObjectURL(file)
+    objectUrls.current.push(url)
+    setError('')
+    setProofFile(file)
+    setProofPreview(url)
+  }
+  const clearProof = () => { setProofFile(null); setProofPreview(''); setUploadProgress(null) }
+
+  // Shrinks and uploads the receipt; demo mode keeps it in the page only.
+  const uploadProof = async (file: File) => {
+    if (!view?.claimId) throw new Error('Hãy tải lại trang thanh toán rồi gửi lại ảnh.')
+    const { prepareReceiptImage, uploadInstallmentProof } = await import('../../services/installmentProofUpload')
+    const image = await prepareReceiptImage(file)
+    setUploadProgress(0)
+    return uploadInstallmentProof(view.claimId, image, setUploadProgress)
+  }
+
   // Sheet contract from the design system: Escape closes, focus is trapped
   // inside and restored on close, and the page behind does not scroll.
   useEffect(() => {
@@ -182,7 +243,7 @@ export default function InstallmentPaymentSheet({ contractId, installmentId, tod
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { event.preventDefault(); onCloseRef.current(); return }
       if (event.key !== 'Tab' || !sheetRef.current) return
-      const focusable = [...sheetRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), input, textarea, a[href]')]
+      const focusable = [...sheetRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([type="file"]), textarea, a[href]')]
       if (!focusable.length) return
       const first = focusable[0]
       const last = focusable[focusable.length - 1]
@@ -226,25 +287,37 @@ export default function InstallmentPaymentSheet({ contractId, installmentId, tod
     }
   }
 
-  const report = async (action: 'submit' | 'withdraw') => {
-    if (!view?.installment || busy || (action === 'submit' && !amountValid)) return
+  const report = async (action: 'submit' | 'withdraw' | 'attach_proof') => {
+    if (!view?.installment || busy || (action === 'submit' && !amountValid) || (action === 'attach_proof' && !proofFile)) return
     setBusy(true)
     setError('')
+    const sendingProof = action !== 'withdraw' && proofFile
     try {
       if (isDemo) {
-        setView(demoView(action === 'submit' ? amount : false))
+        const demoProof = sendingProof ? { uploadedAt: new Date().toISOString(), url: proofPreview } : null
+        if (action === 'attach_proof') {
+          setView((current) => current?.claim ? { ...current, claim: { ...current.claim, proof: demoProof } } : current)
+        } else {
+          const next = demoView(action === 'submit' ? amount : false)
+          setView(next.claim ? { ...next, claim: { ...next.claim, proof: demoProof } } : next)
+        }
       } else {
-        const result = await submitMyInstallmentPaymentClaim({ contractId, installmentId, action, amount: action === 'submit' ? amount : undefined, note: note.trim() || undefined })
+        const proofPath = sendingProof ? await uploadProof(sendingProof) : undefined
+        const result = await submitMyInstallmentPaymentClaim({ contractId, installmentId, action, amount: action === 'submit' ? amount : undefined, note: action === 'submit' ? note.trim() || undefined : undefined, proofPath })
         setView((current) => current ? { ...current, state: result.state, claim: result.claim } : current)
       }
       setConfirming(false)
-      onChanged?.(action === 'submit' ? 'Đã báo Aura. Bạn sẽ nhận thông báo khi khoản thanh toán được ghi nhận.' : 'Đã hủy báo chuyển khoản.')
+      if (action !== 'withdraw') clearProof()
+      onChanged?.(action === 'submit'
+        ? `Đã báo Aura${sendingProof ? ' kèm ảnh biên lai' : ''}. Bạn sẽ nhận thông báo khi khoản thanh toán được ghi nhận.`
+        : action === 'attach_proof' ? 'Đã gửi ảnh biên lai cho Aura.' : 'Đã hủy báo chuyển khoản.')
     } catch (cause) {
       setError(installmentPaymentErrorMessage(cause))
       const reason = (cause as { details?: { reason?: string } })?.details?.reason
-      if (reason === 'amount-out-of-range' || reason === 'amount-changed') void load()
+      if (reason === 'amount-out-of-range' || reason === 'amount-changed' || reason === 'claim-not-submitted') void load()
     } finally {
       setBusy(false)
+      setUploadProgress(null)
     }
   }
 
@@ -295,6 +368,24 @@ export default function InstallmentPaymentSheet({ contractId, installmentId, tod
             </div>
           </div>}
 
+          {view.state === 'submitted' && <section className="aura-pay__evidence" aria-labelledby="aura-pay-evidence-title">
+            <h3 id="aura-pay-evidence-title"><ImageUp size={17} /> Bằng chứng chuyển khoản</h3>
+            {view.claim?.proof && !proofFile ? <div className="aura-pay__proof-sent">
+              {view.claim.proof.url ? <a href={view.claim.proof.url} target="_blank" rel="noopener noreferrer"><img src={view.claim.proof.url} alt="Ảnh biên lai đã gửi" /></a> : <span className="aura-pay__proof-thumb"><ImageUp size={20} /></span>}
+              <div>
+                <strong><CheckCircle2 size={15} /> Đã gửi ảnh biên lai</strong>
+                <span>{view.claim.proof.uploadedAt ? `Lúc ${moment(view.claim.proof.uploadedAt)}. ` : ''}Kế toán sẽ đối chiếu ảnh với sao kê.</span>
+                <ProofPicker file={null} preview="" busy={busy} progress={uploadProgress} title="Gửi ảnh khác" hint="Nếu ảnh trước bị mờ hoặc nhầm giao dịch." onPick={pickProof} onClear={clearProof} />
+              </div>
+            </div> : <>
+              <ProofPicker file={proofFile} preview={proofPreview} busy={busy} progress={uploadProgress} title="Gửi ảnh biên lai" hint="Ảnh chụp màn hình giao dịch thành công giúp Aura xác nhận nhanh hơn." onPick={pickProof} onClear={clearProof} />
+              {proofFile && <div className="aura-pay__actions">
+                <button type="button" className="aura-pay__secondary" disabled={busy} onClick={clearProof}>Hủy</button>
+                <button type="button" className="aura-pay__primary" disabled={busy} onClick={() => void report('attach_proof')}>{busy ? 'Đang gửi…' : 'Gửi ảnh cho Aura'}</button>
+              </div>}
+            </>}
+          </section>}
+
           {(view.state === 'open' || view.state === 'rejected') && installment && <>
             {view.state === 'rejected' && <div className="aura-pay__alert is-warning" role="status"><AlertCircle size={18} /><span><b>Aura chưa xác nhận được lần chuyển trước.</b> {view.claim?.rejectedReason}</span></div>}
 
@@ -329,14 +420,16 @@ export default function InstallmentPaymentSheet({ contractId, installmentId, tod
               <p className="aura-pay__keep">Giữ nguyên nội dung <b>{transfer.content}</b> để Aura khớp đúng kỳ của bạn.</p>
             </div> : <div className="aura-pay__alert is-info" role="status"><Store size={18} /><span>Chi nhánh của bạn chưa bật nhận chuyển khoản qua app. Bạn có thể thanh toán tại quầy lễ tân Aura.</span></div>}
 
-            {confirming ? <div className="aura-pay__confirm">
-              <p className="aura-pay__confirm-summary">Bạn xác nhận đã chuyển <b>{money(amount)}</b>{transfer ? <> với nội dung <b>{transfer.content}</b></> : ''}.</p>
+            {confirming ? <section className="aura-pay__confirm" aria-labelledby="aura-pay-confirm-title">
+              <h3 id="aura-pay-confirm-title"><ImageUp size={17} /> Gửi bằng chứng chuyển khoản</h3>
+              <p className="aura-pay__confirm-summary">Bạn đã chuyển <b>{money(amount)}</b>{transfer ? <> với nội dung <b>{transfer.content}</b></> : ''}.</p>
+              <ProofPicker file={proofFile} preview={proofPreview} busy={busy} progress={uploadProgress} title="Thêm ảnh biên lai" hint="Chụp màn hình giao dịch thành công trong app ngân hàng. Không bắt buộc, nhưng giúp Aura xác nhận nhanh hơn." onPick={pickProof} onClear={clearProof} />
               <label><span>Ghi chú cho kế toán (không bắt buộc)</span><textarea maxLength={300} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Tên tài khoản chuyển, giờ chuyển…" /></label>
               <div className="aura-pay__actions">
                 <button type="button" className="aura-pay__secondary" disabled={busy} onClick={() => setConfirming(false)}>Quay lại</button>
-                <button type="button" className="aura-pay__primary" disabled={busy || !amountValid} onClick={() => void report('submit')}>{busy ? 'Đang gửi…' : 'Xác nhận đã chuyển'}</button>
+                <button type="button" className="aura-pay__primary" disabled={busy || !amountValid} onClick={() => void report('submit')}>{busy ? (uploadProgress !== null ? `Đang tải ảnh ${uploadProgress}%` : 'Đang gửi…') : proofFile ? 'Gửi cho Aura' : 'Gửi không kèm ảnh'}</button>
               </div>
-            </div> : <div className="aura-pay__actions">
+            </section> : <div className="aura-pay__actions">
               {transfer && qr && <button type="button" className="aura-pay__secondary" onClick={() => saveQrImage(qr.qr, view, amount)}><Download size={16} /> Lưu mã QR</button>}
               <button type="button" className="aura-pay__primary" disabled={!amountValid} onClick={() => setConfirming(true)}>Tôi đã chuyển khoản</button>
             </div>}

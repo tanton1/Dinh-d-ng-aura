@@ -121,6 +121,12 @@ export default function InstallmentClaimQueue({ branchId, refreshKey, onCollect 
                 <button type="button" onClick={() => void copy(claim)} aria-label={`Chép nội dung ${claim.transferContent || claim.transferCode}`}>{copied === claim.id ? <Check size={13} /> : <Copy size={13} />}</button>
               </p>
               {claim.note && <p className="installment-claims__note">"{claim.note}"</p>}
+              {claim.proofUrl
+                ? <a className="installment-claims__proof" href={claim.proofUrl} target="_blank" rel="noopener noreferrer" aria-label={`Xem ảnh biên lai của ${claim.studentName}`}>
+                    <img src={claim.proofUrl} alt="" loading="lazy" />
+                    <span><b>Ảnh biên lai</b><small>{claim.proofUploadedAt ? `Gửi lúc ${moment(claim.proofUploadedAt)}` : 'Bấm để xem lớn'}</small></span>
+                  </a>
+                : <p className="installment-claims__no-proof">{claim.proofUploadedAt ? 'Có ảnh biên lai nhưng chưa tạo được link xem. Bấm làm mới.' : 'Chưa có ảnh biên lai.'}</p>}
               {!claim.actionable && <p className="installment-claims__stale"><AlertCircle size={13} /> {claim.staleReason}</p>}
             </div>
             <div className="installment-claims__side">

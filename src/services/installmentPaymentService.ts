@@ -15,10 +15,14 @@ export interface InstallmentPaymentClaim {
   confirmedAt: string | null
   receiptVoucherNumber: string | null
   revision: number
+  /** Transfer receipt the student attached; `url` is a short-lived signed link. */
+  proof?: { uploadedAt: string | null; url: string | null } | null
 }
 
 export interface InstallmentPaymentView {
   schemaVersion: 1
+  /** Document id of this target's claim; receipts upload under it. */
+  claimId?: string
   state: InstallmentPaymentState
   unavailableReason: string | null
   message: string | null
@@ -53,6 +57,9 @@ export interface InstallmentClaimRow {
   transferContent: string
   cashAccountId: string | null
   note: string
+  /** Signed link to the student's receipt image, valid for about 30 minutes. */
+  proofUrl?: string | null
+  proofUploadedAt?: string | null
   submittedAt: string | null
   revision: number
   actionable: boolean
@@ -96,7 +103,7 @@ export async function getMyInstallmentPayment(contractId: string, installmentId:
   return result.data
 }
 
-export async function submitMyInstallmentPaymentClaim(input: { contractId: string; installmentId: string | null; action: 'submit' | 'withdraw'; amount?: number; note?: string }) {
+export async function submitMyInstallmentPaymentClaim(input: { contractId: string; installmentId: string | null; action: 'submit' | 'withdraw' | 'attach_proof'; amount?: number; note?: string; proofPath?: string }) {
   const result = await callable<typeof input, { state: InstallmentPaymentState; unchanged: boolean; claim: InstallmentPaymentClaim | null }>('submitMyInstallmentPaymentClaim')({ ...input, installmentId: input.installmentId || OUTSTANDING_TARGET })
   return result.data
 }

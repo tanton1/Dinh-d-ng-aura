@@ -13,6 +13,8 @@ const {
   paymentActionUrl,
   paymentClaimId,
   planInstallmentReminders,
+  proofMetadataIssue,
+  proofPathValid,
   reminderDates,
   reminderMilestone,
   studentClaimState,
@@ -20,6 +22,8 @@ const {
   transferContent,
   vietQrPayload,
 } = require('./installment-payment-core')
+const paymentsSource = readFileSync(join(__dirname, 'installment-payments.js'), 'utf8')
+const storageRules = readFileSync(join(__dirname, '..', 'storage.rules'), 'utf8')
 const { planInstallmentPayment, restoredInstallments } = require('./installment-schedule')
 
 const ledgerSource = readFileSync(join(__dirname, 'finance-ledger.js'), 'utf8')
@@ -235,8 +239,38 @@ test('canonical payment closes the claim inside its own transaction', () => {
   assert.match(ledgerSource, /'pending', amount, \{ restore: original\.data\(\)\.installmentSchedule \|\| null \}/)
 })
 
+test('a receipt must sit under the caller and claim, with matching Storage metadata', () => {
+  const claimId = paymentClaimId('c1', 'installment-2')
+  const scope = { uid: 'uid-1', claimId }
+  assert.equal(proofPathValid(`installment-proofs/uid-1/${claimId}/proof-1794050000000.jpg`, scope), true)
+  assert.equal(proofPathValid(`installment-proofs/uid-1/${claimId}/proof-1794050000000.webp`, scope), true)
+  assert.equal(proofPathValid(`installment-proofs/uid-2/${claimId}/proof-1794050000000.jpg`, scope), false)
+  assert.equal(proofPathValid(`installment-proofs/uid-1/${paymentClaimId('c1', 'installment-3')}/proof-1794050000000.jpg`, scope), false)
+  assert.equal(proofPathValid(`installment-proofs/uid-1/${claimId}/../proof-1794050000000.jpg`, scope), false)
+  assert.equal(proofPathValid(`installment-proofs/uid-1/${claimId}/receipt.gif`, scope), false)
+  assert.equal(proofPathValid(`performance-evidence/uid-1/${claimId}/proof-1794050000000.jpg`, scope), false)
+  assert.equal(proofPathValid(42, scope), false)
+  const metadata = { contentType: 'image/jpeg', size: '120000', metadata: { ownerUid: 'uid-1', claimId, resourceKind: 'installment-payment-proof' } }
+  assert.equal(proofMetadataIssue(metadata, scope), null)
+  assert.equal(proofMetadataIssue({ ...metadata, metadata: { ...metadata.metadata, ownerUid: 'uid-2' } }, scope), 'metadata')
+  assert.equal(proofMetadataIssue({ ...metadata, metadata: { ...metadata.metadata, resourceKind: 'progress-photo' } }, scope), 'metadata')
+  assert.equal(proofMetadataIssue({ ...metadata, contentType: 'image/gif' }, scope), 'type')
+  assert.equal(proofMetadataIssue({ ...metadata, size: String(8 * 1024 * 1024 + 1) }, scope), 'size')
+  assert.equal(proofMetadataIssue({ ...metadata, size: '0' }, scope), 'size')
+})
+
+test('receipts are verified before the claim references them and discarded when it does not', () => {
+  const submit = paymentsSource.match(/const submitMyInstallmentPaymentClaim = onCall[\s\S]*?\r?\n  }\)\r?\n/)?.[0] || ''
+  assert.ok(submit.length > 1000)
+  assert.ok(submit.indexOf('verifiedProof(storage, proofPath, proofScope)') < submit.indexOf('db.runTransaction'))
+  assert.match(submit, /if \(proofPath && !proofReferenced\) await discardProof\(storage, proofPath, proofScope\)/)
+  assert.match(submit, /action === 'attach_proof'/)
+  assert.match(paymentsSource, /getSignedUrl\(\{ action: 'read', expires: Date\.now\(\) \+ PROOF_URL_MINUTES \* 60_000 \}\)/)
+  assert.match(storageRules, /match \/installment-proofs\/\{userId\}\/\{claimId\}\/\{fileName\} \{[\s\S]*?allow read: if isOwner\(userId\);[\s\S]*?allow update, delete: if false;/)
+})
+
 test('claims are callable-only and the reminder job is registered', () => {
   assert.match(rules, /match \/installmentPaymentClaims\/\{claimId\} \{\s*allow read, write: if false;/)
   assert.match(indexSource, /exports\.sendInstallmentDueRemindersScheduled = onSchedule\(/)
-  assert.match(indexSource, /Object\.assign\(exports, createInstallmentPaymentFunctions\(\{ db, onCall \}\)\)/)
+  assert.match(indexSource, /Object\.assign\(exports, createInstallmentPaymentFunctions\(\{ db, onCall, storage \}\)\)/)
 })

@@ -216,6 +216,26 @@ service firebase.storage {
       allow update, delete: if false;
     }
 
+    match /installment-proofs/{userId}/{claimId}/{fileName} {
+      // Students upload transfer receipts for their own payment claim. The
+      // claim callable verifies this metadata before referencing the file;
+      // finance sees receipts only through short-lived signed URLs.
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId)
+                    && resource == null
+                    && claimId.matches('ipc_[0-9a-f]{40}')
+                    && fileName.matches('proof-[0-9]{10,16}\\.(jpg|png|webp)')
+                    && request.resource.size > 0
+                    && request.resource.size <= 8 * 1024 * 1024
+                    && request.resource.contentType.matches('image/(jpeg|png|webp)')
+                    && request.resource.metadata.ownerUid == userId
+                    && request.resource.metadata.claimId == claimId
+                    && request.resource.metadata.resourceKind == 'installment-payment-proof';
+      // Receipts are evidence: no rewrite, and only the server removes an
+      // upload the claim did not accept.
+      allow update, delete: if false;
+    }
+
     match /recipe-images/{recipeId}/{fileName} {
       allow read: if signedIn();
       allow create, update: if isAdmin()

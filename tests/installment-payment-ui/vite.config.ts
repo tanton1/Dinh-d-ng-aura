@@ -12,6 +12,7 @@ export default defineConfig({
     resolveId(id) {
       if (id === 'firebase/functions') return resolve('tests/installment-payment-ui/functionsStub.ts')
       if (id.endsWith('/lib/firebaseFunctions')) return resolve('tests/installment-payment-ui/firebaseFunctionsStub.ts')
+      if (id.endsWith('/services/installmentProofUpload')) return resolve('tests/installment-payment-ui/proofUploadStub.ts')
     },
   }, react()],
 })

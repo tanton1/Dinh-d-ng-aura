@@ -72,6 +72,20 @@ function uploadPerformanceEvidence(storage, userId, periodId = '2026-09', eviden
   })
 }
 
+let proofSequence = 1_794_000_000_000
+
+function uploadInstallmentProof(storage, userId, claimId, options = {}) {
+  const fileName = options.fileName ?? `proof-${proofSequence++}.jpg`
+  return uploadBytes(ref(storage, `installment-proofs/${userId}/${claimId}/${fileName}`), options.bytes ?? validImage, {
+    contentType: options.contentType ?? 'image/jpeg',
+    customMetadata: {
+      ownerUid: options.metadataOwner ?? userId,
+      claimId: options.metadataClaimId ?? claimId,
+      resourceKind: 'installment-payment-proof',
+    },
+  })
+}
+
 describe('Aura Academy Storage rules', () => {
   test('reward banners are public, immutable and writable only by admins with matching metadata', async () => {
     const path = `public-assets/loyalty-rewards/gift-${Date.now()}/banner-12345678.webp`
@@ -204,5 +218,25 @@ describe('Aura Academy Storage rules', () => {
     await assertSucceeds(getBytes(ref(trainerStorage, uploaded.ref.fullPath)))
     await assertFails(getBytes(ref(storageFor('manager-1', 'manager'), uploaded.ref.fullPath)))
     await assertSucceeds(getBytes(ref(storageFor('admin-1', 'admin'), uploaded.ref.fullPath)))
+  })
+
+  test('installment transfer receipts are owner-uploaded, private and immutable', async () => {
+    const claimId = `ipc_${'a'.repeat(40)}`
+    const studentStorage = storageFor('student-1', 'student')
+    const uploaded = await assertSucceeds(uploadInstallmentProof(studentStorage, 'student-1', claimId))
+    await assertSucceeds(getBytes(ref(studentStorage, uploaded.ref.fullPath)))
+    // Immutable evidence: no overwrite and no delete, even by the owner.
+    await assertFails(uploadInstallmentProof(studentStorage, 'student-1', claimId, { fileName: uploaded.ref.name }))
+    await assertFails(deleteObject(ref(studentStorage, uploaded.ref.fullPath)))
+    // Other students, staff and even admins read receipts only via signed URLs.
+    await assertFails(getBytes(ref(storageFor('student-2', 'student'), uploaded.ref.fullPath)))
+    await assertFails(getBytes(ref(storageFor('admin-1', 'admin'), uploaded.ref.fullPath)))
+    await assertFails(uploadInstallmentProof(studentStorage, 'student-2', claimId))
+    await assertFails(uploadInstallmentProof(studentStorage, 'student-1', claimId, { metadataOwner: 'student-2' }))
+    await assertFails(uploadInstallmentProof(studentStorage, 'student-1', claimId, { metadataClaimId: `ipc_${'b'.repeat(40)}` }))
+    await assertFails(uploadInstallmentProof(studentStorage, 'student-1', 'not-a-claim'))
+    await assertFails(uploadInstallmentProof(studentStorage, 'student-1', claimId, { fileName: 'receipt.gif' }))
+    await assertFails(uploadInstallmentProof(studentStorage, 'student-1', claimId, { contentType: 'application/pdf' }))
+    await assertFails(uploadInstallmentProof(studentStorage, 'student-1', claimId, { bytes: new Uint8Array(8 * 1024 * 1024 + 1) }))
   })
 })

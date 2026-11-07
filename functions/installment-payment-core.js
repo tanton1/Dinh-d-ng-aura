@@ -21,6 +21,11 @@ const MEMO_LENGTH = 25
 const MIN_PARTIAL_AMOUNT = 100_000
 const MAX_INSTALLMENTS = 24
 const REMINDER_OFFSETS = Object.freeze({ before_3: 3, due: 0, after_3: -3 })
+// Transfer receipts the student attaches to a claim. Storage Rules let only
+// the owner create them; finance reads them through short-lived signed URLs.
+const PROOF_PREFIX = 'installment-proofs'
+const PROOF_RESOURCE_KIND = 'installment-payment-proof'
+const PROOF_MAX_BYTES = 8 * 1024 * 1024
 
 function money(value) {
   const number = Number(value)
@@ -254,6 +259,26 @@ function confirmedClaimPatch(claim, { amount, installmentId, ledgerEntryId, rece
   }
 }
 
+// The only receipt path a student may attach to this claim; mirrors the
+// Storage Rules match so a forged path never reaches a metadata read.
+function proofPathValid(path, { uid, claimId }) {
+  if (typeof path !== 'string' || path.length > 300) return false
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(String(uid || '')) || !/^ipc_[0-9a-f]{40}$/.test(String(claimId || ''))) return false
+  const prefix = `${PROOF_PREFIX}/${uid}/${claimId}/`
+  return path.startsWith(prefix) && /^proof-\d{10,16}\.(jpg|png|webp)$/.test(path.slice(prefix.length))
+}
+
+// Metadata Storage reports for an uploaded receipt, checked again on the
+// server because Rules only guard the upload itself.
+function proofMetadataIssue(metadata, { uid, claimId }) {
+  const custom = metadata?.metadata || {}
+  if (custom.ownerUid !== uid || custom.claimId !== claimId || custom.resourceKind !== PROOF_RESOURCE_KIND) return 'metadata'
+  if (!/^image\/(jpeg|png|webp)$/.test(String(metadata?.contentType || ''))) return 'type'
+  const size = Number(metadata?.size || 0)
+  if (!(size > 0) || size > PROOF_MAX_BYTES) return 'size'
+  return null
+}
+
 // How the student sees their claim against the current contract state. The
 // claim carries the amount the student chose, so any open claim counts.
 function studentClaimState(claim, target) {
@@ -330,6 +355,9 @@ module.exports = {
   OUTSTANDING_TARGET,
   CLOSED_CONTRACT_STATUSES,
   MIN_PARTIAL_AMOUNT,
+  PROOF_MAX_BYTES,
+  PROOF_PREFIX,
+  PROOF_RESOURCE_KIND,
   TransferProfileError,
   addDays,
   amountIssueMessage,
@@ -346,6 +374,8 @@ module.exports = {
   paymentActionUrl,
   paymentClaimId,
   planInstallmentReminders,
+  proofMetadataIssue,
+  proofPathValid,
   reminderDates,
   reminderMilestone,
   studentClaimState,
