@@ -13,31 +13,58 @@ async function openSopCenter(page: Page, hash: string, width = 1440) {
   await page.evaluate((target) => { location.hash = target }, hash)
 }
 
-const knowledgeRows = (page: Page) => page.locator('.sop-center-tree-knowledge > .sop-center-tree-results > button')
+const steps = (page: Page) => page.locator('.sop-center-path-steps > li')
+const openDetail = (page: Page) => page.locator('.sop-center-path-steps > li.is-open > .sop-center-path-detail')
 
-test('choosing a step narrows the content to its skill in place and survives a reload', async ({ page }) => {
+test('opening a step shows its skill, its content and the next step in place, and survives a reload', async ({ page }) => {
   await openSopCenter(page, '#/admin-sop?section=lookup&sop=sop02')
-  const steps = page.locator('.sop-center-tree-steps button')
-  await expect(steps).toHaveCount(8)
-  await expect(page.locator('.sop-center-tree-knowledge .sop-center-tree-label strong')).toHaveText('Nội dung riêng của SOP 02')
+  await expect(steps(page)).toHaveCount(8)
+  await expect(page.locator('.sop-center-path-detail')).toHaveCount(0)
+  await expect(steps(page).nth(4).locator('.sop-center-path-step-tags em')).toHaveText('Thiết kế trải nghiệm')
 
-  await steps.nth(4).click()
-  await expect(page).toHaveURL(/section=lookup&sop=sop02&skill=16/)
-  await expect(page.locator('.sop-center-lookup')).toBeVisible()
-  await expect(page.locator('.sop-center-tree-knowledge .sop-center-tree-label strong')).toHaveText('Thiết kế trải nghiệm')
-  await expect(knowledgeRows(page)).toHaveCount(2)
+  await steps(page).nth(4).getByRole('button', { expanded: false }).click()
+  await expect(page).toHaveURL(/section=lookup&sop=sop02&step=4$/)
+  await expect(steps(page).nth(4).getByRole('button').first()).toHaveAttribute('aria-expanded', 'true')
+  const detail = openDetail(page)
+  await expect(detail.locator('.sop-center-path-skill strong')).toHaveText('Thiết kế trải nghiệm')
+  await expect(detail.locator('.sop-center-path-rows > button')).toHaveCount(2)
+  await expect(detail.locator('.sop-center-path-done')).toContainText('Hoàn thành khi')
+  await expect(detail.getByRole('button', { name: /Tiếp theo · Bước 06/ })).toBeVisible()
 
   await page.reload()
-  await expect(page.locator('.sop-center-tree-knowledge .sop-center-tree-label strong')).toHaveText('Thiết kế trải nghiệm')
-  await page.getByRole('button', { name: 'Bỏ lọc kỹ năng' }).click()
+  await expect(openDetail(page).locator('.sop-center-path-skill strong')).toHaveText('Thiết kế trải nghiệm')
+
+  // The next-step link walks the path; a second click on the open step closes it.
+  await openDetail(page).getByRole('button', { name: /Tiếp theo · Bước 06/ }).click()
+  await expect(page).toHaveURL(/sop=sop02&step=5$/)
+  await expect(openDetail(page).locator('.sop-center-path-skill strong')).toHaveText('Lộ trình cá nhân hóa')
+  await steps(page).nth(5).getByRole('button', { expanded: true }).click()
   await expect(page).toHaveURL(/section=lookup&sop=sop02$/)
+  await expect(page.locator('.sop-center-path-detail')).toHaveCount(0)
 })
 
-test('every SOP shows only its own content, with shared guidance kept apart', async ({ page }) => {
+test('reference material and shared standards stay below the steps, never inside them', async ({ page }) => {
   await openSopCenter(page, '#/admin-sop?section=lookup&sop=sop04')
-  await expect(page.locator('.sop-center-tree-knowledge .sop-center-tree-label small')).toHaveText('8 tài liệu')
-  await expect(page.locator('.sop-center-tree-shared summary')).toContainText('Áp dụng mọi SOP')
-  await expect(page.locator('.sop-center-tree-filters')).not.toContainText('Giọng Aura')
+  await expect(steps(page)).toHaveCount(5)
+  for (let index = 0; index < 5; index += 1) await expect(steps(page).nth(index).locator('.sop-center-path-step-tags em')).toHaveText('Giữ chân & phục hồi')
+  await expect(page.locator('.sop-center-path-facts')).toContainText('Tham chiếu')
+  const groups = page.locator('.sop-center-path-groups summary')
+  await expect(groups).toHaveText(['KPI 2', 'Giọng Aura 6', 'Escalation 11'])
+  await expect(page.locator('.sop-center-path-steps')).not.toContainText('KPI')
+
+  await steps(page).nth(2).getByRole('button', { expanded: false }).click()
+  await expect(openDetail(page).locator('.sop-center-path-note')).toHaveText('Cùng kỹ năng với bước 01.')
+  await expect(openDetail(page).locator('.sop-center-path-rows > button')).toHaveCount(6)
+})
+
+test('skills no step applies open under their own heading', async ({ page }) => {
+  await openSopCenter(page, '#/admin-sop?section=lookup&sop=sop01')
+  const support = page.locator('.sop-center-path-skills > li')
+  await expect(support).toHaveCount(6)
+  await support.filter({ hasText: 'Báo giá & ưu đãi' }).getByRole('button').first().click()
+  await expect(page).toHaveURL(/sop=sop01&skill=5$/)
+  await expect(page.locator('.sop-center-path-skills > li.is-open .sop-center-path-rows > button')).toHaveCount(18)
+  await expect(support.filter({ hasText: 'Chấm điểm lead' })).toContainText('chưa có mẫu câu riêng')
 })
 
 test('a skill page lists its content and links back into the tree without naming itself', async ({ page }) => {
@@ -47,22 +74,24 @@ test('a skill page lists its content and links back into the tree without naming
   await expect(relations.getByRole('button', { name: /Member Onboarding/ })).toHaveCount(0)
   await relations.getByRole('button', { name: 'Xem trên cây' }).click()
   await expect(page).toHaveURL(/section=lookup&sop=sop03&skill=19/)
-  await expect(page.locator('.sop-center-tree-note')).toContainText('nội dung ở SOP khác')
+  // The addressed skill opens the first step that applies it.
+  await expect(steps(page).first()).toHaveClass(/is-open/)
+  await expect(openDetail(page).locator('.sop-center-path-skill strong')).toHaveText('Kích hoạt hội viên')
 
   await page.evaluate(() => { location.hash = '#/admin-sop?section=skills&resource=skill__9' })
   await expect(page.locator('.sop-center-relations')).toContainText('chưa có mẫu câu, hội thoại hay tình huống nào')
 })
 
 test('the lookup tree stays readable on a phone', async ({ page }) => {
-  await openSopCenter(page, '#/admin-sop?section=lookup&sop=sop01', 375)
-  await expect(knowledgeRows(page).first()).toBeVisible()
+  await openSopCenter(page, '#/admin-sop?section=lookup&sop=sop01&step=0', 375)
+  await expect(openDetail(page).locator('.sop-center-path-rows > button').first()).toBeVisible()
   const result = await page.evaluate(() => {
     const tree = document.querySelector('.sop-center-lookup')!
     const tooSmall = [...tree.querySelectorAll('*')].filter((element) => {
       const hasText = [...element.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && (node.textContent ?? '').trim())
       return hasText && element.getBoundingClientRect().width > 0 && parseFloat(getComputedStyle(element).fontSize) < 12
     }).map((element) => `${getComputedStyle(element).fontSize} ${(element.textContent ?? '').trim().slice(0, 20)}`)
-    const row = document.querySelector('.sop-center-tree-knowledge > .sop-center-tree-results > button')!
+    const row = document.querySelector('.sop-center-path-steps > li.is-open .sop-center-path-rows > button')!
     const mark = row.querySelector('.sop-center-kind-mark')!.getBoundingClientRect()
     const title = row.querySelector('strong')!.getBoundingClientRect()
     return { tooSmall, overflow: document.documentElement.scrollWidth - innerWidth, overlap: mark.bottom > title.top + 1 && mark.right > title.left }
