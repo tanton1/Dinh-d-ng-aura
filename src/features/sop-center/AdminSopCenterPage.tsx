@@ -22,7 +22,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react'
-import ResourceContent from './ResourceContent'
+import ResourceContent, { isSopStepView, type SopStepView } from './ResourceContent'
 import ResourceEditor, { type SopDraftSubmission } from './ResourceEditor'
 import { loadDemoSopCatalog, saveDemoSopResource } from './demoCatalog'
 import {
@@ -71,7 +71,7 @@ const sectionSet = new Set(sections.map((item) => item.id))
 
 // The lookup tree keeps its selected SOP and skill, and an SOP page its step,
 // in the address, so a reload, Back or a shared link reopens the same place.
-interface LookupSelection { sop?: string | null; skill?: string | null; step?: number | null }
+interface LookupSelection { sop?: string | null; skill?: string | null; step?: number | null; view?: SopStepView | null }
 
 function locationState() {
   const [, rawQuery = ''] = window.location.hash.split('?')
@@ -84,6 +84,7 @@ function locationState() {
     sop: params.get('sop'),
     skill: params.get('skill'),
     step: params.get('step'),
+    view: params.get('view'),
   }
 }
 
@@ -95,6 +96,7 @@ function featureHash(section: SopCenterSection, resourceId?: string | null, look
   if (lookup?.sop) params.set('sop', lookup.sop)
   if (typeof lookup?.step === 'number') params.set('step', String(lookup.step))
   if (lookup?.skill) params.set('skill', lookup.skill)
+  if (lookup?.view && lookup.view !== 'guide') params.set('view', lookup.view)
   return `#/admin-sop?${params.toString()}`
 }
 
@@ -171,6 +173,7 @@ export default function AdminSopCenterPage({
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
   const [activeStep, setActiveStep] = useState(0)
+  const [stepView, setStepView] = useState<SopStepView>('guide')
   const [detailTab, setDetailTab] = useState<'content' | 'history'>('content')
   const [editorOpen, setEditorOpen] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -178,7 +181,7 @@ export default function AdminSopCenterPage({
   const detailRequestRef = useRef(0)
 
   const navigateFeature = useCallback((section: SopCenterSection, resourceId?: string | null, lookup?: LookupSelection) => {
-    const next = { section, resourceId: resourceId || null, sop: lookup?.sop || null, skill: lookup?.skill || null, step: typeof lookup?.step === 'number' ? String(lookup.step) : null }
+    const next = { section, resourceId: resourceId || null, sop: lookup?.sop || null, skill: lookup?.skill || null, step: typeof lookup?.step === 'number' ? String(lookup.step) : null, view: lookup?.view || null }
     setRouteState(next)
     window.history.pushState(null, '', featureHash(section, resourceId, lookup))
     window.scrollTo({ top: 0, behavior: 'auto' })
@@ -187,14 +190,20 @@ export default function AdminSopCenterPage({
   // Opening a branch inside the tree replaces the entry, so Back leaves the tree.
   const selectLookup = useCallback((lookup: LookupSelection) => {
     const step = typeof lookup.step === 'number' ? String(lookup.step) : null
-    setRouteState((current) => ({ ...current, section: 'lookup', resourceId: null, sop: lookup.sop || null, skill: lookup.skill || null, step }))
+    setRouteState((current) => ({ ...current, section: 'lookup', resourceId: null, sop: lookup.sop || null, skill: lookup.skill || null, step, view: null }))
     window.history.replaceState(null, '', featureHash('lookup', null, lookup))
   }, [])
 
   const selectStep = useCallback((index: number) => {
     setActiveStep(index)
-    window.history.replaceState(null, '', featureHash(routeState.section, routeState.resourceId, { step: index }))
-  }, [routeState.resourceId, routeState.section])
+    window.history.replaceState(null, '', featureHash(routeState.section, routeState.resourceId, { step: index, view: stepView }))
+  }, [routeState.resourceId, routeState.section, stepView])
+
+  // The open tab stays while moving between steps and survives a reload.
+  const selectStepView = useCallback((view: SopStepView) => {
+    setStepView(view)
+    window.history.replaceState(null, '', featureHash(routeState.section, routeState.resourceId, { step: activeStep, view }))
+  }, [activeStep, routeState.resourceId, routeState.section])
 
   useEffect(() => {
     const syncLocation = () => setRouteState(locationState())
@@ -250,6 +259,10 @@ export default function AdminSopCenterPage({
     setActiveStep(Math.max(0, Number(routeState.step) || 0))
     setDetailTab('content')
   }, [routeState.resourceId, routeState.step])
+
+  useEffect(() => {
+    setStepView(isSopStepView(routeState.view) ? routeState.view : 'guide')
+  }, [routeState.resourceId, routeState.view])
 
   useEffect(() => {
     const resourceId = routeState.resourceId
@@ -687,7 +700,11 @@ export default function AdminSopCenterPage({
                         {handoffs.map((handoff) => <li key={`${handoff.sopId}-${handoff.when}`}><button type="button" onClick={() => { selectLookup({ sop: handoff.sopId }); window.scrollTo({ top: 0, behavior: 'auto' }) }}><span>{handoff.sop?.code}</span><strong>{handoff.sop?.title}</strong>{handoff.when && <small>{handoff.when}</small>}<ArrowRight size={14} /></button></li>)}
                       </ul>}
                       <div className="sop-center-path-links">
-                        <button type="button" onClick={() => navigateFeature('sops', activeSop.id, { step: index })}>Xem đầy đủ bước {pad(index + 1)} · {step.say?.length ?? 0} câu nói · {step.cases?.length ?? 0} tình huống <ArrowRight size={14} /></button>
+                        <span className="sop-center-path-open">
+                          <button type="button" onClick={() => navigateFeature('sops', activeSop.id, { step: index })}>Xem đầy đủ bước {pad(index + 1)} <ArrowRight size={14} /></button>
+                          <button type="button" onClick={() => navigateFeature('sops', activeSop.id, { step: index, view: 'say' })}>{step.say?.length ?? 0} câu nói</button>
+                          <button type="button" onClick={() => navigateFeature('sops', activeSop.id, { step: index, view: 'cases' })}>{step.cases?.length ?? 0} tình huống</button>
+                        </span>
                         {next && <button type="button" className="is-next" onClick={() => { toggleStep(index + 1); revealStep(index + 1) }}>Tiếp theo · Bước {pad(index + 2)}: {next.title || `Bước ${index + 2}`} <ArrowRight size={14} /></button>}
                       </div>
                     </div>}
@@ -858,7 +875,7 @@ export default function AdminSopCenterPage({
           <span>Các bước</span>
           {steps.length ? <ol>{steps.map((step, index) => <li key={`${index}-${step.title}`} className={index === activeStep ? 'is-active' : ''}><button type="button" aria-current={index === activeStep ? 'step' : undefined} onClick={() => selectStep(index)}><i>{pad(index + 1)}</i><span><strong>{step.title || `Bước ${index + 1}`}</strong><small>{step.when || step.owner}</small>{skillForStep(step) && <em>{skillForStep(step)?.title}</em>}</span></button></li>)}</ol> : <p className="sop-center-empty-copy">SOP này chưa có bước nào.</p>}
         </aside>}
-        <main><ResourceContent resource={resource} activeStep={activeStep} stepSkill={isSop ? renderStepSkill(resource, steps[activeStep]) : undefined} />{renderRelations(resource)}</main>
+        <main><ResourceContent resource={resource} activeStep={activeStep} stepSkill={isSop ? renderStepSkill(resource, steps[activeStep]) : undefined} stepView={stepView} onStepViewChange={selectStepView} />{renderRelations(resource)}</main>
       </div>}
     </section>
   }

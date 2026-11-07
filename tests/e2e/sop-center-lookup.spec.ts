@@ -181,3 +181,35 @@ test('the centre opens on the tree, old overview links land there, and a library
   await expect(page.locator('.sop-center-document-heading')).toHaveCount(0)
 })
 
+test('a step reads as four tabs, keeps the open tab across steps and in the address, and the tree opens the right tab', async ({ page }) => {
+  await openSopCenter(page, '#/admin-sop?section=sops&resource=sop__sop02&step=4')
+  const tabs = page.locator('.sop-center-step-tabs button')
+  await expect(tabs).toHaveText([/Hướng dẫn/, /Mẫu câu\s*\d+/, /Tình huống\s*\d+/, /Kiểm tra\s*2/])
+  await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('#sop-step-panel-guide .sop-center-step-skill-name strong')).toHaveText('Thiết kế trải nghiệm')
+  await expect(page.locator('#sop-step-panel-guide .sop-center-example blockquote.is-good')).toHaveCount(1)
+  await expect(page.locator('.sop-center-quote-stack')).toHaveCount(0)
+
+  await tabs.nth(2).click()
+  await expect(page).toHaveURL(/resource=sop__sop02&step=4&view=cases$/)
+  const groups = page.locator('.sop-center-case-groups button')
+  await expect(groups.first()).toContainText('Tất cả')
+  const total = Number((await groups.first().locator('small').textContent()) ?? '0')
+  await expect(page.locator('#sop-step-panel-cases .sop-center-case-list article')).toHaveCount(total)
+  await groups.nth(1).click()
+  expect(await page.locator('#sop-step-panel-cases .sop-center-case-list article').count()).toBeLessThan(total)
+
+  // The next step opens on the same tab; a reload keeps it.
+  await page.locator('.sop-center-process-rail li').nth(5).getByRole('button').click()
+  await expect(page).toHaveURL(/step=5&view=cases$/)
+  await expect(tabs.nth(2)).toHaveAttribute('aria-selected', 'true')
+  await page.reload()
+  await expect(page.locator('.sop-center-step-tabs button').nth(2)).toHaveAttribute('aria-selected', 'true')
+
+  await openSopCenter(page, '#/admin-sop?section=lookup&sop=sop02&step=4')
+  await openDetail(page).locator('.sop-center-path-open button').nth(1).click()
+  await expect(page).toHaveURL(/resource=sop__sop02&step=4&view=say$/)
+  await expect(page.locator('.sop-center-step-tabs button').nth(1)).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('#sop-step-panel-say .sop-center-quote-stack blockquote').first()).toBeVisible()
+})
+

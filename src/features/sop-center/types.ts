@@ -107,6 +107,7 @@ export interface SopStepPayload {
   escalate?: string
   tools?: string[]
   cases?: Array<{ group?: string; when?: string; then?: string; say?: string[]; crm?: string }>
+  example?: { good?: string; bad?: string; why?: string }
   quiz?: Array<{ question?: string; options?: string[]; answer?: number; why?: string }>
 }
 

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { AlertTriangle, CheckCircle2, MessageSquareQuote, ShieldAlert } from 'lucide-react'
 import type { SopKnowledgeResource, SopStepPayload } from './types'
 
@@ -23,9 +23,29 @@ function TextList({ items, empty = 'Chưa có nội dung.' }: { items: string[];
   return <ul className="sop-center-check-list">{items.map((item, index) => <li key={`${index}-${item}`}><CheckCircle2 size={17} aria-hidden="true" /><span>{item}</span></li>)}</ul>
 }
 
-function SopStepContent({ step, index, skill }: { step: SopStepPayload; index: number; skill?: ReactNode }) {
+export type SopStepView = 'guide' | 'say' | 'cases' | 'quiz'
+const stepViews: SopStepView[] = ['guide', 'say', 'cases', 'quiz']
+export const isSopStepView = (value: unknown): value is SopStepView => stepViews.includes(value as SopStepView)
+
+// A step reads as four short pages instead of one long one: the guide
+// (what to do, what to avoid, the example), the phrases, the situations
+// grouped by their kind, and the quick check.
+function SopStepContent({ step, index, skill, view, onViewChange }: { step: SopStepPayload; index: number; skill?: ReactNode; view: SopStepView; onViewChange: (view: SopStepView) => void }) {
   const cases = Array.isArray(step.cases) ? step.cases : []
   const quizzes = Array.isArray(step.quiz) ? step.quiz : []
+  const say = step.say ?? []
+  const example = record(step.example)
+  const tools = texts(step.tools)
+  const [caseGroup, setCaseGroup] = useState<string>('all')
+  const groups = [...new Set(cases.map((item) => text(item.group)).filter(Boolean))]
+  const shownCases = caseGroup === 'all' || !groups.includes(caseGroup) ? cases : cases.filter((item) => text(item.group) === caseGroup)
+  const tabs: Array<{ id: SopStepView; label: string; count?: number }> = [
+    { id: 'guide', label: 'Hướng dẫn' },
+    { id: 'say', label: 'Mẫu câu', count: say.length },
+    { id: 'cases', label: 'Tình huống', count: cases.length },
+    ...(quizzes.length ? [{ id: 'quiz' as const, label: 'Kiểm tra', count: quizzes.length }] : []),
+  ]
+  const active = tabs.some((tab) => tab.id === view) ? view : 'guide'
   return (
     <div className="sop-center-document">
       <div className="sop-center-document-heading">
@@ -34,50 +54,70 @@ function SopStepContent({ step, index, skill }: { step: SopStepPayload; index: n
         <p>{step.goal || 'Chưa mô tả mục tiêu của bước.'}</p>
       </div>
 
-      {(step.when || step.owner || step.done) && <dl className="sop-center-step-meta">
-        {step.when && <div><dt>Thời điểm / SLA</dt><dd>{step.when}</dd></div>}
-        {step.owner && <div><dt>Người thực hiện</dt><dd>{step.owner}</dd></div>}
-        {step.done && <div><dt>Hoàn thành khi</dt><dd>{step.done}</dd></div>}
-      </dl>}
+      <div className="sop-center-step-tabs" role="tablist" aria-label="Nội dung của bước">
+        {tabs.map((tab) => <button type="button" role="tab" key={tab.id} id={`sop-step-tab-${tab.id}`} aria-selected={active === tab.id} aria-controls={`sop-step-panel-${tab.id}`} className={active === tab.id ? 'is-active' : ''} onClick={() => onViewChange(tab.id)}>{tab.label}{typeof tab.count === 'number' && <small>{tab.count}</small>}</button>)}
+      </div>
 
-      {skill}
+      {active === 'guide' && <div role="tabpanel" id="sop-step-panel-guide" aria-labelledby="sop-step-tab-guide" className="sop-center-step-panel">
+        {(step.when || step.owner || step.done) && <dl className="sop-center-step-meta">
+          {step.when && <div><dt>Thời điểm / SLA</dt><dd>{step.when}</dd></div>}
+          {step.owner && <div><dt>Người thực hiện</dt><dd>{step.owner}</dd></div>}
+          {step.done && <div><dt>Hoàn thành khi</dt><dd>{step.done}</dd></div>}
+        </dl>}
 
-      <section className="sop-center-content-section">
-        <div className="sop-center-section-title"><CheckCircle2 size={18} /><h3>Việc cần làm</h3></div>
-        <TextList items={step.actions ?? []} />
-      </section>
+        {skill}
 
-      {(step.say?.length ?? 0) > 0 && <section className="sop-center-content-section">
-        <div className="sop-center-section-title"><MessageSquareQuote size={18} /><h3>Mẫu câu nên dùng</h3></div>
-        <div className="sop-center-quote-stack">
-          {step.say?.map((item, itemIndex) => <blockquote key={`${itemIndex}-${item}`}>{item}</blockquote>)}
-        </div>
-      </section>}
+        <section className="sop-center-content-section">
+          <div className="sop-center-section-title"><CheckCircle2 size={18} /><h3>Việc cần làm</h3></div>
+          <TextList items={step.actions ?? []} />
+        </section>
 
-      {(step.avoid?.length ?? 0) > 0 && <section className="sop-center-content-section sop-center-content-section--warning">
-        <div className="sop-center-section-title"><ShieldAlert size={18} /><h3>Không được làm / nói</h3></div>
-        <TextList items={step.avoid ?? []} />
-      </section>}
+        {(step.avoid?.length ?? 0) > 0 && <section className="sop-center-content-section sop-center-content-section--warning">
+          <div className="sop-center-section-title"><ShieldAlert size={18} /><h3>Không được làm / nói</h3></div>
+          <TextList items={step.avoid ?? []} />
+        </section>}
 
-      {(step.crm || step.escalate) && <section className="sop-center-note-grid">
-        {step.crm && <div><span>Ghi nhận hệ thống</span><p>{step.crm}</p></div>}
-        {step.escalate && <div><span>Chuyển cấp khi</span><p>{step.escalate}</p></div>}
-      </section>}
+        {(text(example.good) || text(example.bad)) && <section className="sop-center-content-section">
+          <div className="sop-center-section-title"><MessageSquareQuote size={18} /><h3>Làm đúng · làm sai</h3></div>
+          <div className="sop-center-example">
+            {text(example.good) && <blockquote className="is-good"><span>Nên</span>{text(example.good)}</blockquote>}
+            {text(example.bad) && <blockquote className="is-bad"><span>Không nên</span>{text(example.bad)}</blockquote>}
+            {text(example.why) && <p>{text(example.why)}</p>}
+          </div>
+        </section>}
 
-      {cases.length > 0 && <section className="sop-center-content-section">
-        <div className="sop-center-section-title"><AlertTriangle size={18} /><h3>Tình huống thường gặp</h3></div>
-        <div className="sop-center-case-list">
-          {cases.map((item, itemIndex) => <article key={`${itemIndex}-${item.when}`}>
-            {item.group && <span>{item.group}</span>}
-            <h4>{item.when}</h4>
-            <p>{item.then}</p>
-            {item.say?.map((line, lineIndex) => <blockquote key={`${lineIndex}-${line}`}>{line}</blockquote>)}
-          </article>)}
-        </div>
-      </section>}
+        {(step.crm || step.escalate || tools.length > 0) && <section className="sop-center-note-grid">
+          {step.crm && <div><span>Ghi nhận hệ thống</span><p>{step.crm}</p></div>}
+          {step.escalate && <div><span>Chuyển cấp khi</span><p>{step.escalate}</p></div>}
+          {tools.length > 0 && <div><span>Công cụ & biểu mẫu</span><p>{tools.join(' · ')}</p></div>}
+        </section>}
+      </div>}
 
-      {quizzes.length > 0 && <section className="sop-center-content-section">
-        <div className="sop-center-section-title"><h3>Kiểm tra nhanh</h3><span className="sop-center-count-pill">{quizzes.length} câu</span></div>
+      {active === 'say' && <div role="tabpanel" id="sop-step-panel-say" aria-labelledby="sop-step-tab-say" className="sop-center-step-panel">
+        {say.length
+          ? <div className="sop-center-quote-stack">{say.map((item, itemIndex) => <blockquote key={`${itemIndex}-${item}`}>{item}</blockquote>)}</div>
+          : <p className="sop-center-empty-copy">Bước này chưa có mẫu câu.</p>}
+      </div>}
+
+      {active === 'cases' && <div role="tabpanel" id="sop-step-panel-cases" aria-labelledby="sop-step-tab-cases" className="sop-center-step-panel">
+        {groups.length > 1 && <div className="sop-center-chips sop-center-case-groups" role="group" aria-label="Nhóm tình huống">
+          <button type="button" aria-pressed={caseGroup === 'all'} className={caseGroup === 'all' ? 'is-active' : ''} onClick={() => setCaseGroup('all')}>Tất cả <small>{cases.length}</small></button>
+          {groups.map((group) => <button type="button" key={group} aria-pressed={caseGroup === group} className={caseGroup === group ? 'is-active' : ''} onClick={() => setCaseGroup(group)}>{group} <small>{cases.filter((item) => text(item.group) === group).length}</small></button>)}
+        </div>}
+        {shownCases.length
+          ? <div className="sop-center-case-list">
+            {shownCases.map((item, itemIndex) => <article key={`${itemIndex}-${item.when}`}>
+              {item.group && <span>{item.group}</span>}
+              <h4>{item.when}</h4>
+              <p>{item.then}</p>
+              {item.say?.map((line, lineIndex) => <blockquote key={`${lineIndex}-${line}`}>{line}</blockquote>)}
+              {text(item.crm) && <small>Ghi nhận: {text(item.crm)}</small>}
+            </article>)}
+          </div>
+          : <p className="sop-center-empty-copy">Bước này chưa có tình huống.</p>}
+      </div>}
+
+      {active === 'quiz' && <div role="tabpanel" id="sop-step-panel-quiz" aria-labelledby="sop-step-tab-quiz" className="sop-center-step-panel">
         <div className="sop-center-quiz-list">
           {quizzes.map((quiz, quizIndex) => <article key={`${quizIndex}-${quiz.question}`}>
             <strong>{quizIndex + 1}. {quiz.question}</strong>
@@ -85,7 +125,7 @@ function SopStepContent({ step, index, skill }: { step: SopStepPayload; index: n
             {quiz.why && <small>{quiz.why}</small>}
           </article>)}
         </div>
-      </section>}
+      </div>}
     </div>
   )
 }
@@ -180,10 +220,10 @@ function PolicyContent({ resource }: { resource: SopKnowledgeResource }) {
   </div>
 }
 
-export default function ResourceContent({ resource, activeStep, stepSkill }: { resource: SopKnowledgeResource; activeStep: number; stepSkill?: ReactNode }) {
+export default function ResourceContent({ resource, activeStep, stepSkill, stepView = 'guide', onStepViewChange }: { resource: SopKnowledgeResource; activeStep: number; stepSkill?: ReactNode; stepView?: SopStepView; onStepViewChange?: (view: SopStepView) => void }) {
   if (resource.kind === 'sop') {
     const playbook = Array.isArray(resource.payload.playbook) ? resource.payload.playbook as SopStepPayload[] : []
-    return <SopStepContent step={playbook[activeStep] ?? { title: resource.title, goal: resource.summary }} index={activeStep} skill={playbook[activeStep] ? stepSkill : undefined} />
+    return <SopStepContent step={playbook[activeStep] ?? { title: resource.title, goal: resource.summary }} index={activeStep} skill={playbook[activeStep] ? stepSkill : undefined} view={stepView} onViewChange={(view) => onStepViewChange?.(view)} />
   }
   if (resource.kind === 'skill') return <SkillContent resource={resource} />
   if (resource.kind === 'script' || resource.kind === 'dialogue') return <ScriptContent resource={resource} />
