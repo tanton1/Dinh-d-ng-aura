@@ -15,12 +15,14 @@ async function openSopCenter(page: Page, hash: string, width = 1440) {
 
 const steps = (page: Page) => page.locator('.sop-center-path-steps > li')
 const openDetail = (page: Page) => page.locator('.sop-center-path-steps > li.is-open > .sop-center-path-detail')
+const skillTabs = (page: Page) => openDetail(page).locator('.sop-center-path-skill-tabs button')
 
 test('opening a step shows its skill, its content and the next step in place, and survives a reload', async ({ page }) => {
   await openSopCenter(page, '#/admin-sop?section=lookup&sop=sop02')
   await expect(steps(page)).toHaveCount(8)
   await expect(page.locator('.sop-center-path-detail')).toHaveCount(0)
-  await expect(steps(page).nth(4).locator('.sop-center-path-step-tags em')).toHaveText('Thiết kế trải nghiệm')
+  await expect(steps(page).nth(4).locator('.sop-center-path-step-tags em.is-primary')).toHaveText('Thiết kế trải nghiệm')
+  await expect(steps(page).nth(4).locator('.sop-center-path-step-tags em.is-support')).toHaveText(['Khám phá & đánh giá', 'An toàn & bàn giao'])
 
   await steps(page).nth(4).getByRole('button', { expanded: false }).click()
   await expect(page).toHaveURL(/section=lookup&sop=sop02&step=4$/)
@@ -43,10 +45,32 @@ test('opening a step shows its skill, its content and the next step in place, an
   await expect(page.locator('.sop-center-path-detail')).toHaveCount(0)
 })
 
+test('a step switches between the skills it works with and hands off to another SOP', async ({ page }) => {
+  await openSopCenter(page, '#/admin-sop?section=lookup&sop=sop02&step=4')
+  await expect(skillTabs(page)).toHaveText(['Thiết kế trải nghiệm 2', 'Khám phá & đánh giá 4', 'An toàn & bàn giao 1'])
+  await expect(skillTabs(page).first()).toHaveAttribute('aria-pressed', 'true')
+
+  await skillTabs(page).nth(2).click()
+  await expect(page).toHaveURL(/sop=sop02&step=4&skill=11$/)
+  await expect(openDetail(page).locator('.sop-center-path-skill strong')).toHaveText('An toàn & bàn giao')
+  await expect(openDetail(page).locator('.sop-center-path-rows > button')).toHaveCount(1)
+  await page.reload()
+  await expect(openDetail(page).locator('.sop-center-path-skill strong')).toHaveText('An toàn & bàn giao')
+  await skillTabs(page).first().click()
+  await expect(page).toHaveURL(/sop=sop02&step=4$/)
+
+  const handoff = openDetail(page).locator('.sop-center-path-handoffs button')
+  await expect(handoff).toHaveCount(1)
+  await expect(handoff).toContainText('SOP 06')
+  await handoff.click()
+  await expect(page).toHaveURL(/section=lookup&sop=sop06$/)
+  await expect(page.locator('.sop-center-path-head h2')).toHaveText('An toàn tập luyện & xử lý sự cố')
+})
+
 test('reference material and shared standards stay below the steps, never inside them', async ({ page }) => {
   await openSopCenter(page, '#/admin-sop?section=lookup&sop=sop04')
   await expect(steps(page)).toHaveCount(5)
-  for (let index = 0; index < 5; index += 1) await expect(steps(page).nth(index).locator('.sop-center-path-step-tags em')).toHaveText('Giữ chân & phục hồi')
+  for (let index = 0; index < 5; index += 1) await expect(steps(page).nth(index).locator('.sop-center-path-step-tags em.is-primary')).toHaveText('Giữ chân & phục hồi')
   await expect(page.locator('.sop-center-path-facts')).toContainText('Tham chiếu')
   const groups = page.locator('.sop-center-path-groups summary')
   await expect(groups).toHaveText(['KPI 2', 'Giọng Aura 6', 'Escalation 11'])
@@ -57,14 +81,15 @@ test('reference material and shared standards stay below the steps, never inside
   await expect(openDetail(page).locator('.sop-center-path-rows > button')).toHaveCount(6)
 })
 
-test('skills no step applies open under their own heading', async ({ page }) => {
+test('every skill of an SOP sits on a step; the pricing skill is reached from the step that proposes', async ({ page }) => {
   await openSopCenter(page, '#/admin-sop?section=lookup&sop=sop01')
-  const support = page.locator('.sop-center-path-skills > li')
-  await expect(support).toHaveCount(6)
-  await support.filter({ hasText: 'Báo giá & ưu đãi' }).getByRole('button').first().click()
-  await expect(page).toHaveURL(/sop=sop01&skill=5$/)
-  await expect(page.locator('.sop-center-path-skills > li.is-open .sop-center-path-rows > button')).toHaveCount(18)
-  await expect(support.filter({ hasText: 'Chấm điểm lead' })).toContainText('chưa có mẫu câu riêng')
+  await expect(page.locator('.sop-center-path-facts')).toContainText('Kỹ năng')
+  await expect(page.locator('.sop-center-path-skills')).toHaveCount(0)
+  await steps(page).nth(3).getByRole('button', { expanded: false }).click()
+  await expect(skillTabs(page)).toHaveText(['Ghép dịch vụ 7', 'Báo giá & ưu đãi 18', 'Xử lý băn khoăn 7'])
+  await skillTabs(page).nth(1).click()
+  await expect(page).toHaveURL(/sop=sop01&step=3&skill=5$/)
+  await expect(openDetail(page).locator('.sop-center-path-rows > button')).toHaveCount(18)
 })
 
 test('a skill page lists its content and links back into the tree without naming itself', async ({ page }) => {
@@ -79,6 +104,7 @@ test('a skill page lists its content and links back into the tree without naming
   await expect(openDetail(page).locator('.sop-center-path-skill strong')).toHaveText('Kích hoạt hội viên')
 
   await page.evaluate(() => { location.hash = '#/admin-sop?section=skills&resource=skill__9' })
+  await expect(page.locator('.sop-center-relations')).toContainText('Phối hợp ở 1 bước')
   await expect(page.locator('.sop-center-relations')).toContainText('chưa có mẫu câu, hội thoại hay tình huống nào')
 })
 
@@ -112,6 +138,8 @@ test('each SOP step names its skill, and a skill page opens the steps that use i
   const panel = page.getByRole('region', { name: 'Kỹ năng áp dụng cho bước này' })
   await expect(panel.locator('.sop-center-step-skill-name strong')).toHaveText('Thiết kế trải nghiệm')
   await expect(panel).toContainText('2 nội dung của kỹ năng này trong SOP 02')
+  await expect(panel.locator('.sop-center-step-skill-support button')).toHaveText(['Khám phá & đánh giá 4', 'An toàn & bàn giao 1'])
+  await expect(panel.locator('.sop-center-step-skill-handoffs button')).toContainText('SOP 06')
 
   await panel.locator('.sop-center-step-skill-name').click()
   await expect(page).toHaveURL(/resource=skill__16/)
@@ -121,7 +149,9 @@ test('each SOP step names its skill, and a skill page opens the steps that use i
   await expect(page).toHaveURL(/resource=sop__sop02&step=4/)
   await expect(page.locator('.sop-center-process-rail li.is-active em')).toHaveText('Thiết kế trải nghiệm')
 
-  // A skill only declared on an SOP, with no step of its own, says so.
+  // A skill no step applies as its own still shows where it works alongside others.
   await page.evaluate(() => { location.hash = '#/admin-sop?section=skills&resource=skill__5' })
-  await expect(page.locator('.sop-center-relations')).toContainText('Kỹ năng hỗ trợ xuyên suốt SOP 01, không gắn vào bước cụ thể.')
+  await expect(page.locator('.sop-center-relations')).toContainText('Phối hợp ở 5 bước')
+  await page.locator('.sop-center-relations').getByRole('button', { name: /SOP 01 · B04/ }).click()
+  await expect(page).toHaveURL(/resource=sop__sop01&step=3/)
 })

@@ -104,3 +104,28 @@ test('scripts follow their stage, not every SOP that shares their skill', async 
   assert.ok(safety.length > 0)
   assert.ok(safety.every((item) => !item.relatedSopIds.includes('sop01')))
 })
+
+test('every step names a real primary skill, real supporting skills and hand-offs to other SOPs', async () => {
+  const value = await catalog()
+  const skillIds = new Set(value.resources.filter((item) => item.kind === 'skill').map((item) => item.sourceId))
+  const sops = value.resources.filter((item) => item.kind === 'sop')
+  const sopIds = new Set(sops.map((item) => item.sourceId))
+  for (const sop of sops) {
+    const steps = sop.payload.playbook as Array<{ title: string; skillId?: number; supportSkillIds?: number[]; handoffs?: Array<{ sopId: string; when: string }> }>
+    assert.ok(steps.length > 0, sop.sourceId)
+    for (const step of steps) {
+      assert.ok(skillIds.has(String(step.skillId)), `${sop.sourceId} ${step.title}: primary skill`)
+      for (const id of step.supportSkillIds ?? []) {
+        assert.ok(skillIds.has(String(id)), `${sop.sourceId} ${step.title}: support skill ${id}`)
+        assert.notEqual(String(id), String(step.skillId), `${sop.sourceId} ${step.title}: support repeats the primary skill`)
+      }
+      for (const handoff of step.handoffs ?? []) {
+        assert.ok(sopIds.has(handoff.sopId) && handoff.sopId !== sop.sourceId, `${sop.sourceId} ${step.title}: hand-off to ${handoff.sopId}`)
+        assert.ok(handoff.when.length > 0)
+      }
+    }
+    // The SOP's skills are exactly the ones its steps apply or work with.
+    const wired = new Set(steps.flatMap((step) => [String(step.skillId), ...(step.supportSkillIds ?? []).map(String)]))
+    assert.deepEqual([...sop.relatedSkillIds].sort(), [...wired].sort(), `${sop.sourceId}: skills vs steps`)
+  }
+})

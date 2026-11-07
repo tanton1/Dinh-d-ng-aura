@@ -98,6 +98,8 @@ export interface SopStepPayload {
   when?: string
   owner?: string
   skillId?: number | string
+  supportSkillIds?: Array<number | string>
+  handoffs?: Array<{ sopId?: string; when?: string }>
   goal?: string
   actions?: string[]
   say?: string[]

@@ -90,14 +90,16 @@ function featureHash(section: SopCenterSection, resourceId?: string | null, look
   const params = new URLSearchParams()
   if (section !== 'overview') params.set('section', section)
   if (resourceId) params.set('resource', resourceId)
+  // Path first, then the detail inside it: sop, step, skill.
   if (lookup?.sop) params.set('sop', lookup.sop)
-  if (lookup?.skill) params.set('skill', lookup.skill)
   if (typeof lookup?.step === 'number') params.set('step', String(lookup.step))
+  if (lookup?.skill) params.set('skill', lookup.skill)
   const query = params.toString()
   return `#/admin-sop${query ? `?${query}` : ''}`
 }
 
 const customerKinds: SopKnowledgeKind[] = ['script', 'dialogue', 'objection']
+const stringIds = (value: unknown) => Array.isArray(value) ? value.map(String).filter(Boolean) : []
 
 function makeIdempotencyKey(prefix: string) {
   return `${prefix}:${crypto.randomUUID()}`
@@ -649,11 +651,14 @@ export default function AdminSopCenterPage({
     const steps = sopSteps(activeSop)
     const stepsLoaded = isDemo || loadedDetails.has(activeSop.id)
     const skillById = new Map(resources.filter((item) => item.kind === 'skill').map((item) => [item.sourceId, item]))
+    const sopById = new Map(sopList.map((sop) => [sop.sourceId, sop]))
     const sopSkills = resources
       .filter((item) => item.kind === 'skill' && (item.relatedSopIds ?? []).includes(sopId))
       .sort((left, right) => Number(left.sourceId) - Number(right.sourceId))
     const stepSkillIds = steps.map((step) => String(step.skillId ?? ''))
-    const supportSkills = stepsLoaded ? sopSkills.filter((skill) => !stepSkillIds.includes(skill.sourceId)) : []
+    const stepSupportIds = steps.map((step) => stringIds(step.supportSkillIds))
+    const wiredSkillIds = new Set([...stepSkillIds, ...stepSupportIds.flat()].filter(Boolean))
+    const supportSkills = stepsLoaded ? sopSkills.filter((skill) => !wiredSkillIds.has(skill.sourceId)) : []
     const isKnowledge = (item: SopKnowledgeResource) => item.kind !== 'sop' && item.kind !== 'skill'
     const sopContent = resources.filter((item) => isKnowledge(item) && (item.relatedSopIds ?? []).includes(sopId))
     const useNow = sopContent.filter((item) => customerKinds.includes(item.kind))
@@ -665,14 +670,25 @@ export default function AdminSopCenterPage({
       .filter((group) => group.items.length > 0)
     const referenceGroups = groupByKind(reference, ['policy', 'kpi', 'price', 'promotion', 'variable'])
     const sharedGroups = groupByKind(shared, ['voice', 'escalation'])
-    // The open branch comes from the address: a step, or the first step that
-    // applies the addressed skill. A skill no step applies opens under support.
+    // The open branch comes from the address: a step, with one of its skills
+    // chosen; or a skill alone, which opens the first step that applies it,
+    // then the first step that works with it. A skill no step touches opens
+    // under its own heading.
     const requestedStep = routeState.step === null ? Number.NaN : Number(routeState.step)
-    const stepFromSkill = routeState.skill ? stepSkillIds.indexOf(routeState.skill) : -1
-    const openStep = Number.isInteger(requestedStep) && steps[requestedStep] ? requestedStep : stepFromSkill >= 0 ? stepFromSkill : null
-    const openSkill = openStep === null && routeState.skill && supportSkills.some((skill) => skill.sourceId === routeState.skill) ? routeState.skill : null
+    const skillParam = routeState.skill
+    let openStep: number | null = Number.isInteger(requestedStep) && steps[requestedStep] ? requestedStep : null
+    let chosenSkill: string | null = null
+    if (openStep === null && skillParam) {
+      const primaryIndex = stepSkillIds.indexOf(skillParam)
+      const supportIndex = stepSupportIds.findIndex((ids) => ids.includes(skillParam))
+      if (primaryIndex >= 0) openStep = primaryIndex
+      else if (supportIndex >= 0) { openStep = supportIndex; chosenSkill = skillParam }
+    } else if (openStep !== null && skillParam && stepSupportIds[openStep].includes(skillParam)) {
+      chosenSkill = skillParam
+    }
+    const openSupportSkill = openStep === null && skillParam && supportSkills.some((skill) => skill.sourceId === skillParam) ? skillParam : null
     const toggleStep = (index: number) => selectLookup({ sop: sopId, step: openStep === index ? null : index })
-    const toggleSkill = (skillId: string) => selectLookup({ sop: sopId, skill: openSkill === skillId ? null : skillId })
+    const toggleSkill = (skillId: string) => selectLookup({ sop: sopId, skill: openSupportSkill === skillId ? null : skillId })
     // "Tiếp theo" opens the next step below the current panel, so bring it up.
     const revealStep = (index: number) => window.requestAnimationFrame(() => {
       const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -701,24 +717,27 @@ export default function AdminSopCenterPage({
 
           <section className="sop-center-path-section" aria-labelledby="sop-path-steps-title">
             <h3 id="sop-path-steps-title">Quy trình</h3>
-            <p>Mở một bước để thấy kỹ năng áp dụng, nội dung dùng ngay và bước tiếp theo.</p>
+            <p>Mở một bước để thấy kỹ năng áp dụng, kỹ năng phối hợp, nội dung dùng ngay và bước tiếp theo.</p>
             {!stepsLoaded
               ? <div className="sop-center-path-loading" role="status" aria-label="Đang tải các bước"><span /><span /><span /></div>
               : steps.length
                 ? <ol className="sop-center-path-steps">{steps.map((step, index) => {
                   const skillId = stepSkillIds[index]
                   const skill = skillId ? skillById.get(skillId) : undefined
-                  const content = skillId ? contentForSkill(skillId) : []
+                  const supports = stepSupportIds[index].map((id) => skillById.get(id)).filter((item): item is SopKnowledgeResource => Boolean(item))
                   const open = openStep === index
+                  const shownSkill = open && chosenSkill ? skillById.get(chosenSkill) ?? skill : skill
+                  const content = shownSkill ? contentForSkill(shownSkill.sourceId) : []
                   const firstUse = skillId ? stepSkillIds.indexOf(skillId) : index
                   const next = steps[index + 1]
+                  const handoffs = (Array.isArray(step.handoffs) ? step.handoffs : []).map((handoff) => ({ ...handoff, sop: handoff.sopId ? sopById.get(handoff.sopId) : undefined })).filter((handoff) => handoff.sop)
                   return <li key={`${index}-${step.title}`} className={open ? 'is-open' : ''}>
                     <button type="button" aria-expanded={open} aria-controls={`sop-path-step-${index}`} onClick={() => toggleStep(index)}>
                       <i>{pad(index + 1)}</i>
                       <span className="sop-center-path-step-copy">
                         <strong>{step.title || `Bước ${index + 1}`}</strong>
                         {(step.when || step.owner) && <small>{[step.when, step.owner].filter(Boolean).join(' · ')}</small>}
-                        <span className="sop-center-path-step-tags">{skill ? <em>{skill.title}</em> : <em className="is-missing">Chưa gắn kỹ năng</em>}{content.length > 0 && <b>{content.length} nội dung</b>}</span>
+                        <span className="sop-center-path-step-tags">{skill ? <em className="is-primary">{skill.title}</em> : <em className="is-missing">Chưa gắn kỹ năng</em>}{supports.map((item) => <em key={item.id} className="is-support">{item.title}</em>)}{skill && contentForSkill(skill.sourceId).length > 0 && <b>{contentForSkill(skill.sourceId).length} nội dung</b>}</span>
                       </span>
                       <ChevronDown size={18} aria-hidden="true" />
                     </button>
@@ -726,7 +745,14 @@ export default function AdminSopCenterPage({
                       {step.goal && <p className="sop-center-path-goal">{step.goal}</p>}
                       {step.done && <p className="sop-center-path-done"><CheckCircle2 size={15} aria-hidden="true" /><span>Hoàn thành khi: {step.done}</span></p>}
                       {skill && firstUse < index && <p className="sop-center-path-note">Cùng kỹ năng với bước {pad(firstUse + 1)}.</p>}
-                      {renderSkillBranch(activeSop, skill, content)}
+                      {skill && supports.length > 0 && <div className="sop-center-path-skill-tabs" role="group" aria-label="Kỹ năng của bước này">
+                        <button type="button" aria-pressed={!chosenSkill} className={!chosenSkill ? 'is-active' : ''} onClick={() => selectLookup({ sop: sopId, step: index })}>{skill.title} <small>{contentForSkill(skill.sourceId).length}</small></button>
+                        {supports.map((item) => <button type="button" key={item.id} aria-pressed={chosenSkill === item.sourceId} className={chosenSkill === item.sourceId ? 'is-active' : ''} onClick={() => selectLookup({ sop: sopId, step: index, skill: item.sourceId })}>{item.title} <small>{contentForSkill(item.sourceId).length}</small></button>)}
+                      </div>}
+                      {renderSkillBranch(activeSop, shownSkill, content)}
+                      {handoffs.length > 0 && <ul className="sop-center-path-handoffs" aria-label="Chuyển sang SOP khác">
+                        {handoffs.map((handoff) => <li key={`${handoff.sopId}-${handoff.when}`}><button type="button" onClick={() => { selectLookup({ sop: handoff.sopId }); window.scrollTo({ top: 0, behavior: 'auto' }) }}><span>{handoff.sop?.code}</span><strong>{handoff.sop?.title}</strong>{handoff.when && <small>{handoff.when}</small>}<ArrowRight size={14} /></button></li>)}
+                      </ul>}
                       <div className="sop-center-path-links">
                         <button type="button" onClick={() => navigateFeature('sops', activeSop.id, { step: index })}>{step.say?.length ?? 0} câu nói · {step.cases?.length ?? 0} tình huống trong bước <ArrowRight size={14} /></button>
                         {next && <button type="button" className="is-next" onClick={() => { toggleStep(index + 1); revealStep(index + 1) }}>Tiếp theo · Bước {pad(index + 2)}: {next.title || `Bước ${index + 2}`} <ArrowRight size={14} /></button>}
@@ -738,11 +764,11 @@ export default function AdminSopCenterPage({
           </section>
 
           {supportSkills.length > 0 && <section className="sop-center-path-section" aria-labelledby="sop-path-support-title">
-            <h3 id="sop-path-support-title">Kỹ năng hỗ trợ xuyên suốt</h3>
-            <p>Không gắn vào bước cụ thể; dùng ở bất kỳ bước nào của {activeSop.code}.</p>
+            <h3 id="sop-path-support-title">Kỹ năng chưa gắn bước</h3>
+            <p>Thuộc {activeSop.code} nhưng chưa bước nào áp dụng hay phối hợp.</p>
             <ul className="sop-center-path-skills">{supportSkills.map((skill) => {
               const content = contentForSkill(skill.sourceId)
-              const open = openSkill === skill.sourceId
+              const open = openSupportSkill === skill.sourceId
               return <li key={skill.id} className={open ? 'is-open' : ''}>
                 <button type="button" aria-expanded={open} aria-controls={`sop-path-skill-${skill.sourceId}`} onClick={() => toggleSkill(skill.sourceId)}><span className="sop-center-path-step-copy"><strong>{skill.title}</strong><small>{skill.code}{content.length ? ` · ${content.length} nội dung` : ' · chưa có mẫu câu riêng'}</small></span><ChevronDown size={18} aria-hidden="true" /></button>
                 {open && <div id={`sop-path-skill-${skill.sourceId}`} className="sop-center-path-detail">{renderSkillBranch(activeSop, skill, content)}</div>}
@@ -808,6 +834,8 @@ export default function AdminSopCenterPage({
   function renderStepSkill(sop: SopKnowledgeResource, step: SopStepPayload | undefined) {
     const skill = skillForStep(step)
     if (!skill) return <section className="sop-center-step-skill is-missing"><span>Kỹ năng áp dụng</span><p>Bước này chưa gắn kỹ năng.</p></section>
+    const supports = stringIds(step?.supportSkillIds).map((id) => resources.find((item) => item.kind === 'skill' && item.sourceId === id)).filter((item): item is SopKnowledgeResource => Boolean(item))
+    const handoffs = (Array.isArray(step?.handoffs) ? step!.handoffs! : []).map((handoff) => ({ ...handoff, sop: resources.find((item) => item.kind === 'sop' && item.sourceId === handoff.sopId) })).filter((handoff) => handoff.sop)
     const content = resources.filter((item) => customerKinds.includes(item.kind) && (item.relatedSkillIds ?? []).includes(skill.sourceId) && (item.relatedSopIds ?? []).includes(sop.sourceId))
     return <section className="sop-center-step-skill" aria-label="Kỹ năng áp dụng cho bước này">
       <span>Kỹ năng áp dụng</span>
@@ -815,6 +843,8 @@ export default function AdminSopCenterPage({
       {content.length
         ? <div className="sop-center-step-skill-content"><strong>{content.length} nội dung của kỹ năng này trong {sop.code}</strong><div>{content.slice(0, 6).map((item) => <button type="button" key={item.id} onClick={() => navigateFeature(resourceSection(item), item.id)}><span>{kindLabels[item.kind]}</span>{item.title}<ChevronRight size={14} /></button>)}</div>{content.length > 6 && <button type="button" className="sop-center-step-skill-more" onClick={() => navigateFeature('lookup', null, { sop: sop.sourceId, skill: skill.sourceId })}>Xem tất cả {content.length} trên cây <ArrowRight size={14} /></button>}</div>
         : <p>Kỹ năng này chưa có mẫu câu riêng trong {sop.code}.</p>}
+      {supports.length > 0 && <div className="sop-center-step-skill-support"><strong>Phối hợp</strong><div>{supports.map((item) => <button type="button" key={item.id} onClick={() => navigateFeature('lookup', null, { sop: sop.sourceId, step: activeStep, skill: item.sourceId })}>{item.title} <small>{resources.filter((row) => customerKinds.includes(row.kind) && (row.relatedSkillIds ?? []).includes(item.sourceId) && (row.relatedSopIds ?? []).includes(sop.sourceId)).length}</small></button>)}</div></div>}
+      {handoffs.length > 0 && <div className="sop-center-step-skill-handoffs"><strong>Chuyển sang</strong><div>{handoffs.map((handoff) => <button type="button" key={`${handoff.sopId}-${handoff.when}`} onClick={() => navigateFeature('sops', handoff.sop!.id)}><span>{handoff.sop!.code}</span>{handoff.when}<ArrowRight size={14} /></button>)}</div></div>}
     </section>
   }
 
@@ -830,9 +860,14 @@ export default function AdminSopCenterPage({
     const skillContent = resource.kind === 'skill'
       ? resources.filter((item) => customerKinds.includes(item.kind) && (item.relatedSkillIds ?? []).includes(resource.sourceId))
       : []
+    const stepsOf = (sop: SopKnowledgeResource) => sopSteps(sop).map((step, index) => ({ sop, step, index }))
     const usedInSteps = resource.kind === 'skill'
-      ? relatedSops.flatMap((sop) => sopSteps(sop).map((step, index) => ({ sop, step, index })).filter(({ step }) => String(step.skillId ?? '') === resource.sourceId))
+      ? relatedSops.flatMap((sop) => stepsOf(sop).filter(({ step }) => String(step.skillId ?? '') === resource.sourceId))
       : []
+    const supportInSteps = resource.kind === 'skill'
+      ? relatedSops.flatMap((sop) => stepsOf(sop).filter(({ step }) => stringIds(step.supportSkillIds).includes(resource.sourceId)))
+      : []
+    const stepButton = ({ sop, step, index }: { sop: SopKnowledgeResource; step: SopStepPayload; index: number }) => <button type="button" key={`${sop.id}-${index}`} onClick={() => navigateFeature('sops', sop.id, { step: index })}><span>{sop.code} · B{String(index + 1).padStart(2, '0')}</span>{step.title || `Bước ${index + 1}`}<ChevronRight size={14} /></button>
     const stepsKnown = isDemo || relatedSops.every((sop) => loadedDetails.has(sop.id))
     const treeTarget: LookupSelection | null = resource.kind === 'sop'
       ? { sop: resource.sourceId }
@@ -842,9 +877,9 @@ export default function AdminSopCenterPage({
       <header><div><span>Liên kết tri thức</span><h3>{resource.kind === 'skill' ? 'Kỹ năng này thuộc SOP nào?' : resource.kind === 'sop' ? 'Kỹ năng và mẫu câu theo SOP' : 'Nội dung này được dùng ở đâu?'}</h3></div>{treeTarget && <button type="button" onClick={() => navigateFeature('lookup', null, treeTarget)}><ListTree size={15} /> Xem trên cây</button>}</header>
       {relatedSops.length > 0 && resource.kind !== 'sop' && <div className="sop-center-relation-group"><strong>SOP liên quan</strong><div>{relatedSops.map((sop) => <button type="button" key={sop.id} onClick={() => navigateFeature('sops', sop.id)}><span>{sop.code}</span>{sop.title}<ChevronRight size={14} /></button>)}</div></div>}
       {relatedSkills.length > 0 && <div className="sop-center-relation-group"><strong>{resource.kind === 'sop' ? `${relatedSkills.length} kỹ năng thuộc SOP này` : 'Kỹ năng liên quan'}</strong><div>{relatedSkills.map((skill) => <button type="button" key={skill.id} onClick={() => navigateFeature('skills', skill.id)}><span>{skill.code}</span>{skill.title}<ChevronRight size={14} /></button>)}</div></div>}
-      {resource.kind === 'skill' && stepsKnown && relatedSops.length > 0 && (usedInSteps.length
-        ? <div className="sop-center-relation-group"><strong>Dùng ở {usedInSteps.length} bước</strong><div>{usedInSteps.map(({ sop, step, index }) => <button type="button" key={`${sop.id}-${index}`} onClick={() => navigateFeature('sops', sop.id, { step: index })}><span>{sop.code} · B{String(index + 1).padStart(2, '0')}</span>{step.title || `Bước ${index + 1}`}<ChevronRight size={14} /></button>)}</div></div>
-        : <p className="sop-center-empty-copy">Kỹ năng hỗ trợ xuyên suốt {relatedSops.map((sop) => sop.code).join(', ')}, không gắn vào bước cụ thể.</p>)}
+      {resource.kind === 'skill' && stepsKnown && relatedSops.length > 0 && usedInSteps.length > 0 && <div className="sop-center-relation-group"><strong>Dùng ở {usedInSteps.length} bước</strong><div>{usedInSteps.map(stepButton)}</div></div>}
+      {resource.kind === 'skill' && stepsKnown && relatedSops.length > 0 && supportInSteps.length > 0 && <div className="sop-center-relation-group"><strong>Phối hợp ở {supportInSteps.length} bước</strong><div>{supportInSteps.map(stepButton)}</div></div>}
+      {resource.kind === 'skill' && stepsKnown && relatedSops.length > 0 && !usedInSteps.length && !supportInSteps.length && <p className="sop-center-empty-copy">Kỹ năng hỗ trợ xuyên suốt {relatedSops.map((sop) => sop.code).join(', ')}, chưa bước nào áp dụng hay phối hợp.</p>}
       {resource.kind === 'skill' && (skillContent.length
         ? <div className="sop-center-relation-group"><strong>{skillContent.length} nội dung dùng kỹ năng này</strong><div>{skillContent.map((item) => <button type="button" key={item.id} onClick={() => navigateFeature(resourceSection(item), item.id)}><span>{kindLabels[item.kind]}</span>{item.title}<ChevronRight size={14} /></button>)}</div></div>
         : <p className="sop-center-empty-copy">Kỹ năng này chưa có mẫu câu, hội thoại hay tình huống nào.</p>)}

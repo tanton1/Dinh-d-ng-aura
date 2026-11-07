@@ -154,9 +154,13 @@ function sopMetrics(item: SourceRecord): ContentMetrics {
   }
 }
 
+// An SOP's skills: the ones it declares, the one each step applies and the
+// ones a step works with alongside it.
 function resolvedSopSkillIds(item: SourceRecord) {
-  const stepSkillIds = sourceArray(item.playbook).map((step) => step.skillId).filter(Boolean)
-  return uniqueStrings([...stringArray(item.skillIds), ...stepSkillIds])
+  const steps = sourceArray(item.playbook)
+  const stepSkillIds = steps.map((step) => step.skillId).filter(Boolean)
+  const supportSkillIds = steps.flatMap((step) => stringArray(step.supportSkillIds))
+  return uniqueStrings([...stringArray(item.skillIds), ...stepSkillIds, ...supportSkillIds])
 }
 
 function policySops(group: unknown) {
@@ -193,7 +197,7 @@ const SCRIPT_CATEGORY_SOPS: Record<string, string[]> = {
   renewal: ['sop05'],
   safety: ['sop06'],
   schedule: ['sop07'],
-  contract: ['sop05', 'sop07'],
+  contract: ['sop07'],
   feedback: ['sop04', 'sop07'],
   privacy: ['sop08'],
   reception: ['sop09'],
