@@ -1,11 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {
-  availabilityOriginLabel,
-  availabilityReasonOverride,
-  hasUnconfirmedLegacyAvailability,
-  unconfirmedAvailabilityNote,
-} from '../src/features/schedule/availabilityPresentation'
+import { availabilityOriginLabel, hasUnconfirmedLegacyAvailability } from '../src/features/schedule/availabilityPresentation'
+import { availabilityReasonOverride, unconfirmedAvailabilityNote } from '../src/features/schedule/availabilityDetail'
 
 // Mirrors a learner migrated from the old app whose slots were never
 // confirmed: the optimizer reports AVAILABILITY_NOT_SUBMITTED while the

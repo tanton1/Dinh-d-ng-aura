@@ -27,9 +27,11 @@ const budgets = {
   // warning center. Keep the gate tight while allowing that intentional
   // feature surface to ship without hiding a regression elsewhere.
   // The weekly read-model adds compact cross-branch coverage and complete
-  // warning context. Keep a 34 KiB ceiling; verbose warning details remain in
-  // a lazy chunk so the first matrix paint does not pay for them.
-  schedulerWorkspaceJsGzip: 34_000,
+  // warning context, and the matrix now names an unconfirmed legacy default
+  // availability. The workspace measures about 33.3 KiB gzip; keep a 34.5 KiB
+  // ceiling. Verbose warning and student-summary wording stays in lazy chunks
+  // (availabilityDetail.ts) so the first matrix paint does not pay for it.
+  schedulerWorkspaceJsGzip: 34_500,
   schedulerFallbackJsGzip: 10_000,
   progressPageJsGzip: 20_000,
 }

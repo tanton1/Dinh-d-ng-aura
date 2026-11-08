@@ -12,7 +12,7 @@ import {
 import { readWorkspaceCache, writeWorkspaceCache, WORKSPACE_CACHE_REVALIDATE_MS } from './workspaceCache'
 import { applyWeeklyValidation } from './weeklyValidation'
 import { approvedOffOnDate } from './weeklyOff'
-import { CONFIRMED_AVAILABILITY_STATUSES, availabilityOriginLabel, availabilityReasonOverride, type AvailabilityPresentationStudent } from './availabilityPresentation'
+import { CONFIRMED_AVAILABILITY_STATUSES, availabilityOriginLabel } from './availabilityPresentation'
 
 type WorkspaceTab = 'matrix' | 'opportunities' | 'students' | 'warnings' | 'history'
 type StudentFilter = 'all' | 'missing' | 'contract' | 'availability' | 'trainer' | 'ready'
@@ -202,9 +202,7 @@ function contractQuota(contract: PtScheduleWorkspaceV2Result['contracts'][number
   return { entitlement, held, schedulable }
 }
 
-function diagnosticReasonLabel(code: string | undefined, student?: AvailabilityPresentationStudent | null) {
-  const learnerSpecific = availabilityReasonOverride(code, student)
-  if (learnerSpecific) return learnerSpecific
+function diagnosticReasonLabel(code: string | undefined) {
   if (!code) return 'Chưa tìm được phương án xếp phù hợp.'
   return ptScheduleConflictLabel(code)
 }

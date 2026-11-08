@@ -1,7 +1,7 @@
 import type { PtScheduleBranchOption, PtScheduleWorkspaceV2Result } from '../../services/ptSchedulePublishService'
 import type { WarningRow } from '../../features/schedule/warningPresentation'
 import { DAY_LABELS, scheduleSlotLabel } from '../../features/schedule/workspaceModel'
-import { unconfirmedAvailabilityNote } from '../../features/schedule/availabilityPresentation'
+import { unconfirmedAvailabilityNote } from '../../features/schedule/availabilityDetail'
 import { approvedOffOnDate, scheduleDate } from '../../features/schedule/weeklyOff'
 
 interface Props {
