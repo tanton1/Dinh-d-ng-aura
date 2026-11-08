@@ -1,6 +1,7 @@
 import type { PtScheduleBranchOption, PtScheduleWorkspaceV2Result } from '../../services/ptSchedulePublishService'
 import type { WarningRow } from '../../features/schedule/warningPresentation'
 import { DAY_LABELS, scheduleSlotLabel } from '../../features/schedule/workspaceModel'
+import { unconfirmedAvailabilityNote } from '../../features/schedule/availabilityPresentation'
 import { approvedOffOnDate, scheduleDate } from '../../features/schedule/weeklyOff'
 
 interface Props {
@@ -42,11 +43,16 @@ export default function ScheduleWarningDetail({ row, workspace, branchId, branch
   })).filter(({ day, hours }) => hours.length && !(workspace.scheduleConfig.holidays || []).includes(scheduleDate(workspace.weekId, day))
     && !approvedOffOnDate(student, scheduleDate(workspace.weekId, day)))
 
+  // The matrix lists migrated legacy slots even when the optimizer cannot use
+  // them; say so here so "Do lịch khách" is not read as a scheduler mistake.
+  const availabilityNote = unconfirmedAvailabilityNote(student)
+
   return <div className="schedule-warning-detail schedule-warning-detail--simple" id={`warning-detail-${row.id}`}>
     {managers.length > 0 && <section className="schedule-warning-managers"><h4>PT quản lý</h4><p>{managers.join(', ')}</p></section>}
-    <section className="schedule-warning-availability"><h4>Lịch rảnh</h4>
+    <section className={`schedule-warning-availability${availabilityNote ? ' is-unconfirmed' : ''}`}><h4>Lịch rảnh</h4>
+      {availabilityNote && availability.length > 0 && <p className="schedule-warning-availability__note">{availabilityNote}</p>}
       {availability.length ? <dl>{availability.map(({ day, hours }) => <div key={day}><dt>{DAY_LABELS[day] || day}</dt><dd>{hours.map(hour => `${String(hour).padStart(2, '0')}:00`).join(', ')}</dd></div>)}</dl>
-        : <p>{student ? 'Chưa có lịch rảnh' : 'Chưa có dữ liệu lịch rảnh'}</p>}
+        : <p>{student ? availabilityNote || 'Chưa có lịch rảnh' : 'Chưa có dữ liệu lịch rảnh'}</p>}
     </section>
     <section className="schedule-warning-schedule"><h4>Đã xếp</h4>
       {schedule.length ? <ul>{schedule.map(entry => <li key={entry.id} className={entry.crossBranch ? 'is-cross-branch' : ''}><strong>{entry.label}</strong><span>{entry.trainer} · {entry.branch}</span></li>)}</ul>

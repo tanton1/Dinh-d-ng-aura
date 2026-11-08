@@ -20,7 +20,7 @@ export default function ScheduleStudentSummary({ student, approvedOffWeek, cover
   const primaryReason = primaryReasonCode || contractIssue || (missing > 0 ? 'STUDENT_UNSCHEDULED' : undefined)
   const statusText = approvedOffWeek ? 'OFF / bảo lưu đã duyệt · không tính thiếu buổi' : coveragePending
     ? 'Chưa đối soát'
-    : student.eligibleForWeek !== true ? diagnosticReasonLabel(primaryReason)
+    : student.eligibleForWeek !== true ? diagnosticReasonLabel(primaryReason, student)
     : missing > 0 ? `Thiếu ${missing} buổi` : 'Đủ lịch tuần'
   return <>
     <div className="branch-schedule__student-person">

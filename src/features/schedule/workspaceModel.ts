@@ -12,13 +12,13 @@ import {
 import { readWorkspaceCache, writeWorkspaceCache, WORKSPACE_CACHE_REVALIDATE_MS } from './workspaceCache'
 import { applyWeeklyValidation } from './weeklyValidation'
 import { approvedOffOnDate } from './weeklyOff'
+import { CONFIRMED_AVAILABILITY_STATUSES, availabilityOriginLabel, availabilityReasonOverride, type AvailabilityPresentationStudent } from './availabilityPresentation'
 
 type WorkspaceTab = 'matrix' | 'opportunities' | 'students' | 'warnings' | 'history'
 type StudentFilter = 'all' | 'missing' | 'contract' | 'availability' | 'trainer' | 'ready'
 type WarningFilter = 'priority' | 'conflict' | 'contract' | 'learner' | 'capacity' | 'system'
 type WarningCause = 'contract' | 'learner' | 'capacity' | 'system'
 type WorkspaceSyncState = 'connecting' | 'live' | 'syncing' | 'offline'
-const CONFIRMED_AVAILABILITY_STATUSES = new Set(['submitted', 'locked', 'inherited', 'recurring'])
 const BRANCH_CATALOG_CACHE_TTL_MS = 10 * 60_000
 const MIN_WEEK_OFFSET = -12
 const APP_UPDATE_READY_KEY = 'aura:update-ready'
@@ -52,13 +52,6 @@ const DAY_LABELS: Record<string, string> = {
   T6: 'Thứ 6',
   T7: 'Thứ 7',
   CN: 'Chủ nhật',
-}
-
-function availabilityOriginLabel(student: { availabilityStatus: string; availabilitySourceWeekId?: string | null }) {
-  if (student.availabilityStatus === 'inherited') return `kế thừa tuần ${student.availabilitySourceWeekId || 'gần nhất'}`
-  if (student.availabilityStatus === 'recurring') return 'lịch mặc định cũ'
-  if (['submitted', 'locked'].includes(student.availabilityStatus)) return 'đã gửi lịch rảnh'
-  return 'thiếu lịch rảnh'
 }
 
 function commandKey() {
@@ -209,7 +202,9 @@ function contractQuota(contract: PtScheduleWorkspaceV2Result['contracts'][number
   return { entitlement, held, schedulable }
 }
 
-function diagnosticReasonLabel(code: string | undefined) {
+function diagnosticReasonLabel(code: string | undefined, student?: AvailabilityPresentationStudent | null) {
+  const learnerSpecific = availabilityReasonOverride(code, student)
+  if (learnerSpecific) return learnerSpecific
   if (!code) return 'Chưa tìm được phương án xếp phù hợp.'
   return ptScheduleConflictLabel(code)
 }
