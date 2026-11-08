@@ -8,6 +8,7 @@ export type StaffPosition =
   | 'branch_manager'
   | 'academy_editor'
   | 'shipper'
+  | 'customer_care'
 
 export type AccessStatus = 'active' | 'suspended' | 'invited'
 
@@ -74,6 +75,8 @@ export const routeCapabilities = {
   'staff-nutrition-reviews': 'coach.workspace.view',
   'staff-quotes': 'sales.quotes.self.manage',
   'staff-renewals': 'renewals.workspace.view',
+  // Sales and managers open the whole CRM; CSKH and PT open their care tasks.
+  'staff-crm': ['crm.customers.branch.view', 'crm.steps.assigned.manage'],
   'staff-payroll': 'payroll.self.view',
   // PTs view their own score while branch managers review their scoped team.
   // Route admission and navigation use the same any-of rule so the menu never
@@ -109,6 +112,7 @@ export const routeCapabilities = {
   'admin-eat-clean': 'eat_clean.operations.manage',
   'admin-notifications': 'identity.staff_position.manage',
   'admin-sop': 'sop.content.read',
+  'admin-crm': ['crm.customers.branch.view', 'crm.integration.manage'],
 } as const
 
 export function hasRouteCapability(

@@ -22,6 +22,8 @@ export let firebaseBusinessReportingFunctions: Functions | null = null
 export let firebaseTelemetryFunctions: Functions | null = null
 /** Bounded Aura Club / workout read aliases in the existing Jakarta pool. */
 export let firebaseRegionalReadFunctions: Functions | null = null
+/** CRM callables (inbox, pipeline, care steps, Pancake connection) in asia-east1. */
+export let firebaseCrmFunctions: Functions | null = null
 
 if (isFirebaseConfigured && firebaseApp) {
   firebaseFunctions = getFunctions(firebaseApp, 'asia-southeast1')
@@ -35,6 +37,7 @@ if (isFirebaseConfigured && firebaseApp) {
   firebaseAcademySubmissionFunctions = firebaseScheduleOptimizerFunctions
   firebaseBusinessReportingFunctions = firebaseScheduleOptimizerFunctions
   firebaseTelemetryFunctions = firebaseScheduleOptimizerFunctions
+  firebaseCrmFunctions = firebaseScheduleOptimizerFunctions
 
   if (useFirebaseEmulators) {
     connectFunctionsEmulator(firebaseFunctions, '127.0.0.1', 5001)

@@ -182,6 +182,7 @@ export type StudentView =
   | 'staff-nutrition-reviews'
   | 'staff-quotes'
   | 'staff-renewals'
+  | 'staff-crm'
   | 'staff-payroll'
   | 'staff-performance'
   | 'student-360'
@@ -221,6 +222,7 @@ export type AdminView =
   | 'admin-eat-clean'
   | 'admin-notifications'
   | 'admin-sop'
+  | 'admin-crm'
 
 export type ViewId = StudentView | AdminView
 

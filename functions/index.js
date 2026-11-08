@@ -1144,6 +1144,12 @@ const ptScheduleOverflowFunctions = createPtScheduleV2Functions({ db, onCall: pt
 exports.generatePtScheduleDraftV4 = ptScheduleOverflowFunctions.generatePtScheduleDraft
 Object.assign(exports, createFinanceLedgerFunctions({ db, onCall, logger }))
 Object.assign(exports, createInstallmentPaymentFunctions({ db, onCall, storage }))
+// CRM declares the Pancake token key secret, so narrow discovery scopes that
+// must not resolve unrelated secrets skip it like the AI factories.
+if (!isStudent360Discovery && !isExerciseCatalogDiscovery) {
+  const { createCrmRuntime } = require('./crm-runtime')
+  Object.assign(exports, createCrmRuntime({ db, databaseId, onCall: asiaEastOnCall, logger }))
+}
 // Reporting uses the existing overflow pool. A shared lease coalesces summary
 // scans across instances; detailed pages remain bounded independently.
 Object.assign(exports, createReportingReadFunctions({ db, logger, onCall: asiaEastOnCall }))

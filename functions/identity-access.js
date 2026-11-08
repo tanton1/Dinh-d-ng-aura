@@ -219,6 +219,9 @@ function compatibilityRole(accessRole, positions) {
   if (positions.includes('branch_manager')) return 'manager'
   if (positions.includes('academy_editor')) return 'editor'
   if (positions.includes('shipper')) return 'shipper'
+  // Customer care has no legacy role. 'sales' grants no Firestore Rules
+  // access, whereas the 'coach' fallback would open coaching collections.
+  if (positions.includes('customer_care') && !positions.includes('coach_online')) return 'sales'
   return 'coach'
 }
 

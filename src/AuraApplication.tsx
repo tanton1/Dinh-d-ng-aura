@@ -67,6 +67,7 @@ const AdminStudentsPage = lazyWithRetry(() => import('./pages/admin/AdminStudent
 const AdminNutritionReviewsPage = lazyWithRetry(() => import('./pages/admin/AdminNutritionReviewsPage'))
 const AdminNotificationsPage = lazyWithRetry(() => import('./pages/admin/AdminNotificationsPage'))
 const AdminSopCenterPage = lazyWithRetry(() => import('./features/sop-center/AdminSopCenterPage'))
+const CrmWorkspacePage = lazyWithRetry(() => import('./features/crm/CrmWorkspacePage'))
 const CourseEditorPage = lazyWithRetry(() => import('./pages/admin/CourseEditorPage'))
 const CourseDetailPage = lazyWithRetry(() => import('./pages/student/CourseDetailPage'))
 const CoursesPage = lazyWithRetry(() => import('./pages/student/CoursesPage'))
@@ -1037,6 +1038,19 @@ function AuraApplication() {
       case 'staff-quotes': return <AuraOperationsFrame><SalesPortalV2 /></AuraOperationsFrame>
       case 'staff-renewals':
       case 'admin-renewals': return <AuraOperationsFrame><ContractRenewals key={`${view}:${user?.uid}`} source={view} actorId={user?.uid || backendMode} onOpenStudent360={(id, name) => openStudent360(id, view, name)} onNavigate={(next) => navigate(next as ViewId)} /></AuraOperationsFrame>
+      case 'staff-crm':
+      case 'admin-crm': return <AuraOperationsFrame><CrmWorkspacePage
+        key={`${view}:${user?.uid ?? backendMode}`}
+        mode={view === 'admin-crm' ? 'admin' : 'staff'}
+        isDemo={backendMode === 'demo'}
+        capabilities={accessContext?.capabilities || []}
+        positions={staffPositions}
+        branchIds={accessContext?.branchIds || []}
+        accessRole={accessContext?.accessRole || role}
+        initialCustomerId={route.focus}
+        onOpenStudent360={(id, name) => openStudent360(id, view, name)}
+        onOpenQuotes={() => navigate(view === 'admin-crm' ? 'admin-quotes' : 'staff-quotes')}
+      /></AuraOperationsFrame>
       case 'staff-payroll': return <AuraOperationsFrame><StaffPayrollPage /></AuraOperationsFrame>
       case 'staff-performance': {
         const performanceReviewer = staffPositions.includes('branch_manager') && hasCapability('performance.evidence.review')

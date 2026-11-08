@@ -204,6 +204,10 @@ jobs:
         if: ${{ contains(inputs.backend_functions, 'enqueueNutritionScan') || contains(inputs.backend_functions, 'processNutritionScanQueue') }}
         run: node scripts/nutrition-scan-queue-config.cjs apply --confirm=projects/gen-lang-client-0815966909/databases/ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7/nutritionScanJobs:configure-retention
 
+      - name: Configure CRM webhook event retention and exclude text indexes
+        if: ${{ contains(inputs.backend_functions, 'processCrmInboundEvent') || contains(inputs.backend_functions, 'pancakeWebhook') }}
+        run: node scripts/crm-firestore-config.cjs apply --confirm=projects/gen-lang-client-0815966909/databases/ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7/crm:configure-retention
+
       - name: Validate backend deployment scope
         id: backend
         shell: bash

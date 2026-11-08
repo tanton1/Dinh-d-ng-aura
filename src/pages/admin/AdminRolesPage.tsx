@@ -149,6 +149,7 @@ const positionOptions: Array<{ id: StaffPosition; label: string; description: st
   { id: 'branch_manager', label: 'Quản lý chi nhánh', description: 'Vận hành cơ sở và đội ngũ trong phạm vi được cấp' },
   { id: 'academy_editor', label: 'Biên tập Academy', description: 'Soạn và gửi duyệt nội dung Academy' },
   { id: 'shipper', label: 'Shipper Eat Clean', description: 'Đơn giao được phân công và GPS giao hàng' },
+  { id: 'customer_care', label: 'CSKH', description: 'Chăm sóc sau bán học viên được giao, bước chăm sóc và hội thoại từ ngày ký' },
 ]
 const staffAccessPresets: Array<{ label: string; positions: StaffPosition[] }> = [
   { label: 'Coach online', positions: ['coach_online'] },
@@ -157,6 +158,7 @@ const staffAccessPresets: Array<{ label: string; positions: StaffPosition[] }> =
   { label: 'Sales', positions: ['sales'] },
   { label: 'Quản lý CN', positions: ['branch_manager'] },
   { label: 'Academy', positions: ['academy_editor'] },
+  { label: 'CSKH', positions: ['customer_care'] },
 ]
 function normalizeStaffEmail(value: string) {
   return value.trim().toLocaleLowerCase('vi')

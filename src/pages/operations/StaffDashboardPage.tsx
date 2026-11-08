@@ -136,6 +136,7 @@ const positionLabels: Record<StaffPosition, string> = {
   branch_manager: 'Quản lý chi nhánh',
   academy_editor: 'Biên tập Academy',
   shipper: 'Shipper Eat Clean',
+  customer_care: 'CSKH',
 }
 
 export default function StaffDashboardPage(props: Props) {

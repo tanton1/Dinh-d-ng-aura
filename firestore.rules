@@ -1498,6 +1498,56 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // CRM is callable-only. Customers, Pancake messages, page tokens and
+    // webhook events never reach a browser directly, even an Admin UI.
+    match /crmCustomers/{customerId} {
+      allow read, write: if false;
+    }
+
+    match /crmChannelLinks/{linkId} {
+      allow read, write: if false;
+    }
+
+    match /crmConversations/{conversationKey} {
+      allow read, write: if false;
+    }
+
+    match /crmMessages/{messageId} {
+      allow read, write: if false;
+    }
+
+    match /crmCareSteps/{stepId} {
+      allow read, write: if false;
+    }
+
+    match /crmActivities/{activityId} {
+      allow read, write: if false;
+    }
+
+    match /crmAppointments/{appointmentId} {
+      allow read, write: if false;
+    }
+
+    match /crmCareAssignments/{studentId} {
+      allow read, write: if false;
+    }
+
+    match /crmPancakePages/{pageId} {
+      allow read, write: if false;
+    }
+
+    match /crmPancakePageSecrets/{pageId} {
+      allow read, write: if false;
+    }
+
+    match /crmInboundEvents/{eventId} {
+      allow read, write: if false;
+    }
+
+    match /crmErasures/{erasureId} {
+      allow read, write: if false;
+    }
+
     match /expenseRequests/{requestId} {
       allow read, write: if false;
     }

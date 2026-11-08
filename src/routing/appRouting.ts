@@ -29,6 +29,7 @@ export const adminViews: ViewId[] = [
   'admin-eat-clean',
   'admin-notifications',
   'admin-sop',
+  'admin-crm',
 ]
 
 const validViews: ViewId[] = [
@@ -54,6 +55,7 @@ const validViews: ViewId[] = [
   'staff-nutrition-reviews',
   'staff-quotes',
   'staff-renewals',
+  'staff-crm',
   'staff-payroll',
   'staff-performance',
   'student-360',
@@ -90,6 +92,7 @@ export const adminViewPermissions: Partial<Record<ViewId, Permission>> = {
   'admin-eat-clean': 'eat_clean.manage',
   'admin-notifications': 'team.view',
   'admin-sop': 'sop.view',
+  'admin-crm': 'dashboard.view',
 }
 
 export interface AuraRoute {
@@ -129,9 +132,9 @@ const retiredRouteRedirects: Record<string, { view: ViewId; hash: string }> = {
   'admin-roles': { view: 'admin-hr', hash: '#/admin-hr' },
 }
 
-export type Student360Source = 'staff-students' | 'admin-pt-students' | 'staff-renewals' | 'admin-renewals'
+export type Student360Source = 'staff-students' | 'admin-pt-students' | 'staff-renewals' | 'admin-renewals' | 'staff-crm' | 'admin-crm'
 
-const student360Sources = new Set<Student360Source>(['staff-students', 'admin-pt-students', 'staff-renewals', 'admin-renewals'])
+const student360Sources = new Set<Student360Source>(['staff-students', 'admin-pt-students', 'staff-renewals', 'admin-renewals', 'staff-crm', 'admin-crm'])
 
 export function resolveSupportedView(view: ViewId) {
   return retiredRouteRedirects[view]?.view ?? view

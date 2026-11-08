@@ -258,8 +258,9 @@ test('normal, unknown-target and control-API discovery expose the unchanged comp
     // the Student 360 source queue worker plus recovery scheduler, and the
     // nutrition scan admission, dispatcher and task worker, plus four scoped
     // reporting readers and two revisioned contract-settlement commands,
-    // plus five installment-payment callables and their daily reminder job.
-  assert.equal(baseline.exportNames.length, 591)
+    // plus five installment-payment callables and their daily reminder job,
+    // plus three CRM callables, the Pancake webhook, two CRM triggers and the CRM maintenance job.
+  assert.equal(baseline.exportNames.length, 598)
   for (const name of ['getMyInstallmentPayment', 'submitMyInstallmentPaymentClaim', 'listInstallmentPaymentClaims', 'reviewInstallmentPaymentClaim', 'configureCashAccountTransferProfile', 'sendInstallmentDueRemindersScheduled']) assert.ok(baseline.exportNames.includes(name), name)
   for (const name of ['getAcademyAnalyticsSummary', 'listAcademyEnrollmentsPage', 'listFinanceReceivables', 'listFinanceStudentLabels']) assert.ok(baseline.exportNames.includes(name))
   for (const name of ['getContractSettlement', 'manageContractSettlement']) assert.ok(baseline.exportNames.includes(name))

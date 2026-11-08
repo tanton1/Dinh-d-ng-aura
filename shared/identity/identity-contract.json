@@ -7,7 +7,8 @@
     "sales",
     "branch_manager",
     "academy_editor",
-    "shipper"
+    "shipper",
+    "customer_care"
   ],
   "staffCapabilities": [
     "dashboard.view",
@@ -33,7 +34,9 @@
       "performance.evidence.submit",
       "renewals.workspace.view",
       "renewals.case.assigned_student.support",
-      "loyalty.kudos.create"
+      "loyalty.kudos.create",
+      "crm.messages.postsale.read",
+      "crm.steps.assigned.manage"
     ],
     "sales": [
       "dashboard.view",
@@ -43,7 +46,12 @@
       "sales.contract.submit",
       "renewals.workspace.view",
       "renewals.case.self.manage",
-      "loyalty.referral.capture"
+      "loyalty.referral.capture",
+      "crm.customers.branch.view",
+      "crm.customers.self.manage",
+      "crm.messages.presale.read",
+      "crm.messages.postsale.read",
+      "crm.steps.assigned.manage"
     ],
     "branch_manager": [
       "dashboard.view",
@@ -61,7 +69,13 @@
       "loyalty.dashboard.read",
       "loyalty.redemption.review",
       "loyalty.redemption.fulfill",
-      "loyalty.audit.read"
+      "loyalty.audit.read",
+      "crm.customers.branch.view",
+      "crm.customers.self.manage",
+      "crm.messages.presale.read",
+      "crm.messages.postsale.read",
+      "crm.steps.assigned.manage",
+      "crm.care_owner.assign"
     ],
     "academy_editor": [
       "dashboard.view",
@@ -69,7 +83,12 @@
       "academy.course.edit",
       "academy.course.submit"
     ],
-    "shipper": ["eat_clean.delivery.self.manage"]
+    "shipper": ["eat_clean.delivery.self.manage"],
+    "customer_care": [
+      "dashboard.view",
+      "crm.messages.postsale.read",
+      "crm.steps.assigned.manage"
+    ]
   },
   "adminCapabilities": [
     "dashboard.view",
@@ -109,7 +128,15 @@
     "loyalty.ambassador.manage",
     "loyalty.audit.read",
     "loyalty.referral.capture",
-    "loyalty.kudos.create"
+    "loyalty.kudos.create",
+    "crm.customers.branch.view",
+    "crm.customers.self.manage",
+    "crm.messages.presale.read",
+    "crm.messages.postsale.read",
+    "crm.steps.assigned.manage",
+    "crm.care_owner.assign",
+    "crm.integration.manage",
+    "crm.customers.erase"
   ],
   "superAdminCapabilities": ["identity.admin_role.manage", "system.manage"]
 }

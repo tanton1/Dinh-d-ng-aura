@@ -184,6 +184,7 @@ function compatibilityRoleFromAccess(context: AccessContext): UserRole {
   if (context.positions.includes('branch_manager')) return 'manager'
   if (context.positions.includes('academy_editor')) return 'editor'
   if (context.positions.includes('shipper')) return 'shipper'
+  if (context.positions.includes('customer_care') && !context.positions.includes('coach_online')) return 'sales'
   return 'coach'
 }
 

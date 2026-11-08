@@ -8,6 +8,7 @@ import {
   Bot,
   BookOpen,
   BookOpenCheck,
+  MessagesSquare,
   Check,
   ChefHat,
   CalendarClock,
@@ -146,6 +147,7 @@ const staffNavSections: ShellNavSection[] = [
   {
     label: 'HỌC VIÊN & CHĂM SÓC',
     items: [
+      { id: 'staff-crm' as const, label: 'Hộp thư & CRM', icon: MessagesSquare },
       { id: 'staff-students' as const, label: 'Học viên phụ trách', icon: Users },
       { id: 'staff-nutrition-reviews' as const, label: 'Duyệt món', icon: Check },
       { id: 'staff-renewals' as const, label: 'Tái ký & gia hạn', icon: RefreshCw },
@@ -176,6 +178,7 @@ const staffNavSections: ShellNavSection[] = [
 
 const staffMobileNav: ShellNavItem[] = [
   { id: 'staff-dashboard', label: 'Tổng quan', icon: LayoutDashboard },
+  { id: 'staff-crm', label: 'CRM', icon: MessagesSquare },
   { id: 'staff-students', label: 'Học viên', icon: Users },
   { id: 'staff-schedule', label: 'Lịch', icon: CalendarDays },
   { id: 'admin-pt-schedule', label: 'Lịch CN', icon: CalendarDays },
@@ -190,12 +193,13 @@ const staffMobileNav: ShellNavItem[] = [
 ]
 
 const staffPositionRoutes: Record<StaffPosition, ViewId[]> = {
-  trainer_pt: ['staff-dashboard', 'staff-students', 'staff-schedule', 'staff-workouts', 'staff-nutrition-reviews', 'staff-renewals', 'staff-performance', 'staff-payroll'],
+  trainer_pt: ['staff-dashboard', 'staff-students', 'staff-schedule', 'staff-workouts', 'staff-nutrition-reviews', 'staff-renewals', 'staff-crm', 'staff-performance', 'staff-payroll'],
   coach_online: ['staff-dashboard', 'staff-students', 'staff-nutrition-reviews', 'staff-payroll'],
-  sales: ['staff-dashboard', 'staff-quotes', 'staff-renewals', 'staff-payroll'],
-  branch_manager: ['staff-dashboard', 'admin-pt-schedule', 'admin-loyalty', 'staff-workouts', 'staff-renewals', 'staff-performance', 'staff-payroll'],
+  sales: ['staff-dashboard', 'staff-crm', 'staff-quotes', 'staff-renewals', 'staff-payroll'],
+  branch_manager: ['staff-dashboard', 'staff-crm', 'admin-pt-schedule', 'admin-loyalty', 'staff-workouts', 'staff-renewals', 'staff-performance', 'staff-payroll'],
   academy_editor: ['staff-dashboard', 'courses', 'staff-payroll'],
   shipper: ['delivery'],
+  customer_care: ['staff-dashboard', 'staff-crm', 'staff-payroll'],
 }
 
 const staffWorkspaceLabels: Record<StaffPosition, string> = {
@@ -205,6 +209,7 @@ const staffWorkspaceLabels: Record<StaffPosition, string> = {
   branch_manager: 'Quản lý',
   academy_editor: 'Academy',
   shipper: 'Shipper',
+  customer_care: 'CSKH',
 }
 
 const staffWorkspaceDock: Record<StaffPosition, ShellNavItem[]> = {
@@ -222,9 +227,9 @@ const staffWorkspaceDock: Record<StaffPosition, ShellNavItem[]> = {
   ],
   sales: [
     { id: 'staff-dashboard', label: 'Hôm nay', icon: Home },
+    { id: 'staff-crm', label: 'Hộp thư', icon: MessagesSquare },
     { id: 'staff-quotes', label: 'Báo giá', icon: ClipboardList },
     { id: 'staff-renewals', label: 'Tái ký', icon: RefreshCw },
-    { id: 'staff-payroll', label: 'Lương', icon: WalletCards },
   ],
   branch_manager: [
     { id: 'staff-dashboard', label: 'Tổng quan', icon: LayoutDashboard },
@@ -238,6 +243,11 @@ const staffWorkspaceDock: Record<StaffPosition, ShellNavItem[]> = {
     { id: 'staff-payroll', label: 'Lương', icon: WalletCards },
   ],
   shipper: [],
+  customer_care: [
+    { id: 'staff-dashboard', label: 'Hôm nay', icon: Home },
+    { id: 'staff-crm', label: 'Chăm sóc', icon: MessagesSquare },
+    { id: 'staff-payroll', label: 'Lương', icon: WalletCards },
+  ],
 }
 
 function legacyStaffPosition(role: UserRole): StaffPosition | null {
@@ -276,6 +286,7 @@ const adminNavSections: Array<{ label: string; items: ShellAdminNavItem[] }> = [
   {
     label: 'HỌC VIÊN & CHĂM SÓC',
     items: [
+      { id: 'admin-crm' as const, label: 'Hộp thư & CRM', icon: MessagesSquare, permission: 'dashboard.view' as Permission },
       { id: 'admin-pt-students' as const, label: 'Học viên PT Gym', icon: Users, permission: 'student.view_assigned' as Permission },
       { id: 'admin-renewals' as const, label: 'Tái ký & gia hạn', icon: RefreshCw, permission: 'dashboard.view' as Permission },
       { id: 'admin-loyalty' as const, label: 'Aura Club', icon: WalletCards, permission: 'dashboard.view' as Permission },
@@ -354,6 +365,7 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   'staff-nutrition-reviews': 'Duyệt món học viên',
   'staff-quotes': 'Báo giá',
   'staff-renewals': 'Tái ký & chăm sóc',
+  'staff-crm': 'Hộp thư & CRM',
   'staff-performance': 'Hiệu suất của tôi',
   'staff-payroll': 'Lương của tôi',
   progress: 'Tiến độ & ôn tập',
@@ -390,6 +402,7 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   'admin-eat-clean': 'Vận hành Eat Clean',
   'admin-notifications': 'Cài đặt Push Notifications',
   'admin-sop': 'Trung tâm SOP',
+  'admin-crm': 'Hộp thư & CRM',
   'progress-photo-studio': 'Ghi nhận tiến độ',
 }
 
