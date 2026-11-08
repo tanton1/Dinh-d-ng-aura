@@ -7,7 +7,7 @@ const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { cashAccountForMovement, createCashMovement, createReceiptVoucher, assertFinancePeriodOpen } = require('./finance-ledger')
 const { contractPaymentJournal } = require('./accounting-core')
-const { contractStatusProjection, contractPausedOn } = require('./contract-status')
+const { contractStatusProjection, contractPausedOn, contractDateKey, normalizedContractStatus } = require('./contract-status')
 const { renewalActivationProjection, renewalDateSyncPatch, readRenewalUsage, renewalHandoverPlan, applyRenewalHandover } = require('./contract-renewal-handover')
 const { renewalRevenueAllocation, revenueSegments } = require('./pt-revenue-allocation')
 const { buildContractUsageView, overlayContractUsageViews, contractWithUsageView } = require('./contract-usage-view')
@@ -159,11 +159,36 @@ function normalizeInstallments(value, remainingAmount, startDate, endDate) {
   return installments.sort((left, right) => left.date.localeCompare(right.date))
 }
 
+// A student on preservation (bảo lưu) is not someone to chase for renewal:
+// an open-ended freeze (`status: 'frozen'`) or an approved preservation period
+// that covers today keeps the contract out of the queue until the pause ends.
+// A short OFF already moved endDate when it was approved and does not count.
+function contractPreservedOn(contract = {}, today = vietnamDateKey()) {
+  if (normalizedContractStatus(contract.status) === 'frozen') return true
+  return Array.isArray(contract.pausePeriods) && contract.pausePeriods.some((period) => {
+    if (String(period?.type || '').toLowerCase() !== 'preservation') return false
+    const startDate = contractDateKey(period.startDate)
+    const endDate = contractDateKey(period.endDate)
+    return Boolean(startDate && endDate && startDate <= today && endDate >= today)
+  })
+}
+
+// The day a contract's remaining time is measured from. Reopening a frozen
+// contract adds the frozen days back to endDate, so while frozen the days left
+// stay what they were on the freeze day instead of counting down past zero.
+function renewalClockDate(contract = {}, today = vietnamDateKey()) {
+  if (normalizedContractStatus(contract.status) !== 'frozen') return today
+  const frozenMillis = timestampMillis(contract.frozenAt)
+  if (!frozenMillis) return today
+  const frozenOn = vietnamDateKey(new Date(frozenMillis))
+  return frozenOn < today ? frozenOn : today
+}
+
 function renewalRisk(contract, today = vietnamDateKey()) {
   const totalSessions = Math.max(0, Number(contract.totalSessions || 0))
   const usedSessions = Math.max(0, Number(contract.usedSessions || 0))
   const sessionsLeft = Math.max(0, totalSessions - usedSessions)
-  const daysLeft = dateOrdinal(contract.endDate) - dateOrdinal(today)
+  const daysLeft = dateOrdinal(contract.endDate) - dateOrdinal(renewalClockDate(contract, today))
   if (sessionsLeft <= 0 && daysLeft >= 0) return { category: 'exhausted', daysLeft, sessionsLeft }
   if (daysLeft < 0 || contract.status === 'expired') return { category: 'expired', daysLeft, sessionsLeft }
   if (daysLeft < 7 || sessionsLeft < 3) return { category: 'critical', daysLeft, sessionsLeft }
@@ -176,7 +201,7 @@ function renewalEligibility(contract, configuration = {}, today = vietnamDateKey
   const totalSessions = Math.max(0, Number(contract.totalSessions || 0))
   const usedSessions = Math.max(0, Math.min(totalSessions, Number(contract.usedSessions || 0)))
   const sessionsLeft = Math.max(0, totalSessions - usedSessions)
-  const daysLeft = dateOrdinal(contract.endDate) - dateOrdinal(today)
+  const daysLeft = dateOrdinal(contract.endDate) - dateOrdinal(renewalClockDate(contract, today))
   const maxDaysRemaining = Math.max(0, Number(configuration.maxDaysRemaining ?? 30))
   const maxSessionsRemaining = Math.max(0, Number(configuration.maxSessionsRemaining ?? 6))
   const minConsumedPercent = Math.max(0, Math.min(100, Number(configuration.minConsumedPercent ?? 70)))
@@ -484,6 +509,9 @@ function renewalCaseProjection(value, today = vietnamDateKey()) {
   const contract = value.contractSnapshot
   if (!contract?.endDate || contract.totalSessions == null || contract.usedSessions == null
     || value.active === false || closedStages.has(value.stage)) return value
+  // A pause that covers today takes the student out of the queue on read, so
+  // the list does not wait for the nightly refresh to retire the case.
+  if (contractPreservedOn(contract, today) && value.manuallyOpened !== true) return { ...value, active: false }
   const risk = renewalRisk(contract, today)
   return {
     ...value, riskCategory: risk.category === 'healthy' ? 'early' : risk.category,
@@ -537,7 +565,9 @@ async function scopedCaseDocuments(db, actor, includeClosed = false) {
   const documents = new Map()
   snapshots.forEach((snapshot) => snapshot.docs.forEach((item) => {
     const value = { id: item.id, ...item.data() }
-    if (canViewCase(actor, value) && (includeClosed || value.active !== false)) documents.set(item.id, renewalCaseProjection(value, today))
+    if (!canViewCase(actor, value)) return
+    const projected = renewalCaseProjection(value, today)
+    if (includeClosed || projected.active !== false) documents.set(item.id, projected)
   }))
   return { documents: [...documents.values()], truncated: snapshots.some((item) => item.size > maximumCases) }
 }
@@ -701,6 +731,7 @@ function renewalQueueValue({ contract, student, trainingPackage = {}, current = 
   if (!contract?.endDate || !activeContractStatuses.has(contract.status || 'active')
     || contract.renewedByContractId || contract.renewalSupersededBy || closedStages.has(current.stage)) return null
   if (!student || ['inactive', 'archived', 'deleted'].includes(student.status)) return null
+  if (contractPreservedOn(contract, today) && !current.manuallyOpened) return null
   const risk = renewalRisk(contract, today)
   if (risk.category === 'healthy' && !current.manuallyOpened) return null
   const eligibility = renewalEligibility(contract, renewPolicy, today)
@@ -723,6 +754,7 @@ function renewalQueueValue({ contract, student, trainingPackage = {}, current = 
     contractSnapshot: {
       id: contract.id, packageId: contract.packageId || '', packageName: contract.packageName || trainingPackage.name || 'Gói tập Aura',
       pausePeriods: contract.pausePeriods || [],
+      ...(contract.status === 'frozen' && contract.frozenAt ? { frozenAt: contract.frozenAt } : {}),
       startDate: contract.startDate || '', endDate: contract.endDate, status: contract.status || 'active', totalSessions: Number(contract.totalSessions || 0),
       usedSessions: Number(contract.usedSessions || 0), totalPrice: Number(contract.totalPrice || trainingPackage.price || 0), paidAmount: Number(contract.paidAmount || 0),
       discount: Number(contract.discount || 0), branchId, trainerId: contract.trainerId || '', trainerIds: Array.isArray(contract.trainerIds) ? contract.trainerIds : [],
@@ -887,6 +919,7 @@ async function prepareRenewalCaseCore({ db, actor, sourceContractId }) {
       contractSnapshot: {
         id: sourceContractId, packageId: source.packageId || '', packageName: source.packageName || 'Gói tập Aura',
         startDate: source.startDate, endDate: source.endDate, status: source.status, pausePeriods: source.pausePeriods || [],
+        ...(source.status === 'frozen' && source.frozenAt ? { frozenAt: source.frozenAt } : {}),
         totalSessions: Number(source.totalSessions || 0), usedSessions: contract.usedSessions,
         totalPrice: Number(source.totalPrice || 0), paidAmount: Number(source.paidAmount || 0), discount: Number(source.discount || 0),
         branchId, trainerId: source.trainerId || '', trainerIds: source.trainerIds || [], nutritionPTIds: source.nutritionPTIds || [],
@@ -1485,4 +1518,4 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger, resolv
   }
 }
 
-module.exports = { createContractRenewalFunctions, prepareRenewalCaseCore, refreshRenewalQueueCore, createRenewalInternalReminders, activateDueRenewalContractsCore, reconcileContractStatusesCore, renewalHandoverProjection, renewalActivationProjection, renewalUsageProjection, addMonthsDateKey, normalizeInstallments, renewalRisk, renewalEligibility, latestContractsByStudent, priorityScore, slaStatus, requiresRenewalApproval, renewalQueueFingerprint, matchesRenewalSegment, renewalStats, renewalMessageTemplates, caseAssignedToTrainer, canViewCase }
+module.exports = { createContractRenewalFunctions, prepareRenewalCaseCore, refreshRenewalQueueCore, createRenewalInternalReminders, activateDueRenewalContractsCore, reconcileContractStatusesCore, renewalHandoverProjection, renewalActivationProjection, renewalUsageProjection, addMonthsDateKey, normalizeInstallments, renewalRisk, renewalEligibility, renewalQueueValue, contractPreservedOn, renewalClockDate, latestContractsByStudent, priorityScore, slaStatus, requiresRenewalApproval, renewalQueueFingerprint, matchesRenewalSegment, renewalStats, renewalMessageTemplates, caseAssignedToTrainer, canViewCase }

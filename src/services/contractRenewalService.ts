@@ -34,6 +34,7 @@ export interface RenewalPipelineRow {
     endDate: string
     pausePeriods?: Array<{ startDate: string; endDate: string }>
     status: 'active' | 'future' | 'frozen' | 'expired'
+    frozenAt?: string | null
     totalSessions: number
     usedSessions: number
     totalPrice: number

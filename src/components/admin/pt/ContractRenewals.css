@@ -735,3 +735,7 @@
 
 .renewal-error button,
 .renewal-success button { min-width: 44px; min-height: 36px; border-radius: 9px; }
+
+/* A student on preservation: the clock is stopped, so the line reads as information, not an alarm. */
+.renewal-mobile-expiry.is-frozen span,
+.renewal-mobile-expiry.is-frozen strong { color: var(--rn-muted); }

@@ -1,6 +1,6 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { addMonthsDateKey, normalizeInstallments, renewalRisk, renewalEligibility, renewalHandoverProjection, renewalActivationProjection, renewalUsageProjection, latestContractsByStudent, requiresRenewalApproval, renewalQueueFingerprint, matchesRenewalSegment, renewalStats, renewalMessageTemplates, caseAssignedToTrainer, canViewCase, createContractRenewalFunctions } = require('./contract-renewals')
+const { addMonthsDateKey, normalizeInstallments, renewalRisk, renewalEligibility, renewalQueueValue, contractPreservedOn, renewalClockDate, renewalHandoverProjection, renewalActivationProjection, renewalUsageProjection, latestContractsByStudent, requiresRenewalApproval, renewalQueueFingerprint, matchesRenewalSegment, renewalStats, renewalMessageTemplates, caseAssignedToTrainer, canViewCase, createContractRenewalFunctions } = require('./contract-renewals')
 const { vietnamDateKey, addDateDays } = require('./pt-policy')
 
 test('regional confirmation reuses authorization and transaction without exporting a second scheduler', async () => {
@@ -380,4 +380,55 @@ test('trainer renewal API is financially redacted and sales-only mutations fail 
   assert.match(source, /accountingDocumentId: receipt\.reference\.id/)
   assert.match(source, /journalEntries\/\$\{paymentReference\.id\}/)
   assert.match(source, /accountingAdvanceAccountCode: '131'/)
+})
+
+test('a frozen contract keeps the days it had on the freeze day instead of expiring while paused', () => {
+  const today = vietnamDateKey()
+  const frozen = { status: 'frozen', frozenAt: `${addDateDays(today, -40)}T03:00:00.000Z`, endDate: addDateDays(today, -20), totalSessions: 36, usedSessions: 32 }
+  assert.equal(renewalClockDate(frozen, today), addDateDays(today, -40))
+  assert.deepEqual(renewalRisk(frozen, today), { category: 'upcoming', daysLeft: 20, sessionsLeft: 4 })
+  assert.equal(renewalEligibility(frozen, {}, today).daysLeft, 20)
+  // Without a freeze timestamp nothing can be reconstructed, so the stored dates stand.
+  assert.equal(renewalRisk({ ...frozen, frozenAt: null }, today).category, 'expired')
+  assert.equal(renewalClockDate({ ...frozen, status: 'active' }, today), today)
+  assert.equal(contractPreservedOn(frozen, today), true)
+  assert.equal(contractPreservedOn({ ...frozen, status: 'active' }, today), false)
+})
+
+test('students on preservation leave the renewal queue until the pause ends, unless staff opened the case on purpose', () => {
+  const today = vietnamDateKey()
+  const student = { id: 'student-1', status: 'active', name: 'Xuân Mai' }
+  const base = { id: 'contract-1', studentId: 'student-1', status: 'active', startDate: addDateDays(today, -80), endDate: addDateDays(today, 10), totalSessions: 36, usedSessions: 32 }
+  const frozenAt = `${addDateDays(today, -5)}T03:00:00.000Z`
+  const build = (contract, current = {}) => renewalQueueValue({ contract, student, current, branches: new Map(), activeSales: new Set(), renewPolicy: {}, today })
+  assert.equal(build(base).riskCategory, 'upcoming')
+  assert.equal('frozenAt' in build(base).contractSnapshot, false)
+  assert.equal(build({ ...base, status: 'frozen', frozenAt }), null)
+  assert.equal(build({ ...base, pausePeriods: [{ type: 'preservation', startDate: addDateDays(today, -3), endDate: addDateDays(today, 20) }] }), null)
+  // A finished preservation and a short OFF leave the student in the queue.
+  assert.equal(build({ ...base, pausePeriods: [{ type: 'preservation', startDate: addDateDays(today, -30), endDate: addDateDays(today, -1) }] }).riskCategory, 'upcoming')
+  assert.equal(build({ ...base, pausePeriods: [{ type: 'off', startDate: addDateDays(today, -1), endDate: addDateDays(today, 3) }] }).riskCategory, 'upcoming')
+  const manual = build({ ...base, status: 'frozen', frozenAt, endDate: addDateDays(today, -2) }, { manuallyOpened: true })
+  assert.deepEqual([manual.riskCategory, manual.daysLeft, manual.sessionsLeft], ['critical', 3, 4])
+  assert.equal(manual.contractSnapshot.frozenAt, frozenAt)
+})
+
+test('cached cases of a frozen contract are hidden and counted out of the queue on read', async () => {
+  const today = vietnamDateKey()
+  const frozenAt = `${addDateDays(today, -10)}T03:00:00.000Z`
+  const snapshot = (id) => ({ id, status: 'frozen', frozenAt, endDate: addDateDays(today, -5), totalSessions: 36, usedSessions: 32 })
+  const cases = [
+    renewalQueueCase('frozen-auto', -5, 4, { contractSnapshot: snapshot('frozen-auto') }),
+    renewalQueueCase('frozen-manual', -5, 4, { manuallyOpened: true, contractSnapshot: snapshot('frozen-manual') }),
+    renewalQueueCase('active', 5, 4),
+  ]
+  const api = renewalQueueApi(cases)
+  const result = await api.listContractRenewalCases({ data: {} })
+  assert.deepEqual(result.rows.map((row) => row.id).sort(), ['active', 'frozen-manual'])
+  assert.equal(result.stats.total, 2)
+  assert.equal(result.stats.segmentCounts.expired_last_30d, 0)
+  assert.equal(result.stats.riskCounts.expired, 0)
+  assert.deepEqual(result.rows.find((row) => row.id === 'frozen-manual').risk, { category: 'critical', daysLeft: 5, sessionsLeft: 4 })
+  const expired = await api.listContractRenewalCases({ data: { segment: 'expired_last_30d' } })
+  assert.deepEqual(expired.rows, [])
 })
