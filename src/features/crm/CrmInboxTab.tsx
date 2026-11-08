@@ -79,7 +79,7 @@ export function CrmInboxTab({ service, branchId, refreshKey, onOpenCustomer }: {
     </div>
     <ErrorBanner message={error} onRetry={() => void load()} />
     {loading && !rows.length ? <Loading label="Đang tải hội thoại…" />
-      : !rows.length ? <Empty title={filter === 'awaiting' ? 'Không còn khách nào chờ trả lời' : 'Chưa có hội thoại'}>{filter === 'awaiting' ? 'Tin mới từ Pancake sẽ hiện ở đây trong vài giây.' : 'Kết nối page Pancake để đồng bộ hội thoại.'}</Empty>
+      : !rows.length ? <Empty title={filter === 'awaiting' ? 'Không còn khách chờ trả lời' : 'Chưa có hội thoại'} />
         : <ul className="crm-list">
           {rows.map((row) => {
             const waited = row.awaitingReply && row.awaitingSince ? now - new Date(row.awaitingSince).getTime() : 0
@@ -96,7 +96,7 @@ export function CrmInboxTab({ service, branchId, refreshKey, onOpenCustomer }: {
                   <span className="crm-thread__preview">{row.lastMessageFrom === 'page' ? 'Bạn: ' : ''}{row.preview || '…'}</span>
                   <span className="crm-thread__meta">
                     <StageChip stage={row.customerStage} />
-                    <span>{row.ownerName || 'Chưa có người nhận'}</span>
+                    <span>{row.ownerName || 'Chưa giao'}</span>
                     {row.phoneHints > 0 && <span className="crm-thread__hint">Có số trong chat</span>}
                   </span>
                 </span>

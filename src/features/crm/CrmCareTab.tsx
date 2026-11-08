@@ -80,7 +80,7 @@ export function CrmCareTab({ service, branchId, branchIds, permissions, refreshK
     </div>
     <ErrorBanner message={error} onRetry={() => void load()} />
     {loading && !rows.length ? <Loading label="Đang tải bước chăm sóc…" />
-      : !rows.length ? <Empty title={status === 'open' ? 'Không còn việc nào đang mở' : 'Chưa có bước nào hoàn tất'}>{status === 'open' ? 'Bước mới tự xuất hiện khi khách nhắn page, ký hợp đồng hoặc có lịch hẹn.' : undefined}</Empty>
+      : !rows.length ? <Empty title={status === 'open' ? 'Không còn việc đang mở' : 'Chưa có bước hoàn tất'} />
         : <ul className="crm-list">
           {rows.map((step) => <li key={step.id} className={`crm-step ${step.overdue ? 'is-overdue' : ''}`}>
             <div className="crm-step__main">
@@ -90,9 +90,9 @@ export function CrmCareTab({ service, branchId, branchIds, permissions, refreshK
               {step.note && <p>{step.note}</p>}
               <span className="crm-step__meta">
                 {status === 'open'
-                  ? <span className={step.overdue ? 'is-late' : ''}>{dueLabel(step.dueAt)} · hạn {formatDateTime(step.dueAt)}</span>
+                  ? <span className={step.overdue ? 'is-late' : ''}>{dueLabel(step.dueAt)}</span>
                   : <span>{step.autoClosed ? 'Tự đóng khi page trả lời' : `Xong bởi ${step.completedByName || '—'}`} · {formatDateTime(step.completedAt)}</span>}
-                <span>{step.ownerName || 'Chưa có người nhận'}</span>
+                <span>{step.ownerName || 'Chưa giao'}</span>
                 {step.escalatedAt && status === 'open' && <span className="is-late">Đã báo quản lý</span>}
               </span>
             </div>
@@ -169,12 +169,9 @@ function CareAssignment({ service, branchId, onChanged }: { service: CrmService;
 
   return <section className="crm-section crm-assign" aria-labelledby="crm-assign-title">
     <header className="crm-section__head">
-      <div>
-        <h2 id="crm-assign-title">Giao học viên cho CSKH</h2>
-        <p>Học viên chưa giao CSKH do PT chính của hợp đồng chăm sóc.</p>
-      </div>
+      <h2 id="crm-assign-title">Giao học viên cho CSKH</h2>
     </header>
-    {!branchId ? <Notice>Chọn một chi nhánh ở đầu trang để giao học viên.</Notice> : <>
+    {!branchId ? <Notice>Chọn chi nhánh để giao học viên.</Notice> : <>
       <form className="crm-search" role="search" onSubmit={(event) => { event.preventDefault(); void load(query) }}>
         <Search size={16} aria-hidden="true" />
         <label className="crm-sr-only" htmlFor="crm-assign-search">Tìm học viên</label>
@@ -192,17 +189,17 @@ function CareAssignment({ service, branchId, onChanged }: { service: CrmService;
           </label>
         </li>)}
       </ul>}
-      {truncated && <p className="crm-hint">Danh sách chỉ hiện 400 học viên đầu; dùng ô tìm để lọc.</p>}
+      {truncated && <p className="crm-hint">Chỉ hiện 400 học viên đầu, dùng ô tìm để lọc.</p>}
       <div className="crm-assign__bar">
-        <span>{selected.size ? `Đã chọn ${selected.size}` : 'Chọn học viên trong danh sách'}</span>
+        <span>{selected.size ? `Đã chọn ${selected.size}` : 'Chọn học viên'}</span>
         <label className="crm-sr-only" htmlFor="crm-assign-owner">CSKH nhận</label>
         <select id="crm-assign-owner" value={owner} onChange={(event) => setOwner(event.target.value)}>
-          <option value="">PT chính chăm sóc (bỏ CSKH)</option>
+          <option value="">PT chính (bỏ CSKH)</option>
           {careStaff.map((item) => <option key={item.uid} value={item.uid}>{item.name}</option>)}
         </select>
         <button type="button" className="crm-button crm-button--primary" disabled={!selected.size || saving} onClick={() => void assign()}>{saving ? <Spinner /> : null} Giao</button>
       </div>
-      {!careStaff.length && <p className="crm-hint">Chi nhánh chưa có nhân sự CSKH. Thêm vị trí CSKH ở trang Đội ngũ Aura.</p>}
+      {!careStaff.length && <p className="crm-hint">Chi nhánh chưa có CSKH. Thêm vị trí CSKH ở Đội ngũ Aura.</p>}
     </>}
   </section>
 }

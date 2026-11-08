@@ -48,7 +48,7 @@ function WebhookReveal({ url, onDone }: { url: string; onDone: () => void }) {
   const [copied, setCopied] = useState(false)
   return <section className="crm-section crm-reveal" aria-labelledby="crm-webhook-title">
     <h2 id="crm-webhook-title"><Webhook size={17} aria-hidden="true" /> URL webhook — chỉ hiện một lần</h2>
-    <p>Mở Pancake, vào cài đặt webhook của page, dán URL này và bật các sự kiện tin nhắn (messaging) và hội thoại (conversation). URL chứa khóa bí mật; không gửi qua chat công khai.</p>
+    <p>Dán vào cài đặt webhook của page trên Pancake, bật sự kiện tin nhắn và hội thoại. URL chứa khóa bí mật, không chia sẻ.</p>
     <div className="crm-reveal__url">
       <code>{url}</code>
       <button type="button" className="crm-button" onClick={async () => { try { await navigator.clipboard.writeText(url); setCopied(true) } catch { setCopied(false) } }}><Copy size={15} /> {copied ? 'Đã sao chép' : 'Sao chép'}</button>
@@ -120,7 +120,7 @@ function PageCard({ page, overview, service, onPage, onReveal }: {
       <div><dt>Đối soát</dt><dd>{page.lastReconcileAt ? `${ago(page.lastReconcileAt)}${page.lastReconcileSynced ? ` · bù ${page.lastReconcileSynced} hội thoại` : ''}` : '—'}</dd></div>
       <div><dt>Lịch sử</dt><dd>{page.backfill ? page.backfill.status === 'running' ? `Đang lấy · ${page.backfill.conversations} hội thoại` : `Xong · ${page.backfill.conversations} hội thoại` : 'Chưa lấy'}</dd></div>
     </dl>
-    {page.webhookSuspectedDown && <div className="crm-banner crm-banner--warning" role="status"><AlertTriangle size={16} aria-hidden="true" /><span>Đối soát tìm thấy tin mới nhưng webhook im lặng hơn 15 phút. Pancake có thể đã tạm ngưng webhook do lỗi; hãy kiểm tra và bật lại trong cài đặt Pancake. Tin vẫn về qua đối soát 5 phút.</span></div>}
+    {page.webhookSuspectedDown && <div className="crm-banner crm-banner--warning" role="status"><AlertTriangle size={16} aria-hidden="true" /><span>Có tin mới qua đối soát nhưng webhook im lặng hơn 15 phút. Kiểm tra webhook trên Pancake; tin vẫn về mỗi 5 phút.</span></div>}
     {page.lastError && <div className="crm-banner crm-banner--error" role="status"><AlertTriangle size={16} aria-hidden="true" /><span>{page.lastError.message} · {formatDateTime(page.lastError.at)}</span></div>}
     <ErrorBanner message={error} />
     {notice && <Notice tone="success">{notice}</Notice>}
@@ -136,7 +136,7 @@ function PageCard({ page, overview, service, onPage, onReveal }: {
       </div>
       <details className="crm-details" open={!Object.keys(page.tagMap).length}>
         <summary>Thẻ Pancake theo giai đoạn ({Object.keys(tagMap).filter((key) => tagMap[key]).length}/{CRM_STAGES.length})</summary>
-        <p className="crm-hint">Tạo sẵn các thẻ "AURA: …" trên Pancake rồi bấm Làm mới thẻ. Đổi giai đoạn ở Aura sẽ gỡ thẻ cũ và gắn thẻ mới.</p>
+        <p className="crm-hint">Tạo thẻ "AURA: …" trên Pancake rồi bấm Làm mới thẻ.</p>
         <div className="crm-map">
           {CRM_STAGES.map((stage) => <label key={stage} className="crm-field"><span>{STAGE_LABELS[stage]}</span>
             <select value={tagMap[stage] || ''} onChange={(event) => setTagMap((current) => ({ ...current, [stage]: event.target.value }))}>
@@ -148,7 +148,7 @@ function PageCard({ page, overview, service, onPage, onReveal }: {
       </details>
       <details className="crm-details" open={!Object.keys(page.staffMap).length && page.pancakeUsers.length > 0}>
         <summary>Nhân viên Pancake ↔ tài khoản Aura ({Object.values(staffMap).filter(Boolean).length}/{page.pancakeUsers.length})</summary>
-        <p className="crm-hint">Người được phân công trên Pancake trở thành Sales phụ trách khách mới; giao khách ở Aura cũng phân công lại trên Pancake.</p>
+        <p className="crm-hint">Người được phân công trên Pancake thành Sales phụ trách khách mới.</p>
         <div className="crm-map">
           {page.pancakeUsers.map((user) => <label key={user.id} className="crm-field"><span>{user.name || user.email || user.id}</span>
             <select value={staffMap[user.id] || ''} onChange={(event) => setStaffMap((current) => ({ ...current, [user.id]: event.target.value }))}>
@@ -156,7 +156,7 @@ function PageCard({ page, overview, service, onPage, onReveal }: {
               {staff.map((member) => <option key={member.uid} value={member.uid}>{member.name}</option>)}
             </select>
           </label>)}
-          {!page.pancakeUsers.length && <p className="crm-muted">Chưa đọc được nhân viên của page. Bấm Làm mới thẻ & nhân viên.</p>}
+          {!page.pancakeUsers.length && <p className="crm-muted">Chưa đọc được nhân viên. Bấm Làm mới thẻ & nhân viên.</p>}
         </div>
       </details>
       <button type="submit" className="crm-button crm-button--primary" disabled={busy === 'save'}>{busy === 'save' ? <Spinner /> : null} Lưu cấu hình</button>
@@ -209,7 +209,7 @@ function ConnectForm({ overview, service, onConnected }: { overview: CrmIntegrat
     }
   }}>
     <h2 id="crm-connect-title"><PlugZap size={17} aria-hidden="true" /> Kết nối page Pancake</h2>
-    <p className="crm-hint">Người quản trị page tạo page_access_token trong Pancake (Cài đặt → Công cụ / API). Aura mã hóa token và không bao giờ trả về trình duyệt.</p>
+    <p className="crm-hint">Lấy page_access_token trong Pancake (Cài đặt → API). Token được mã hóa, không hiện lại.</p>
     <ErrorBanner message={error} />
     <div className="crm-form--grid">
       <label className="crm-field"><span>Mã page</span><input value={pageId} required pattern="[A-Za-z0-9_\-]{1,80}" onChange={(event) => setPageId(event.target.value)} placeholder="1029384756 hoặc pzl_…" /></label>

@@ -109,7 +109,7 @@ export function CrmCustomerPanel({ service, customerId, onClose, onChanged, onOp
           <Avatar name={customer.displayName} />
           <div>
             <h2 id="crm-customer-title">{customer.displayName}</h2>
-            <p><PlatformBadge platform={customer.platform} /> {customer.pageName && <span>{customer.pageName}</span>} {customer.firstContactAt && <span>· nhắn lần đầu {formatDate(customer.firstContactAt)}</span>}</p>
+            <p><PlatformBadge platform={customer.platform} /> {customer.pageName && <span>{customer.pageName}</span>} {customer.firstContactAt && <span>· từ {formatDate(customer.firstContactAt)}</span>}</p>
           </div>
         </div> : <h2 id="crm-customer-title">Hồ sơ khách</h2>}
       </header>
@@ -179,7 +179,7 @@ function StageEditor({ detail, service, run }: SectionProps) {
     if (ok) setNote('')
     setSaving(false)
   }
-  if (locked) return <p className="crm-hint">Khách đã là học viên. Giai đoạn sau bán đi theo hợp đồng và trang Tái ký.</p>
+  if (locked) return <p className="crm-hint">Đã là học viên, giai đoạn theo hợp đồng.</p>
   return <form className="crm-section crm-stage" onSubmit={(event) => void submit(event)}>
     <h3>Giai đoạn</h3>
     <div className="crm-stage__steps" role="radiogroup" aria-label="Chọn giai đoạn">
@@ -192,7 +192,6 @@ function StageEditor({ detail, service, run }: SectionProps) {
       </select>
     </label>}
     <label className="crm-field"><span>Ghi chú (không bắt buộc)</span><input value={note} maxLength={500} onChange={(event) => setNote(event.target.value)} /></label>
-    <p className="crm-hint">Thắng tự ghi khi hợp đồng của học viên được tạo. Thẻ trên Pancake đổi theo giai đoạn nếu admin đã gắn thẻ.</p>
     <button type="submit" className="crm-button crm-button--primary" disabled={saving || stage === customer.stage && stage !== 'lost'}>{saving ? <Spinner /> : <Check size={15} />} Lưu giai đoạn</button>
   </form>
 }
@@ -226,7 +225,7 @@ function StepsSection({ detail, service, run, canAdd }: SectionProps & { canAdd:
     </form>}
     {!openSteps.length ? <p className="crm-muted">Không có bước nào đang mở.</p> : <ul className="crm-mini-list">
       {openSteps.map((step) => <li key={step.id} className={step.overdue ? 'is-overdue' : ''}>
-        <span><strong>{step.title}</strong><small className={step.overdue ? 'is-late' : ''}>{dueLabel(step.dueAt)} · {step.ownerName || 'Chưa có người nhận'}{step.sopCode ? ` · ${step.sopCode}` : ''}</small></span>
+        <span><strong>{step.title}</strong><small className={step.overdue ? 'is-late' : ''}>{dueLabel(step.dueAt)} · {step.ownerName || 'Chưa giao'}{step.sopCode ? ` · ${step.sopCode}` : ''}</small></span>
         <button type="button" className="crm-button" disabled={busy === step.id} onClick={async () => { setBusy(step.id); await run(() => service.completeStep({ stepId: step.id, status: 'done' }), 'Đã hoàn tất bước.'); setBusy('') }}>{busy === step.id ? <Spinner /> : <Check size={15} />} Xong</button>
       </li>)}
     </ul>}
@@ -279,14 +278,15 @@ function MessagesSection({ detail, service }: Omit<SectionProps, 'run'>) {
         </select>
       </label>}
     </header>
-    {!access.presale && hiddenBefore && <p className="crm-hint">Bạn xem hội thoại từ ngày ký hợp đồng {formatDate(hiddenBefore)}. Phần tư vấn trước đó chỉ Sales và quản lý xem.</p>}
+    {!access.presale && hiddenBefore && <p className="crm-hint">Hiện hội thoại từ ngày ký {formatDate(hiddenBefore)}.</p>}
     <ErrorBanner message={error} onRetry={() => void load(false)} />
     {cursor && <button type="button" className="crm-more crm-more--top" onClick={() => void load(true)} disabled={loading}>{loading ? <Spinner /> : null} Tin cũ hơn</button>}
     {loading && !messages.length ? <Loading label="Đang tải tin nhắn…" /> : !messages.length ? <Empty title="Chưa có tin nhắn đồng bộ" /> : <ol ref={list} className="crm-messages" aria-label="Tin nhắn, cũ nhất ở trên">
       {ordered.map((message, index) => {
         const previous = ordered[index - 1]
         const at = message.sentAt ? new Date(message.sentAt).getTime() : 0
-        const crossesWon = wonAt && at >= wonAt && (!previous?.sentAt || new Date(previous.sentAt).getTime() < wonAt)
+        // Boolean, not `wonAt && …`: a 0 would otherwise be rendered as text.
+        const crossesWon = wonAt > 0 && at >= wonAt && (!previous?.sentAt || new Date(previous.sentAt).getTime() < wonAt)
         const newDay = !previous || vietnamDayKey(previous.sentAt) !== vietnamDayKey(message.sentAt)
         return <li key={message.id} className="crm-message-row">
           {crossesWon && <div className="crm-divider crm-divider--won">Ký hợp đồng · {formatDate(customer.wonAt)}</div>}
@@ -332,7 +332,7 @@ function ProfileSection({ detail, service, run, onOpenCustomer }: SectionProps &
     <summary><h3>Hồ sơ khách</h3></summary>
     <form className="crm-form" onSubmit={(event) => void submit(event)}>
       <label className="crm-field"><span>Tên gọi</span><input value={displayName} maxLength={160} required onChange={(event) => setDisplayName(event.target.value)} /></label>
-      <label className="crm-field"><span>Số điện thoại (cách nhau bằng dấu phẩy)</span><input value={phones} inputMode="tel" onChange={(event) => setPhones(event.target.value)} placeholder="0901 234 567" /></label>
+      <label className="crm-field"><span>Số điện thoại</span><input value={phones} inputMode="tel" onChange={(event) => setPhones(event.target.value)} placeholder="0901 234 567, 0912 …" /></label>
       <label className="crm-field"><span>Mục tiêu</span><input value={goal} maxLength={300} onChange={(event) => setGoal(event.target.value)} placeholder="Giảm mỡ, tăng cơ, phục hồi…" /></label>
       <label className="crm-field"><span>Khung giờ thuận tiện</span><input value={preferredSlots} maxLength={200} onChange={(event) => setPreferredSlots(event.target.value)} placeholder="Tối thứ 2-4-6" /></label>
       <label className="crm-field"><span>Ghi chú</span><textarea value={note} maxLength={1000} rows={3} onChange={(event) => setNote(event.target.value)} /></label>
@@ -487,7 +487,6 @@ function StudentLinkSection({ detail, service, run, onOpenCustomer }: SectionPro
   const [error, setError] = useState('')
   return <details className="crm-section crm-details-section">
     <summary><h3>Nối hồ sơ học viên</h3></summary>
-    <p className="crm-hint">Dùng khi khách đã ký trước khi có CRM. Hợp đồng mới tự nối nếu số điện thoại trùng.</p>
     <form className="crm-search" onSubmit={async (event) => {
       event.preventDefault()
       setBusy('find')
@@ -532,7 +531,7 @@ function EraseSection({ detail, service, onErased }: { detail: CrmCustomerDetail
   const [error, setError] = useState('')
   return <details className="crm-section crm-details-section crm-danger">
     <summary><h3><ShieldAlert size={16} aria-hidden="true" /> Xóa dữ liệu theo yêu cầu khách</h3></summary>
-    <p>Xóa vĩnh viễn hồ sơ, toàn bộ tin nhắn đã đồng bộ, bước chăm sóc và lịch hẹn của khách này trong Aura. Không thể hoàn tác. Dữ liệu trên Pancake không bị xóa.</p>
+    <p>Xóa vĩnh viễn hồ sơ, tin nhắn, bước chăm sóc và lịch hẹn trong Aura. Không hoàn tác; dữ liệu trên Pancake giữ nguyên.</p>
     <form className="crm-inline-form" onSubmit={async (event) => {
       event.preventDefault()
       setBusy(true)

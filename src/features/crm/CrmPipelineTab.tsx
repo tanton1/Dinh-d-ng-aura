@@ -58,7 +58,7 @@ export function CrmPipelineTab({ service, branchId, refreshKey, onOpenCustomer }
             </button>
           </li>)}
         </ul> : <Empty title="Trống" />}
-        {column.count > column.rows.length && <p className="crm-column__more">+{column.count - column.rows.length} khách khác · tìm ở tab Khách hàng</p>}
+        {column.count > column.rows.length && <p className="crm-column__more">+{column.count - column.rows.length} khách khác</p>}
       </section>)}
     </div>}
   </div>

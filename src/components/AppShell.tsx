@@ -286,7 +286,6 @@ const adminNavSections: Array<{ label: string; items: ShellAdminNavItem[] }> = [
   {
     label: 'HỌC VIÊN & CHĂM SÓC',
     items: [
-      { id: 'admin-crm' as const, label: 'Hộp thư & CRM', icon: MessagesSquare, permission: 'dashboard.view' as Permission },
       { id: 'admin-pt-students' as const, label: 'Học viên PT Gym', icon: Users, permission: 'student.view_assigned' as Permission },
       { id: 'admin-renewals' as const, label: 'Tái ký & gia hạn', icon: RefreshCw, permission: 'dashboard.view' as Permission },
       { id: 'admin-loyalty' as const, label: 'Aura Club', icon: WalletCards, permission: 'dashboard.view' as Permission },
@@ -320,6 +319,7 @@ const adminNavSections: Array<{ label: string; items: ShellAdminNavItem[] }> = [
   {
     label: 'TIÊU CHUẨN VẬN HÀNH',
     items: [
+      { id: 'admin-crm' as const, label: 'Hộp thư & CRM', icon: MessagesSquare, permission: 'dashboard.view' as Permission },
       { id: 'admin-sop' as const, label: 'Trung tâm SOP', icon: BookOpenCheck, permission: 'sop.view' as Permission },
     ],
   },

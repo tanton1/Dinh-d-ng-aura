@@ -1039,7 +1039,7 @@ function AuraApplication() {
       case 'staff-renewals':
       case 'admin-renewals': return <AuraOperationsFrame><ContractRenewals key={`${view}:${user?.uid}`} source={view} actorId={user?.uid || backendMode} onOpenStudent360={(id, name) => openStudent360(id, view, name)} onNavigate={(next) => navigate(next as ViewId)} /></AuraOperationsFrame>
       case 'staff-crm':
-      case 'admin-crm': return <AuraOperationsFrame><CrmWorkspacePage
+      case 'admin-crm': return <AuraOperationsFrame className="aura-operations-page--crm"><CrmWorkspacePage
         key={`${view}:${user?.uid ?? backendMode}`}
         mode={view === 'admin-crm' ? 'admin' : 'staff'}
         isDemo={backendMode === 'demo'}
