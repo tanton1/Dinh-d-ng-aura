@@ -29,6 +29,8 @@ const LEARNER_NOTICE_TOGGLES = [
   ['autoFeedbackInvites', 'Mời đánh giá buổi tập'],
   ['autoAvailabilityReminders', 'Nhắc lịch rảnh'],
   ['autoContractReminders', 'Nhắc gói sắp hết'],
+  ['autoWeeklySummary', 'Tổng kết tuần'],
+  ['autoStaffNotices', 'Báo PT và admin'],
 ] as const
 
 function TimeField({
@@ -154,8 +156,8 @@ export function PushAutomationPanel({
       <section className="push-card" aria-labelledby="push-learner-notices-title">
         <div className="push-section-heading">
           <div>
-            <span className="push-section-heading__eyebrow">Học viên PT</span>
-            <h2 id="push-learner-notices-title">Nhắc lịch tập, lịch rảnh và gói tập</h2>
+            <span className="push-section-heading__eyebrow">Thông báo tự động</span>
+            <h2 id="push-learner-notices-title">Học viên, PT và admin</h2>
           </div>
           <CalendarClock size={21} aria-hidden="true" />
         </div>

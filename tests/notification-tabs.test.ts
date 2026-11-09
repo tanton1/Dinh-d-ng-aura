@@ -4,6 +4,8 @@ import {
   mergeNotifications,
   notificationTabFor,
   notificationTabFromHash,
+  notificationTabHash,
+  notificationTabsFor,
   pickDefaultTab,
   relativeTimeLabel,
   sortNotifications,
@@ -38,6 +40,34 @@ test('unread badges count per tab and the default tab prefers a deep link, then 
   assert.equal(pickDefaultTab({ hashTab: null, unread: { schedule: 0, payment: 0, availability: 0, other: 0 }, lastTab: 'payment' }), 'payment')
   assert.equal(notificationTabFromHash('#/notifications?tab=availability'), 'availability')
   assert.equal(notificationTabFromHash('#/notifications?tab=nope'), null)
+})
+
+test('staff and admins get their own tabs and every item lands in one of them', () => {
+  assert.deepEqual(notificationTabsFor('staff').map((tab) => tab.id), ['teaching', 'requests', 'members', 'other'])
+  assert.deepEqual(notificationTabsFor('admin').map((tab) => tab.id), ['requests', 'finance', 'members', 'teaching', 'other'])
+  const cases: Array<[Partial<AppNotification>, string, string]> = [
+    [{ kind: 'pt_attendance_confirmation', category: 'operations' }, 'teaching', 'teaching'],
+    [{ kind: 'staff_teaching_d1', category: 'operations' }, 'teaching', 'teaching'],
+    [{ category: 'workout', type: 'INFO' }, 'teaching', 'teaching'],
+    [{ kind: 'staff_request_pending', category: 'operations' }, 'requests', 'requests'],
+    [{ kind: 'staff_pause_request', category: 'operations' }, 'requests', 'requests'],
+    [{ kind: 'staff_claim_pending', category: 'payment' }, 'other', 'finance'],
+    [{ type: 'renewal_reminder' as AppNotification['type'], category: 'operations' }, 'members', 'members'],
+    [{ type: 'crm' as AppNotification['type'], category: 'general' }, 'members', 'members'],
+    [{ kind: 'staff_feedback_review', category: 'operations' }, 'teaching', 'teaching'],
+    [{ category: 'system', type: 'INFO' }, 'other', 'other'],
+  ]
+  for (const [value, staffTab, adminTab] of cases) {
+    assert.equal(notificationTabFor(item(value), 'staff'), staffTab, JSON.stringify(value))
+    assert.equal(notificationTabFor(item(value), 'admin'), adminTab, JSON.stringify(value))
+  }
+  const adminCounts = unreadCountsByTab([item({ id: 'c', kind: 'staff_claim_pending', category: 'payment' }), item({ id: 'r', kind: 'staff_request_pending' })], 'admin')
+  assert.deepEqual(adminCounts, { requests: 1, finance: 1, members: 0, teaching: 0, other: 0 })
+  assert.equal(pickDefaultTab({ hashTab: null, unread: adminCounts, lastTab: null, audience: 'admin' }), 'requests')
+  assert.equal(pickDefaultTab({ hashTab: null, unread: unreadCountsByTab([], 'staff'), lastTab: 'schedule', audience: 'staff' }), 'teaching')
+  assert.equal(notificationTabFromHash('#/staff-notifications?tab=requests', 'staff'), 'requests')
+  assert.equal(notificationTabFromHash('#/staff-notifications?tab=payment', 'staff'), null)
+  assert.equal(notificationTabHash('finance', 'admin'), '#/admin-inbox?tab=finance')
 })
 
 test('time labels are short like a chat inbox', () => {

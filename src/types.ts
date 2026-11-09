@@ -180,6 +180,7 @@ export type StudentView =
   | 'staff-workouts'
   | 'staff-availability'
   | 'staff-requests'
+  | 'staff-notifications'
   | 'staff-nutrition-reviews'
   | 'staff-quotes'
   | 'staff-renewals'
@@ -222,6 +223,7 @@ export type AdminView =
   | 'admin-meal-plans'
   | 'admin-eat-clean'
   | 'admin-notifications'
+  | 'admin-inbox'
   | 'admin-sop'
   | 'admin-crm'
 
@@ -292,6 +294,9 @@ export interface SystemPushSettings {
   autoFeedbackInvites: boolean
   autoAvailabilityReminders: boolean
   autoContractReminders: boolean
+  autoWeeklySummary: boolean
+  /** PT and admin notices: requests, transfers, feedback, schedule changes. */
+  autoStaffNotices: boolean
   /** Hours before a PT session for the second reminder (1–6). */
   sessionReminderLeadHours: number
   weeklyProgressReviewDay: string

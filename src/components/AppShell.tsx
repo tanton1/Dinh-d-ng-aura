@@ -348,6 +348,8 @@ const adminV4MobileNav: ShellAdminNavItem[] = [
 const viewTitles: Partial<Record<ViewId, string>> = {
   home: 'Hôm nay',
   notifications: 'Thông báo',
+  'staff-notifications': 'Thông báo',
+  'admin-inbox': 'Thông báo',
   'aura-club': 'Aura Club',
   courses: 'Học',
   'course-detail': 'Không gian học',
@@ -437,6 +439,8 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
   const hasClubNavigation = usesClubOperationsDock(view, role, mode, isStaffWorkspace)
   const shellV4 = useAuraUiSurface('shell')
   const isRenewalWorkspace = view === 'admin-renewals' || view === 'staff-renewals'
+  // Each workspace has its own inbox page: learners, staff at work and admins.
+  const notificationView: ViewId = isStaffWorkspace ? 'staff-notifications' : mode === 'admin' ? 'admin-inbox' : 'notifications'
   const [headerActionHost, setHeaderActionHost] = useState<HTMLDivElement | null>(null)
   const isPersonalWorkspace = isStaffAccount && !isStaffWorkspace
   // Staff can always return from personal mode via “Thêm”, even before the
@@ -754,8 +758,8 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
             <button className="mobile-search-button" aria-label="Mở tìm kiếm" aria-expanded={mobileSearchOpen} onClick={() => setMobileSearchOpen(true)}><Search size={20} /></button>
             <span className={`backend-indicator ${backendMode}`} title={backendMode === 'firebase' ? 'Dữ liệu đã được đồng bộ' : 'Đang dùng dữ liệu xem trước'}><Cloud size={14} />{backendMode === 'firebase' ? 'Đã đồng bộ' : 'Xem trước'}</span>
             <NotificationCenter
-              onOpenPage={mode === 'student' && !isStaffWorkspace ? () => onNavigate('notifications') : undefined}
-              active={view === 'notifications'}
+              onOpenPage={() => onNavigate(notificationView)}
+              active={view === notificationView}
             />
             <div style={{ position: 'relative' }}>
               <button className="user-menu" aria-label={`Tài khoản ${userName}`} aria-expanded={userMenuOpen} onClick={() => setUserMenuOpen(!userMenuOpen)}>

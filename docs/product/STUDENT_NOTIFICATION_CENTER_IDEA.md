@@ -1,6 +1,6 @@
 # Trung tâm thông báo học viên: nhắc lịch tập, thanh toán, lịch rảnh
 
-Ngày 09/11/2026. **Trạng thái: đợt 1 và đợt 2 đã triển khai (xem mục 6 và 7), đợt 3 là đề xuất.** Phân tích trên main `7efe37c`.
+Ngày 09/11/2026. **Trạng thái: đợt 1, 2, 3 đã triển khai (xem mục 6, 7, 8); kênh Zalo/SMS chưa làm.** Phân tích trên main `7efe37c`.
 
 Mục tiêu: học viên bấm nút chuông là mở một trang thông báo đầy đủ, chia tab theo nội dung **Lịch tập · Thanh toán · Lịch rảnh · Khác**. Tab nào còn tin chưa đọc thì có badge đỏ kèm số. Hệ thống tự nhắc đúng lúc ba việc học viên hay quên: đến buổi tập, thanh toán kỳ trả góp, gửi lịch rảnh trước giờ chốt.
 
@@ -200,4 +200,36 @@ TTL: `firestore.indexes.json` có override `notifications.expiresAt` (TTL, khôn
 
 Deploy đợt 1 và 2: `sendSessionRemindersScheduled`, `sendAvailabilityRemindersScheduled`, `sendContractLifecycleRemindersScheduled` (mới), `sendInstallmentDueRemindersScheduled`, `saveMyStudentAvailability`, `saveMyStudentAvailabilityRegional`, `remindUnconfirmedPtAttendanceScheduled`, `dispatchPushBroadcast`, `publishPtSchedule`, `publishPtScheduleRegional`, `adminEditPtSchedule`, `adminEditPtScheduleRegional`, `reopenPtStudentAvailability`, `reopenPtStudentAvailabilityRegional`, `submitMyInstallmentPaymentClaim`; TTL; web theo Vercel.
 
-Còn lại cho đợt 3: buổi do PT báo nghỉ, tổng kết tuần, kênh Zalo OA hoặc SMS, trang tab cho staff.
+## 8. Đợt 3: PT, admin và tổng kết tuần (10/11/2026)
+
+Trang thông báo dùng chung `NotificationsPage` với prop `audience`. Chuông mở trang theo khu vực đang đứng:
+
+| Khu vực | Route | Tab |
+| --- | --- | --- |
+| Học viên (và staff ở không gian cá nhân) | `#/notifications` | Lịch tập · Thanh toán · Lịch rảnh · Khác |
+| Staff đang làm việc (PT, sales, CSKH) | `#/staff-notifications` | Lịch dạy · Yêu cầu · Học viên · Khác |
+| Admin | `#/admin-inbox` | Yêu cầu · Tài chính · Học viên · Vận hành · Khác |
+
+Quy tắc chia tab theo `kind`, `type`, `category` nằm trong `notificationTabs.ts`: yêu cầu và OFF/bảo lưu vào Yêu cầu, báo chuyển khoản và `payment` vào Tài chính (staff không có tab này nên rơi vào Khác), tái ký, CRM, Aura Club vào Học viên, điểm danh, lịch dạy, phản hồi cần xem vào Lịch dạy/Vận hành. Dòng ghim "cần làm" chỉ có ở trang học viên.
+
+Thông báo mới (`functions/staff-notices.js`, test `staff-notices.test.js`):
+
+| Người nhận | Sự kiện | Nơi tạo |
+| --- | --- | --- |
+| Admin | Học viên hoặc PT xin đổi, hủy, bù, thêm buổi | trigger `notifyStaffOnSessionRequest` (tạo `sessionRequests`) |
+| PT | Học viên của mình xin đổi hoặc hủy buổi (báo để biết) | cùng trigger |
+| Admin | Yêu cầu OFF hoặc bảo lưu mới, đánh dấu cao khi đăng ký trễ | trigger `notifyStaffOnLeaveRequest` (tạo `leaveRequests`) |
+| Admin | Báo chuyển khoản mới hoặc báo lại số tiền khác; thêm ảnh biên lai không báo lại | trigger `notifyStaffOnPaymentClaim` |
+| Admin | Phản hồi buổi tập chuyển sang cần xem (điểm thấp, an toàn, thái độ) | trigger `notifyStaffOnSessionFeedback` |
+| PT | Lịch dạy tuần đã phát hành hoặc có thay đổi, đếm ca theo ngày, mỗi chi nhánh một tin | `publishPtSchedule` |
+| PT | Admin thêm, dời, hủy hoặc chuyển ca của mình sang PT khác | `adminEditPtSchedule` |
+| PT | Mai bạn có N ca dạy, cùng giờ với nhắc học viên | `sendSessionRemindersScheduled` |
+| Học viên | Tổng kết tuần lúc 20:00 Chủ nhật: đã tập bao nhiêu trên số buổi đã xếp, tuần sau đã xếp bao nhiêu | `sendSessionRemindersScheduled` |
+
+Người nhận admin là các `roleAssignments` có `accessRole` admin hoặc super_admin, đang hoạt động, đúng chi nhánh (admin không gắn chi nhánh nhận tất cả), trừ chính người tạo. Danh sách này được giữ trong bộ nhớ của instance 5 phút.
+
+Cài đặt: tab Tự động hóa có thêm `autoWeeklySummary` (Tổng kết tuần) và `autoStaffNotices` (Báo PT và admin).
+
+Không làm: buổi do PT tự nghỉ không có sự kiện riêng, vì lịch nghỉ của PT đi qua lịch rảnh và admin sửa lịch, học viên đã được báo ở bước đó. Kênh Zalo OA hoặc SMS cần tài khoản nhà cung cấp, mẫu tin đã duyệt và khóa API của Aura, chưa có nên chưa làm.
+
+Deploy đợt 3: `notifyStaffOnSessionRequest`, `notifyStaffOnLeaveRequest`, `notifyStaffOnPaymentClaim`, `notifyStaffOnSessionFeedback` (mới), `sendSessionRemindersScheduled`, `publishPtSchedule`, `publishPtScheduleRegional`, `adminEditPtSchedule`, `adminEditPtScheduleRegional`; web theo Vercel.

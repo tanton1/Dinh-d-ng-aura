@@ -1,12 +1,16 @@
 import type { AppNotification } from '../../types'
 
 /**
- * Pure helpers for the learner notification page: which tab an inbox item
- * belongs to, unread badges, default tab choice, day grouping and labels.
- * Kept free of React and Firebase so the rules can be unit tested.
+ * Pure helpers for the notification pages: which tab an inbox item belongs to
+ * for each audience (learner, staff at work, admin), unread badges, default
+ * tab choice and labels. Kept free of React and Firebase so the rules can be
+ * unit tested.
  */
 
-export type NotificationTabId = 'schedule' | 'payment' | 'availability' | 'other'
+export type NotificationAudience = 'learner' | 'staff' | 'admin'
+export type LearnerTabId = 'schedule' | 'payment' | 'availability' | 'other'
+export type StaffTabId = 'teaching' | 'requests' | 'members' | 'finance' | 'other'
+export type NotificationTabId = LearnerTabId | StaffTabId
 
 export interface NotificationTabDefinition {
   id: NotificationTabId
@@ -15,39 +19,53 @@ export interface NotificationTabDefinition {
 }
 
 export const NOTIFICATION_TABS: NotificationTabDefinition[] = [
-  {
-    id: 'schedule',
-    label: 'Lịch tập',
-    emptyTitle: 'Chưa có thông báo lịch tập',
-  },
-  {
-    id: 'payment',
-    label: 'Thanh toán',
-    emptyTitle: 'Chưa có thông báo thanh toán',
-  },
-  {
-    id: 'availability',
-    label: 'Lịch rảnh',
-    emptyTitle: 'Chưa có nhắc nhở lịch rảnh',
-  },
-  {
-    id: 'other',
-    label: 'Khác',
-    emptyTitle: 'Chưa có thông báo khác',
-  },
+  { id: 'schedule', label: 'Lịch tập', emptyTitle: 'Chưa có thông báo lịch tập' },
+  { id: 'payment', label: 'Thanh toán', emptyTitle: 'Chưa có thông báo thanh toán' },
+  { id: 'availability', label: 'Lịch rảnh', emptyTitle: 'Chưa có nhắc nhở lịch rảnh' },
+  { id: 'other', label: 'Khác', emptyTitle: 'Chưa có thông báo khác' },
 ]
 
-const TAB_IDS = new Set<string>(NOTIFICATION_TABS.map((tab) => tab.id))
-const TAB_PRIORITY: NotificationTabId[] = ['payment', 'schedule', 'availability', 'other']
+const STAFF_TABS: NotificationTabDefinition[] = [
+  { id: 'teaching', label: 'Lịch dạy', emptyTitle: 'Chưa có thông báo lịch dạy' },
+  { id: 'requests', label: 'Yêu cầu', emptyTitle: 'Chưa có yêu cầu mới' },
+  { id: 'members', label: 'Học viên', emptyTitle: 'Chưa có thông báo học viên' },
+  { id: 'other', label: 'Khác', emptyTitle: 'Chưa có thông báo khác' },
+]
+
+const ADMIN_TABS: NotificationTabDefinition[] = [
+  { id: 'requests', label: 'Yêu cầu', emptyTitle: 'Không có yêu cầu chờ duyệt' },
+  { id: 'finance', label: 'Tài chính', emptyTitle: 'Chưa có thông báo tài chính' },
+  { id: 'members', label: 'Học viên', emptyTitle: 'Chưa có thông báo học viên' },
+  { id: 'teaching', label: 'Vận hành', emptyTitle: 'Chưa có thông báo vận hành' },
+  { id: 'other', label: 'Khác', emptyTitle: 'Chưa có thông báo khác' },
+]
+
+const TAB_PRIORITY: Record<NotificationAudience, NotificationTabId[]> = {
+  learner: ['payment', 'schedule', 'availability', 'other'],
+  staff: ['requests', 'teaching', 'members', 'other'],
+  admin: ['requests', 'finance', 'teaching', 'members', 'other'],
+}
+
+const PAGE_VIEWS: Record<NotificationAudience, string> = {
+  learner: 'notifications',
+  staff: 'staff-notifications',
+  admin: 'admin-inbox',
+}
+
 const VIETNAM_TIME_ZONE = 'Asia/Ho_Chi_Minh'
 const DAY_MS = 86_400_000
 
-export function isNotificationTabId(value: unknown): value is NotificationTabId {
-  return typeof value === 'string' && TAB_IDS.has(value)
+export function notificationTabsFor(audience: NotificationAudience = 'learner'): NotificationTabDefinition[] {
+  if (audience === 'admin') return ADMIN_TABS
+  if (audience === 'staff') return STAFF_TABS
+  return NOTIFICATION_TABS
 }
 
-/** Category decides the tab; legacy items without a category fall back to their type or kind. */
-export function notificationTabFor(notification: Pick<AppNotification, 'category' | 'type' | 'kind'>): NotificationTabId {
+export function isNotificationTabId(value: unknown, audience: NotificationAudience = 'learner'): value is NotificationTabId {
+  return typeof value === 'string' && notificationTabsFor(audience).some((tab) => tab.id === value)
+}
+
+function learnerTabFor(notification: Pick<AppNotification, 'category' | 'type' | 'kind'>): LearnerTabId {
   const category = String(notification.category || '').toLowerCase()
   if (category === 'workout') return 'schedule'
   if (category === 'payment') return 'payment'
@@ -62,30 +80,50 @@ export function notificationTabFor(notification: Pick<AppNotification, 'category
   return 'other'
 }
 
-export function notificationTabFromHash(hash: string): NotificationTabId | null {
+function staffTabFor(notification: Pick<AppNotification, 'category' | 'type' | 'kind'>): StaffTabId {
+  const kind = String(notification.kind || '')
+  const type = String(notification.type || '').toLowerCase()
+  const category = String(notification.category || '').toLowerCase()
+  if (['staff_request_pending', 'staff_request_fyi', 'staff_pause_request'].includes(kind)) return 'requests'
+  if (kind === 'staff_claim_pending' || category === 'payment') return 'finance'
+  if (type === 'renewal_reminder' || type === 'crm' || ['loyalty', 'nutrition', 'coach'].includes(category)) return 'members'
+  if (category === 'workout' || category === 'operations' || kind.startsWith('staff_') || kind === 'pt_attendance_confirmation' || type === 'pt_schedule') return 'teaching'
+  return 'other'
+}
+
+/** Category and kind decide the tab; staff without a finance tab see finance items under Khác. */
+export function notificationTabFor(notification: Pick<AppNotification, 'category' | 'type' | 'kind'>, audience: NotificationAudience = 'learner'): NotificationTabId {
+  if (audience === 'learner') return learnerTabFor(notification)
+  const tab = staffTabFor(notification)
+  return isNotificationTabId(tab, audience) ? tab : 'other'
+}
+
+export function notificationTabFromHash(hash: string, audience: NotificationAudience = 'learner'): NotificationTabId | null {
   const value = new URLSearchParams(hash.split('?')[1] ?? '').get('tab')
-  return isNotificationTabId(value) ? value : null
+  return isNotificationTabId(value, audience) ? value : null
 }
 
-export function notificationTabHash(tab: NotificationTabId) {
-  return `#/notifications?tab=${tab}`
+export function notificationTabHash(tab: NotificationTabId, audience: NotificationAudience = 'learner') {
+  return `#/${PAGE_VIEWS[audience]}?tab=${tab}`
 }
 
-export type UnreadByTab = Record<NotificationTabId, number>
+export type UnreadByTab = Partial<Record<NotificationTabId, number>>
 
-export function unreadCountsByTab(notifications: Iterable<AppNotification>): UnreadByTab {
-  const counts: UnreadByTab = { schedule: 0, payment: 0, availability: 0, other: 0 }
+export function unreadCountsByTab(notifications: Iterable<AppNotification>, audience: NotificationAudience = 'learner'): UnreadByTab {
+  const counts: UnreadByTab = Object.fromEntries(notificationTabsFor(audience).map((tab) => [tab.id, 0]))
   for (const notification of notifications) {
     if (notification.read) continue
-    counts[notificationTabFor(notification)] += 1
+    const tab = notificationTabFor(notification, audience)
+    counts[tab] = (counts[tab] ?? 0) + 1
   }
   return counts
 }
 
 /** A deep link wins; otherwise the most pressing tab with unread items; otherwise the last one opened. */
-export function pickDefaultTab({ hashTab, unread, lastTab }: { hashTab: NotificationTabId | null; unread: UnreadByTab; lastTab: NotificationTabId | null }): NotificationTabId {
+export function pickDefaultTab({ hashTab, unread, lastTab, audience = 'learner' }: { hashTab: NotificationTabId | null; unread: UnreadByTab; lastTab: NotificationTabId | null; audience?: NotificationAudience }): NotificationTabId {
   if (hashTab) return hashTab
-  return TAB_PRIORITY.find((tab) => unread[tab] > 0) ?? lastTab ?? 'schedule'
+  const priority = TAB_PRIORITY[audience]
+  return priority.find((tab) => (unread[tab] ?? 0) > 0) ?? (lastTab && isNotificationTabId(lastTab, audience) ? lastTab : notificationTabsFor(audience)[0].id)
 }
 
 export function notificationDate(value: unknown): Date | null {
@@ -178,9 +216,49 @@ export function mergeNotifications(...lists: AppNotification[][]) {
   return [...seen.values()]
 }
 
-export function demoNotifications(now: Date): AppNotification[] {
+export function demoNotifications(now: Date, audience: NotificationAudience = 'learner'): AppNotification[] {
   const minutesAgo = (minutes: number) => new Date(now.getTime() - minutes * 60_000)
   const nextWeek = nextWeekMondayKey(vietnamDayKey(now))
+  if (audience === 'staff') {
+    return [
+      {
+        id: 'demo-staff-d1', userId: 'demo', read: false, type: 'REMINDER', category: 'operations', kind: 'staff_teaching_d1',
+        title: 'Mai bạn có 6 ca dạy', message: '07:00–20:00 · 5 học viên.', actionUrl: '#/staff-schedule', createdAt: minutesAgo(30),
+      },
+      {
+        id: 'demo-staff-request', userId: 'demo', read: false, type: 'INFO', category: 'operations', kind: 'staff_request_fyi',
+        title: 'An Nguyễn xin đổi buổi', message: 'T4 18:00 → T5 19:00. Admin đang duyệt yêu cầu.', actionUrl: '#/staff-schedule', createdAt: minutesAgo(3 * 60),
+      },
+      {
+        id: 'demo-staff-week', userId: 'demo', read: true, type: 'INFO', category: 'operations', kind: 'staff_schedule_published',
+        title: `Lịch dạy tuần ${formatWeekRange(nextWeek)} đã phát hành`, message: '18 ca · T2 (4), T3 (3), T4 (4), T6 (4), T7 (3).', actionUrl: '#/staff-schedule', createdAt: minutesAgo(26 * 60),
+      },
+      {
+        id: 'demo-staff-renewal', userId: 'demo', read: true, type: 'renewal_reminder', category: 'operations',
+        title: 'Hồ sơ tái ký cần xử lý', message: 'Bình Trần · PT 24 buổi · đến hạn hôm nay', actionUrl: '#/staff-renewals', createdAt: minutesAgo(2 * 24 * 60),
+      },
+    ] as AppNotification[]
+  }
+  if (audience === 'admin') {
+    return [
+      {
+        id: 'demo-admin-request', userId: 'demo', read: false, type: 'INFO', category: 'operations', kind: 'staff_request_pending', priority: 'high',
+        title: 'Học viên xin đổi buổi', message: 'An Nguyễn · T4 12/11 18:00 → T5 13/11 19:00 · PT Minh', actionUrl: '#/admin-training-history?focus=requests', createdAt: minutesAgo(15),
+      },
+      {
+        id: 'demo-admin-pause', userId: 'demo', read: false, type: 'INFO', category: 'operations', kind: 'staff_pause_request',
+        title: 'Yêu cầu bảo lưu mới', message: 'Chi Lê · 16/11–15/12 (30 ngày)', actionUrl: '#/admin-training-history?focus=requests', createdAt: minutesAgo(90),
+      },
+      {
+        id: 'demo-admin-claim', userId: 'demo', read: false, type: 'PAYMENT', category: 'payment', kind: 'staff_claim_pending',
+        title: 'Báo chuyển khoản mới', message: 'Dũng Phạm · 4.000.000đ · kỳ 2 · PT 24 buổi', actionUrl: '#/admin-finance', createdAt: minutesAgo(5 * 60),
+      },
+      {
+        id: 'demo-admin-feedback', userId: 'demo', read: true, type: 'ALERT', category: 'operations', kind: 'staff_feedback_review',
+        title: 'Phản hồi cần xem · 2/5', message: 'PT Minh · buổi T3 11/11 18:00 · Thái độ', actionUrl: '#/admin-trainer-quality', createdAt: minutesAgo(26 * 60),
+      },
+    ] as AppNotification[]
+  }
   return [
     {
       id: 'demo-session-d1', userId: 'demo', read: false, type: 'REMINDER', category: 'workout', kind: 'session_d1',

@@ -9,7 +9,7 @@ const clone = <T,>(value: T): T => structuredClone(value)
 export const DEFAULT_PUSH_SETTINGS: SystemPushSettings = {
   enabled: true, automationEnabled: true, vapidPublicKey: '', fcmSenderId: '', fcmProjectId: '',
   autoMealReminders: true, mealReminderTimes: { breakfast: '07:30', lunch: '12:00', dinner: '18:30' },
-  workoutReminderTime: '17:00', autoSessionReminders: true, autoFeedbackInvites: true, autoAvailabilityReminders: true, autoContractReminders: true, sessionReminderLeadHours: 2,
+  workoutReminderTime: '17:00', autoSessionReminders: true, autoFeedbackInvites: true, autoAvailabilityReminders: true, autoContractReminders: true, autoWeeklySummary: true, autoStaffNotices: true, sessionReminderLeadHours: 2,
   weeklyProgressReviewDay: 'monday', timezone: 'Asia/Ho_Chi_Minh',
   quietHoursStart: '21:30', quietHoursEnd: '07:00', maxDailyPerUser: 3, soundEnabled: true, badgeEnabled: true,
 }

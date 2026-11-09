@@ -778,7 +778,9 @@ function AuraApplication() {
       }} onSelectLesson={(lessonId) => selectedCourseId && (isAdminCoursePreview ? goTo('course-detail', selectedCourseId, lessonId) : openCourse(selectedCourseId, lessonId))} onEnroll={enrollSelectedCourse} onComplete={completeLesson} onUpgrade={() => navigate('profile')} />
       case 'schedule': return <SchedulePage key={user?.uid ?? 'demo'} onNavigate={navigate} isDemo={backendMode === 'demo'} ownerId={user?.uid ?? 'demo'} />
       case 'student-availability': return <StudentAvailabilityPage key={user?.uid ?? 'demo'} onNavigate={navigate} isDemo={backendMode === 'demo'} />
-      case 'notifications': return <NotificationsPage key={user?.uid ?? 'demo'} userId={user?.uid} onNavigate={navigate} isDemo={backendMode === 'demo'} />
+      case 'notifications': return <NotificationsPage key={user?.uid ?? 'demo'} audience="learner" userId={user?.uid} onNavigate={navigate} isDemo={backendMode === 'demo'} />
+      case 'staff-notifications': return <NotificationsPage key={`staff:${user?.uid ?? 'demo'}`} audience="staff" userId={user?.uid} onNavigate={navigate} isDemo={backendMode === 'demo'} />
+      case 'admin-inbox': return <NotificationsPage key={`admin:${user?.uid ?? 'demo'}`} audience="admin" userId={user?.uid} onNavigate={navigate} isDemo={backendMode === 'demo'} />
       case 'cooking': return <CookingPage ownerId={user?.uid ?? 'demo'} />
       case 'food-library':
       case 'nutrition': return <NutritionPage

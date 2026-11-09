@@ -1381,13 +1381,30 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
             .map((entry) => ({ id: entry.id, date: entry.date, hour: entry.hour, trainerName: trainers.get(entry.trainerId)?.name || 'PT Aura' })),
         }
       })
-      return { unchanged: false, draftRevision, version: nextVersion, diff, warnings: [...new Set(prepared.warnings)], studentNotices }
+      // PTs whose classes this publish created, moved or cancelled.
+      const affectedTrainerIds = new Set([
+        ...creates.map((item) => item.trainerId),
+        ...updates.flatMap(({ existing, desired }) => [desired.trainerId, existing.data().trainerId]),
+        ...cancellations.map((item) => item.data().trainerId),
+      ].filter((value) => typeof value === 'string' && value))
+      const trainerHadSessions = new Set(existingScoped
+        .filter((item) => ACTIVE_SESSION_STATUSES.has(item.data().status))
+        .map((item) => item.data().trainerId))
+      const trainerNotices = [...affectedTrainerIds].map((trainerId) => ({
+        trainerId,
+        status: trainers.get(trainerId)?.status || '',
+        hadSessions: trainerHadSessions.has(trainerId),
+        sessions: publishedEntries
+          .filter((entry) => entry.trainerId === trainerId)
+          .map((entry) => ({ id: entry.id, date: entry.date, hour: entry.hour })),
+      }))
+      return { unchanged: false, draftRevision, version: nextVersion, diff, warnings: [...new Set(prepared.warnings)], studentNotices, trainerNotices }
     })
     if (!validateOnly) onScheduleMutation(branchId, week)
-    const { studentNotices, ...response } = result
-    if (!validateOnly && studentNotices?.length && typeof onSchedulePublished === 'function') {
+    const { studentNotices, trainerNotices, ...response } = result
+    if (!validateOnly && (studentNotices?.length || trainerNotices?.length) && typeof onSchedulePublished === 'function') {
       try {
-        await onSchedulePublished({ branchId, weekId: week, version: result.version, notices: studentNotices })
+        await onSchedulePublished({ branchId, weekId: week, version: result.version, notices: studentNotices || [], trainerNotices: trainerNotices || [] })
       } catch (error) {
         console.warn('Schedule publish notices failed', { branchId, week, code: error?.code || 'unknown' })
       }

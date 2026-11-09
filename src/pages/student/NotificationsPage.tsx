@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertCircle, Bell, CalendarClock, CalendarDays, CheckCheck, Inbox, LoaderCircle, Settings2, Sparkles, WalletCards } from 'lucide-react'
+import { AlertCircle, Bell, CalendarClock, CalendarDays, CheckCheck, ClipboardList, Inbox, LoaderCircle, Settings2, Sparkles, UsersRound, WalletCards } from 'lucide-react'
 import type { AppNotification, ViewId } from '../../types'
 import {
   loadOlderNotifications,
@@ -10,7 +10,6 @@ import {
 import { listMyStudentPtSchedule, type StudentPtScheduleData } from '../../services/studentPtScheduleService'
 import { useVietnamDay } from '../../hooks/useWorkspaceSync'
 import {
-  NOTIFICATION_TABS,
   addDayKey,
   dayKeyDistance,
   demoNotifications,
@@ -22,12 +21,14 @@ import {
   normalizeActionHash,
   notificationDate,
   notificationTabFor,
+  notificationTabsFor,
   notificationTabFromHash,
   notificationTabHash,
   pickDefaultTab,
   relativeTimeLabel,
   sortNotifications,
   unreadCountsByTab,
+  type NotificationAudience,
   type NotificationTabId,
 } from '../../features/notifications/notificationTabs'
 import './NotificationsPage.css'
@@ -40,6 +41,10 @@ const TAB_ICONS = {
   schedule: CalendarDays,
   payment: WalletCards,
   availability: CalendarClock,
+  teaching: CalendarDays,
+  requests: ClipboardList,
+  members: UsersRound,
+  finance: WalletCards,
   other: Sparkles,
 } as const
 
@@ -54,19 +59,21 @@ interface ActionItem {
 }
 
 interface NotificationsPageProps {
+  /** Learners, staff at work and admins each get their own tabs. */
+  audience?: NotificationAudience
   userId?: string
   onNavigate: (view: ViewId) => void
   isDemo?: boolean
 }
 
-function lastTabStorageKey(userId: string) {
-  return `aura:notifications:last-tab:${userId}`
+function lastTabStorageKey(userId: string, audience: NotificationAudience) {
+  return audience === 'learner' ? `aura:notifications:last-tab:${userId}` : `aura:notifications:last-tab:${audience}:${userId}`
 }
 
-function readLastTab(userId: string): NotificationTabId | null {
+function readLastTab(userId: string, audience: NotificationAudience): NotificationTabId | null {
   try {
-    const value = window.localStorage.getItem(lastTabStorageKey(userId))
-    return isNotificationTabId(value) ? value : null
+    const value = window.localStorage.getItem(lastTabStorageKey(userId, audience))
+    return isNotificationTabId(value, audience) ? value : null
   } catch {
     return null
   }
@@ -158,9 +165,10 @@ function demoActionItems(todayKey: string): ActionItem[] {
   ]
 }
 
-export default function NotificationsPage({ userId, onNavigate, isDemo = false }: NotificationsPageProps) {
+export default function NotificationsPage({ audience = 'learner', userId, onNavigate, isDemo = false }: NotificationsPageProps) {
   const day = useVietnamDay()
-  const [tab, setTab] = useState<NotificationTabId>(() => notificationTabFromHash(window.location.hash) ?? (userId ? readLastTab(userId) : null) ?? 'schedule')
+  const tabs = notificationTabsFor(audience)
+  const [tab, setTab] = useState<NotificationTabId>(() => notificationTabFromHash(window.location.hash, audience) ?? (userId ? readLastTab(userId, audience) : null) ?? tabs[0].id)
   const [recent, setRecent] = useState<AppNotification[]>([])
   const [unread, setUnread] = useState<AppNotification[]>([])
   const [older, setOlder] = useState<AppNotification[]>([])
@@ -173,7 +181,7 @@ export default function NotificationsPage({ userId, onNavigate, isDemo = false }
   const [actions, setActions] = useState<ActionItem[]>([])
   const [announcement, setAnnouncement] = useState('')
   // A deep link already chose the tab; otherwise the first unread snapshot picks it once.
-  const defaultTabAppliedRef = useRef(Boolean(notificationTabFromHash(window.location.hash)))
+  const defaultTabAppliedRef = useRef(Boolean(notificationTabFromHash(window.location.hash, audience)))
   const announcedUnreadRef = useRef<number | null>(null)
 
   useEffect(() => {
@@ -193,29 +201,34 @@ export default function NotificationsPage({ userId, onNavigate, isDemo = false }
       setUnread(items)
       if (!defaultTabAppliedRef.current) {
         defaultTabAppliedRef.current = true
-        setTab(pickDefaultTab({ hashTab: null, unread: unreadCountsByTab(items), lastTab: readLastTab(userId) }))
+        setTab(pickDefaultTab({ hashTab: null, unread: unreadCountsByTab(items, audience), lastTab: readLastTab(userId, audience), audience }))
       }
     }, () => {}, UNREAD_LIMIT)
     return () => {
       stopRecent()
       stopUnread()
     }
-  }, [isDemo, userId])
+  }, [audience, isDemo, userId])
 
   // A push or an in-app link can change `?tab=` while this page is already
   // mounted; `changeTab` uses replaceState, so this never loops.
   useEffect(() => {
     const syncTabFromHash = () => {
-      const next = notificationTabFromHash(window.location.hash)
+      const next = notificationTabFromHash(window.location.hash, audience)
       if (!next) return
       defaultTabAppliedRef.current = true
       setTab(next)
     }
     window.addEventListener('hashchange', syncTabFromHash)
     return () => window.removeEventListener('hashchange', syncTabFromHash)
-  }, [])
+  }, [audience])
 
   useEffect(() => {
+    // Pinned "to do" rows come from the learner's own schedule only.
+    if (audience !== 'learner') {
+      setActions([])
+      return
+    }
     if (isDemo) {
       setActions(demoActionItems(day))
       return
@@ -227,18 +240,18 @@ export default function NotificationsPage({ userId, onNavigate, isDemo = false }
       .then((data) => { if (!cancelled) setActions(buildActionItems(data, day, nextWeekId)) })
       .catch(() => { if (!cancelled) setActions([]) })
     return () => { cancelled = true }
-  }, [day, isDemo, userId])
+  }, [audience, day, isDemo, userId])
 
   const all = useMemo(() => {
-    const base = isDemo ? demoNotifications(new Date()) : mergeNotifications(recent, unread, older)
+    const base = isDemo ? demoNotifications(new Date(), audience) : mergeNotifications(recent, unread, older)
     const applied = localRead.size ? base.map((item) => (!item.read && localRead.has(item.id) ? { ...item, read: true } : item)) : base
     return sortNotifications(applied)
-  }, [isDemo, localRead, older, recent, unread])
-  const counts = useMemo(() => unreadCountsByTab(all), [all])
-  const totalUnread = counts.schedule + counts.payment + counts.availability + counts.other
-  const visible = useMemo(() => all.filter((item) => notificationTabFor(item) === tab), [all, tab])
+  }, [audience, isDemo, localRead, older, recent, unread])
+  const counts = useMemo(() => unreadCountsByTab(all, audience), [all, audience])
+  const totalUnread = Object.values(counts).reduce((sum, value) => sum + (value ?? 0), 0)
+  const visible = useMemo(() => all.filter((item) => notificationTabFor(item, audience) === tab), [all, audience, tab])
   const now = new Date()
-  const tabDefinition = NOTIFICATION_TABS.find((item) => item.id === tab) ?? NOTIFICATION_TABS[0]
+  const tabDefinition = tabs.find((item) => item.id === tab) ?? tabs[0]
   // An unread reminder that opens the same place already covers the task;
   // the pinned row only reappears once that reminder has been read.
   const unreadLinks = new Set(visible.filter((item) => !item.read && item.actionUrl).map((item) => normalizeActionHash(item.actionUrl!)))
@@ -260,10 +273,10 @@ export default function NotificationsPage({ userId, onNavigate, isDemo = false }
     setTab(next)
     defaultTabAppliedRef.current = true
     try {
-      window.history.replaceState(null, '', notificationTabHash(next))
-      if (userId) window.localStorage.setItem(lastTabStorageKey(userId), next)
+      window.history.replaceState(null, '', notificationTabHash(next, audience))
+      if (userId) window.localStorage.setItem(lastTabStorageKey(userId, audience), next)
     } catch { /* storage and history are optional conveniences */ }
-  }, [userId])
+  }, [audience, userId])
 
   const markRead = useCallback(async (ids: string[]) => {
     if (!ids.length) return
@@ -350,8 +363,8 @@ export default function NotificationsPage({ userId, onNavigate, isDemo = false }
         <div className="sr-only" role="status" aria-atomic="true">{announcement}</div>
 
         <nav className="notifications-tabs" role="tablist" aria-label="Loại thông báo">
-          {NOTIFICATION_TABS.map((definition) => {
-            const count = counts[definition.id]
+          {tabs.map((definition) => {
+            const count = counts[definition.id] ?? 0
             const selected = tab === definition.id
             return (
               <button
@@ -389,7 +402,8 @@ export default function NotificationsPage({ userId, onNavigate, isDemo = false }
               )
             })}
             {visible.map((notification) => {
-              const Icon = TAB_ICONS[notificationTabFor(notification)]
+              const itemTab = notificationTabFor(notification, audience)
+              const Icon = TAB_ICONS[itemTab]
               const time = relativeTimeLabel(notificationDate(notification.createdAt), now)
               return (
                 <li key={notification.id}>
@@ -399,7 +413,7 @@ export default function NotificationsPage({ userId, onNavigate, isDemo = false }
                     onClick={() => openNotification(notification)}
                     aria-label={`${notification.read ? '' : 'Chưa đọc. '}${notification.title}. ${notification.message}. ${time}`}
                   >
-                    <span className={`nf-row__avatar is-${notificationTabFor(notification)}`}><Icon size={20} aria-hidden="true" /></span>
+                    <span className={`nf-row__avatar is-${itemTab}`}><Icon size={20} aria-hidden="true" /></span>
                     <span className="nf-row__body"><strong>{notification.title}</strong><p>{notification.message}</p></span>
                     <span className="nf-row__dot" aria-hidden="true" />
                     <time className="nf-row__time">{time}</time>

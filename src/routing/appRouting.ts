@@ -28,6 +28,7 @@ export const adminViews: ViewId[] = [
   'admin-nutrition-reviews',
   'admin-eat-clean',
   'admin-notifications',
+  'admin-inbox',
   'admin-sop',
   'admin-crm',
 ]
@@ -53,6 +54,7 @@ const validViews: ViewId[] = [
   'staff-workouts',
   'staff-availability',
   'staff-requests',
+  'staff-notifications',
   'staff-nutrition-reviews',
   'staff-quotes',
   'staff-renewals',

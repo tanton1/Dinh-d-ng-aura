@@ -65,7 +65,8 @@
   top: var(--shell-topbar-height, 72px);
   z-index: 12;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
   margin-top: -22px;
   border-bottom: 1px solid var(--nf-line);
   border-radius: 22px 22px 0 0;
@@ -148,6 +149,9 @@
 .nf-row__avatar.is-payment { color: #d9480f; background: #fff0e4; }
 .nf-row__avatar.is-availability { color: #c2185b; background: #fce4ef; }
 .nf-row__avatar.is-other { color: #6f6877; background: #f4eff2; }
+.nf-row__avatar.is-requests { color: #c2410c; background: #fff0e4; }
+.nf-row__avatar.is-finance { color: #d9480f; background: #fff0e4; }
+.nf-row__avatar.is-members { color: #c2185b; background: #fce4ef; }
 
 .nf-row__body { grid-area: body; display: grid; gap: 3px; min-width: 0; }
 .nf-row__body strong { color: var(--nf-ink); font-size: 15px; font-weight: 750; line-height: 1.3; }

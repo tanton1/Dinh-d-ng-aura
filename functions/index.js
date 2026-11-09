@@ -24,7 +24,7 @@ const { getMessaging } = require('firebase-admin/messaging')
 const { getStorage } = require('firebase-admin/storage')
 const { HttpsError, onCall: firebaseOnCall } = require('firebase-functions/v2/https')
 const { onSchedule } = require('firebase-functions/v2/scheduler')
-const { onDocumentWritten } = require('firebase-functions/v2/firestore')
+const { onDocumentCreated, onDocumentWritten } = require('firebase-functions/v2/firestore')
 const { setGlobalOptions } = require('firebase-functions/v2/options')
 const { logger } = require('firebase-functions')
 const { createHash } = require('node:crypto')
@@ -68,6 +68,7 @@ const { availabilityCutoff, createPtOperationsV2Functions } = require('./pt-oper
 const { effectiveStudentAvailability, loadLatestSubmittedFallbacks } = require('./student-availability')
 const { ptOperationsPolicySnapshot: reminderPolicySnapshot } = require('./pt-policy')
 const studentReminders = require('./student-reminders')
+const staffNotices = require('./staff-notices')
 const { createSessionFeedbackFunctions, feedbackId } = require('./session-feedback')
 const { createPtSchedulePublishFunctions, dateForSlot: scheduleDateForSlot, documentId: scheduleDocumentId, weekId: scheduleWeekId } = require('./pt-schedule-publish')
 const { createPtScheduleV2Functions, draftExpiresAt, invalidateBranchDataCache, safeSchedule, scopedDraftData, scheduleActor } = require('./pt-schedule-v2')
@@ -2059,6 +2060,8 @@ function studentReminderSettings(raw) {
     feedbackInvitesEnabled: source.autoFeedbackInvites !== false,
     availabilityRemindersEnabled: source.autoAvailabilityReminders !== false,
     contractRemindersEnabled: source.autoContractReminders !== false,
+    weeklySummaryEnabled: source.autoWeeklySummary !== false,
+    staffNoticesEnabled: source.autoStaffNotices !== false,
     sessionReminderTime: normalizedReminderClock(source.workoutReminderTime, studentReminders.DEFAULT_SESSION_REMINDER_TIME),
     sessionLeadHours: Number.isInteger(leadHours) && leadHours >= 1 && leadHours <= 6 ? leadHours : studentReminders.DEFAULT_SESSION_LEAD_HOURS,
   }
@@ -2129,13 +2132,108 @@ async function deliverStudentNotices(deliveries, { replace = false, now = new Da
   return { created: written.length, ...pushResult }
 }
 
-async function deliverSchedulePublishedNotices({ branchId, weekId, version, notices }) {
+async function deliverSchedulePublishedNotices({ branchId, weekId, version, notices = [], trainerNotices = [] }) {
   const today = vietnamDateKey(new Date())
-  const planned = studentReminders.planSchedulePublishedNotices({ weekId, notices, today })
+  const settings = await readStudentReminderSettings()
+  const planned = [
+    ...studentReminders.planSchedulePublishedNotices({ weekId, notices, today }),
+    ...(settings.staffNoticesEnabled ? staffNotices.trainerSchedulePublishedNotices({ weekId, branchId, notices: trainerNotices, today }) : []),
+  ]
   const result = await deliverStudentNotices(planned, { replace: true })
   logger.info('Schedule publish notices delivered', { branchId, weekId, version, planned: planned.length, ...result })
   return result
 }
+
+const SAFE_DOCUMENT_ID = /^[A-Za-z0-9_-]{1,200}$/
+let adminAssignmentCache = { at: 0, rows: [] }
+
+/** Admin and super admin role assignments, cached briefly per instance. */
+async function adminAssignments() {
+  if (Date.now() - adminAssignmentCache.at < 5 * 60_000) return adminAssignmentCache.rows
+  const snapshot = await db.collection('roleAssignments').where('accessRole', 'in', ['admin', 'super_admin'])
+    .select('accessRole', 'branchIds', 'status', 'disabled')
+    .limit(200).get()
+  adminAssignmentCache = { at: Date.now(), rows: snapshot.docs.map((document) => ({ id: document.id, data: document.data() })) }
+  return adminAssignmentCache.rows
+}
+
+async function optionalDocument(collectionName, id) {
+  if (typeof id !== 'string' || !SAFE_DOCUMENT_ID.test(id)) return {}
+  const snapshot = await db.doc(`${collectionName}/${id}`).get()
+  return snapshot.exists ? snapshot.data() || {} : {}
+}
+
+const staffNoticeTriggerOptions = {
+  database: databaseId,
+  region: 'asia-southeast1',
+  cpu: 'gcf_gen1',
+  memory: '256MiB',
+  maxInstances: 2,
+  timeoutSeconds: 60,
+  retry: false,
+}
+
+// New learner or PT requests: admins approve them, the PT hears about a
+// learner's request. Notice ids are per request, so a duplicate event is a no-op.
+exports.notifyStaffOnSessionRequest = onDocumentCreated({ document: 'sessionRequests/{requestId}', ...staffNoticeTriggerOptions }, async (event) => {
+  const request = event.data?.data()
+  if (!request || request.status !== 'pending') return { skipped: 'not_pending' }
+  const settings = await readStudentReminderSettings()
+  if (!settings.staffNoticesEnabled) return { skipped: 'disabled' }
+  const [student, trainer, assignments] = await Promise.all([
+    optionalDocument('students', request.studentId),
+    optionalDocument('trainers', request.trainerId),
+    adminAssignments(),
+  ])
+  const branchId = request.newBranchId || request.homeBranchId || request.branchId || student.branchId || ''
+  const adminUids = staffNotices.adminRecipientUids(assignments, branchId, [request.accountUid, request.createdBy])
+  const notices = staffNotices.sessionRequestNotices({
+    requestId: event.params.requestId,
+    request,
+    studentName: student.name || 'Học viên',
+    trainerName: trainer.name || 'PT Aura',
+    adminUids,
+    today: vietnamDateKey(new Date()),
+  })
+  return deliverStudentNotices(notices)
+})
+
+exports.notifyStaffOnLeaveRequest = onDocumentCreated({ document: 'leaveRequests/{requestId}', ...staffNoticeTriggerOptions }, async (event) => {
+  const request = event.data?.data()
+  if (!request || request.status !== 'pending' || !request.studentId) return { skipped: 'not_pending' }
+  const settings = await readStudentReminderSettings()
+  if (!settings.staffNoticesEnabled) return { skipped: 'disabled' }
+  const [student, assignments] = await Promise.all([optionalDocument('students', request.studentId), adminAssignments()])
+  const adminUids = staffNotices.adminRecipientUids(assignments, request.branchId || student.branchId || '', [request.accountUid, request.createdBy])
+  const notices = staffNotices.pauseRequestNotices({ requestId: event.params.requestId, request, studentName: student.name || 'Học viên', adminUids, today: vietnamDateKey(new Date()) })
+  return deliverStudentNotices(notices)
+})
+
+// A reported transfer, or one reported again with a new amount. A receipt
+// photo added to the same claim does not notify again.
+exports.notifyStaffOnPaymentClaim = onDocumentWritten({ document: 'installmentPaymentClaims/{claimId}', ...staffNoticeTriggerOptions }, async (event) => {
+  const before = event.data?.before?.exists ? event.data.before.data() : null
+  const after = event.data?.after?.exists ? event.data.after.data() : null
+  if (!after || after.status !== 'submitted') return { skipped: 'not_submitted' }
+  if (before?.status === 'submitted' && Number(before.amount) === Number(after.amount)) return { skipped: 'unchanged' }
+  const settings = await readStudentReminderSettings()
+  if (!settings.staffNoticesEnabled) return { skipped: 'disabled' }
+  const adminUids = staffNotices.adminRecipientUids(await adminAssignments(), after.branchId || '', [after.accountUid])
+  const notices = staffNotices.paymentClaimNotices({ claimId: event.params.claimId, claim: after, adminUids, today: vietnamDateKey(new Date()) })
+  return deliverStudentNotices(notices)
+})
+
+exports.notifyStaffOnSessionFeedback = onDocumentWritten({ document: 'sessionFeedback/{feedbackId}', ...staffNoticeTriggerOptions }, async (event) => {
+  const before = event.data?.before?.exists ? event.data.before.data() : null
+  const after = event.data?.after?.exists ? event.data.after.data() : null
+  if (!after || after.status !== 'needs_review' || before?.status === 'needs_review') return { skipped: 'not_review' }
+  const settings = await readStudentReminderSettings()
+  if (!settings.staffNoticesEnabled) return { skipped: 'disabled' }
+  const [trainer, assignments] = await Promise.all([optionalDocument('trainers', after.trainerId), adminAssignments()])
+  const adminUids = staffNotices.adminRecipientUids(assignments, after.branchId || '', [after.updatedBy])
+  const notices = staffNotices.feedbackReviewNotices({ feedbackId: event.params.feedbackId, feedback: after, trainerName: trainer.name || 'PT Aura', adminUids, today: vietnamDateKey(new Date()) })
+  return deliverStudentNotices(notices)
+})
 
 function slotDateHour(week, slotId) {
   const [dayCode, hour] = String(slotId || '').split('-')
@@ -2146,15 +2244,16 @@ function slotDateHour(week, slotId) {
   }
 }
 
-/** Tells the learner about an admin edit to a published session. */
+/** Tells the learner and the PTs about an admin edit to a published session. */
 async function notifyAdminScheduleEdit({ command, payload, week, result }) {
-  const [sessionSnapshot, studentSnapshot, trainerSnapshot] = await Promise.all([
+  const [sessionSnapshot, studentSnapshot, trainerSnapshot, settings] = await Promise.all([
     db.doc(`sessions/${result.sessionId}`).get(),
     db.doc(`students/${payload.studentId}`).get(),
     db.doc(`trainers/${payload.trainerId}`).get(),
+    readStudentReminderSettings(),
   ])
   const student = studentSnapshot.exists ? studentSnapshot.data() : {}
-  if (student.status === 'inactive' || student.accountStatus === 'disabled') return null
+  const learnerActive = student.status !== 'inactive' && student.accountStatus !== 'disabled'
   const session = sessionSnapshot.exists ? sessionSnapshot.data() : {}
   const sessionTime = typeof session.date === 'string' && Number.isInteger(session.hour) ? { date: session.date.slice(0, 10), hour: session.hour } : null
   const before = command === 'move_student'
@@ -2172,7 +2271,19 @@ async function notifyAdminScheduleEdit({ command, payload, week, result }) {
     trainerName: trainerSnapshot.exists ? trainerSnapshot.data().name || 'PT Aura' : 'PT Aura',
     today: vietnamDateKey(new Date()),
   })
-  return notice ? deliverStudentNotices([notice]) : null
+  const trainerNotices = settings.staffNoticesEnabled ? staffNotices.trainerSessionChangedNotices({
+    sessionId: result.sessionId,
+    revision: result.sessionRevision,
+    command,
+    before,
+    after,
+    targetTrainerId: payload.trainerId,
+    sourceTrainerId: command === 'move_student' ? payload.fromTrainerId : '',
+    studentName: student.name || 'học viên',
+    today: vietnamDateKey(new Date()),
+  }) : []
+  const deliveries = [...(notice && learnerActive ? [notice] : []), ...trainerNotices]
+  return deliveries.length ? deliverStudentNotices(deliveries) : null
 }
 
 const studentReminderScheduleOptions = {
@@ -2197,9 +2308,13 @@ exports.sendSessionRemindersScheduled = onSchedule({
   // A lead reminder inside quiet hours would only be seen after the session.
   const runLead = settings.sessionRemindersEnabled && !studentReminders.insideQuietHours(null, now) && currentHour + settings.sessionLeadHours <= 23
   const runFeedback = settings.feedbackInvitesEnabled && studentReminders.FEEDBACK_INVITE_HOURS.includes(currentHour)
-  if (!runDayBefore && !runLead && !runFeedback) return { skipped: 'outside_window' }
-  const from = runFeedback ? studentReminders.addDays(today, -3) : today
-  const to = runDayBefore ? studentReminders.addDays(today, 1) : today
+  // Sunday 20:00: learners get this week's tally and next week's bookings.
+  const runWeekly = settings.weeklySummaryEnabled && clock.weekday === 'sun' && currentHour === 20
+  const runTrainerDayBefore = runDayBefore && settings.staffNoticesEnabled
+  if (!runDayBefore && !runLead && !runFeedback && !runWeekly) return { skipped: 'outside_window' }
+  const weekId = studentReminders.mondayOf(today)
+  const from = [today, runFeedback ? studentReminders.addDays(today, -3) : '', runWeekly ? weekId : ''].filter(Boolean).sort()[0]
+  const to = [today, runDayBefore ? studentReminders.addDays(today, 1) : '', runWeekly ? studentReminders.addDays(weekId, 13) : ''].filter(Boolean).sort().at(-1)
   const snapshot = await db.collection('sessions').where('date', '>=', from).where('date', '<=', to)
     .select('studentId', 'trainerId', 'date', 'hour', 'status', 'attendanceStatus')
     .limit(5000).get()
@@ -2208,7 +2323,7 @@ exports.sendSessionRemindersScheduled = onSchedule({
   const feedbackCandidates = runFeedback ? studentReminders.feedbackInviteCandidates({ sessions, now }) : []
   const [students, trainers, configSnapshot] = await Promise.all([
     documentsByIdMap('students', sessions.map(({ data }) => data.studentId), ['accountUid', 'status', 'accountStatus', 'name']),
-    documentsByIdMap('trainers', sessions.map(({ data }) => data.trainerId), ['name']),
+    documentsByIdMap('trainers', sessions.map(({ data }) => data.trainerId), ['name', 'status']),
     runDayBefore ? db.doc('settings/scheduleConfig').get() : Promise.resolve(null),
   ])
   const submittedSessionIds = new Set()
@@ -2222,10 +2337,12 @@ exports.sendSessionRemindersScheduled = onSchedule({
     ...(runDayBefore ? studentReminders.planSessionReminders({ sessions, students, trainers, today, deadlineHours: policy.sessionChangeDeadlineHours }) : []),
     ...(runLead ? studentReminders.planSessionLeadReminders({ sessions, students, trainers, today, currentHour, leadHours: settings.sessionLeadHours }) : []),
     ...(runFeedback ? studentReminders.planFeedbackInvites({ sessions: feedbackCandidates, students, trainers, submittedSessionIds, now }) : []),
+    ...(runWeekly ? studentReminders.planWeeklySummaries({ sessions, students, weekId, today }) : []),
+    ...(runTrainerDayBefore ? staffNotices.planTrainerDayBeforeReminders({ sessions, trainers, students, today }) : []),
   ]
   const created = await writeStudentNotices(planned)
   const pushResult = settings.pushEnabled ? await deliverStudentReminderPushes(created, now) : { skipped: 'push_disabled' }
-  const summary = { today, runDayBefore, runLead, runFeedback, sessions: sessions.length, planned: planned.length, created: created.length, ...pushResult }
+  const summary = { today, runDayBefore, runLead, runFeedback, runWeekly, sessions: sessions.length, planned: planned.length, created: created.length, ...pushResult }
   logger.info('Session reminders completed', summary)
   return summary
 })

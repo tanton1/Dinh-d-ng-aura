@@ -682,15 +682,74 @@ function planContractLifecycleReminders({ contracts = [], usageViews = new Map()
   return deliveries
 }
 
+const PLANNED_SESSION_STATUSES = new Set(['scheduled', 'rescheduled', 'completed', 'no_show'])
+
+function sessionAttended(session) {
+  const attendance = String(session.attendanceStatus || '')
+  return ['present', 'late'].includes(attendance) || (session.status === 'completed' && attendance !== 'no_show')
+}
+
+/**
+ * Sunday-evening summary: sessions attended this week out of those planned,
+ * and how many are already booked for next week. `sessions` covers both weeks.
+ */
+function planWeeklySummaries({ sessions = [], students = new Map(), weekId, today }) {
+  const weekEnd = addDays(weekId, 6)
+  const nextWeekId = addDays(weekId, 7)
+  const nextWeekEnd = addDays(weekId, 13)
+  const totals = new Map()
+  for (const item of sessions) {
+    const session = rowData(item)
+    const studentId = typeof session?.studentId === 'string' ? session.studentId.trim() : ''
+    const day = dateKey(session?.date)
+    if (!studentId || !day || !PLANNED_SESSION_STATUSES.has(session.status)) continue
+    const total = totals.get(studentId) || { planned: 0, attended: 0, next: 0 }
+    if (day >= weekId && day <= weekEnd) {
+      total.planned += 1
+      if (sessionAttended(session)) total.attended += 1
+    } else if (day >= nextWeekId && day <= nextWeekEnd && SCHEDULED_SESSION_STATUSES.has(session.status)) {
+      total.next += 1
+    }
+    totals.set(studentId, total)
+  }
+  const deliveries = []
+  for (const [studentId, total] of totals) {
+    if (!total.planned && !total.next) continue
+    const student = students.get(studentId)
+    const accountUid = studentAccountUid(student)
+    if (!accountUid || !studentReceivesReminders(student)) continue
+    deliveries.push({
+      userId: accountUid,
+      studentId,
+      dateString: today,
+      category: 'workout',
+      type: 'INFO',
+      kind: 'weekly_summary',
+      priority: 'normal',
+      dedupeKey: `weekly-summary-${weekId}-${studentId}`,
+      actionUrl: total.next ? '#/schedule?tab=next-week' : `#/student-availability?week=${nextWeekId}`,
+      ctaLabel: total.next ? 'Mở lịch' : 'Xem lịch rảnh',
+      entity: { weekId },
+      expiresAt: expiryDate(nextWeekId, 7),
+      title: total.planned ? `Tuần này bạn tập ${total.attended}/${total.planned} buổi` : `Tuần ${formatWeekRange(nextWeekId)} đã có lịch tập`,
+      message: total.next
+        ? `Tuần ${formatWeekRange(nextWeekId)} đã xếp ${total.next} buổi.`
+        : `Tuần ${formatWeekRange(nextWeekId)} chưa có buổi nào được xếp.`,
+    })
+  }
+  return deliveries
+}
+
 /** Learner preference for the push copy of a delivery; the inbox item is written regardless. */
 function pushPreferenceAllows(profile, delivery) {
   if (delivery?.push === false) return false
   const settings = profile?.notificationSettings
   if (!settings || typeof settings !== 'object') return true
   if (settings.enabled === false) return false
-  if (delivery.kind === 'session_d1' || delivery.kind === 'session_h2') {
+  if (['session_d1', 'session_h2', 'staff_teaching_d1'].includes(delivery.kind)) {
     return settings.sessionReminders !== false && settings.workoutReminders !== false
   }
+  if (delivery.kind === 'weekly_summary') return settings.workoutReminders !== false
   if (delivery.category === 'availability') return settings.availabilityReminders !== false
   if (delivery.kind === 'installment_due_soon') return settings.paymentReminders !== false
   return true
@@ -734,9 +793,16 @@ module.exports = {
   availabilityReopenedNotification,
   clockWindowContains,
   contractPausedForWholeWeek,
+  expiryDate,
   feedbackInviteCandidates,
+  formatDay,
+  formatVnd,
   formatWeekRange,
+  hourLabel,
   insideQuietHours,
+  planWeeklySummaries,
+  sessionLabel,
+  weekdayLabel,
   mondayOf,
   nextWeekMonday,
   oneDeliveryPerUserRounds,

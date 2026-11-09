@@ -44,6 +44,8 @@ export const DEFAULT_PUSH_SETTINGS: SystemPushSettings = {
   autoFeedbackInvites: true,
   autoAvailabilityReminders: true,
   autoContractReminders: true,
+  autoWeeklySummary: true,
+  autoStaffNotices: true,
   sessionReminderLeadHours: 2,
   weeklyProgressReviewDay: 'monday',
   timezone: 'Asia/Ho_Chi_Minh',
@@ -77,6 +79,8 @@ export function normalizeSystemPushSettings(value?: Partial<SystemPushSettings> 
     autoFeedbackInvites: source.autoFeedbackInvites !== false,
     autoAvailabilityReminders: source.autoAvailabilityReminders !== false,
     autoContractReminders: source.autoContractReminders !== false,
+    autoWeeklySummary: source.autoWeeklySummary !== false,
+    autoStaffNotices: source.autoStaffNotices !== false,
     sessionReminderLeadHours: normalizePositiveInt(source.sessionReminderLeadHours, DEFAULT_PUSH_SETTINGS.sessionReminderLeadHours, 1, 6),
     weeklyProgressReviewDay: ['monday', 'friday', 'sunday'].includes(source.weeklyProgressReviewDay ?? '')
       ? source.weeklyProgressReviewDay!

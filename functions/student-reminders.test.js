@@ -22,6 +22,7 @@ const {
   planSchedulePublishedNotices,
   planSessionLeadReminders,
   planSessionReminders,
+  planWeeklySummaries,
   pushEligible,
   schedulableStudentIds,
   sessionChangedNotification,
@@ -319,6 +320,29 @@ test('package reminders: few or no sessions left and 14, 3, 0 days before the en
   assert.equal(plan[0].category, 'payment')
 })
 
+test("the Sunday summary counts this week's attended sessions and next week's bookings", () => {
+  const sessions = [
+    { id: '1', data: { studentId: 'a', date: '2026-11-10', status: 'completed', attendanceStatus: 'present' } },
+    { id: '2', data: { studentId: 'a', date: '2026-11-12', status: 'no_show', attendanceStatus: 'no_show' } },
+    { id: '3', data: { studentId: 'a', date: '2026-11-14', status: 'completed', attendanceStatus: 'late' } },
+    { id: '4', data: { studentId: 'a', date: '2026-11-11', status: 'cancelled' } },
+    { id: '5', data: { studentId: 'a', date: '2026-11-17', status: 'scheduled' } },
+    { id: '6', data: { studentId: 'a', date: '2026-11-19', status: 'scheduled' } },
+    { id: '7', data: { studentId: 'b', date: '2026-11-11', status: 'completed', attendanceStatus: 'present' } },
+    { id: '8', data: { studentId: 'c', date: '2026-11-18', status: 'scheduled' } },
+    { id: '9', data: { studentId: 'd', date: '2026-11-11', status: 'cancelled' } },
+  ]
+  const plan = planWeeklySummaries({ sessions, students: students(['a', {}], ['b', {}], ['c', {}], ['d', {}]), weekId: '2026-11-09', today: '2026-11-15' })
+  assert.deepEqual(plan.map((item) => [item.studentId, item.title, item.message]), [
+    ['a', 'Tuần này bạn tập 2/3 buổi', 'Tuần 16–22/11 đã xếp 2 buổi.'],
+    ['b', 'Tuần này bạn tập 1/1 buổi', 'Tuần 16–22/11 chưa có buổi nào được xếp.'],
+    ['c', 'Tuần 16–22/11 đã có lịch tập', 'Tuần 16–22/11 đã xếp 1 buổi.'],
+  ])
+  assert.equal(plan[0].actionUrl, '#/schedule?tab=next-week')
+  assert.equal(plan[1].actionUrl, '#/student-availability?week=2026-11-16')
+  assert.equal(plan[0].dedupeKey, 'weekly-summary-2026-11-09-a')
+})
+
 test('push rounds carry one notice per learner and respect opt-outs', () => {
   const rounds = oneDeliveryPerUserRounds([{ userId: 'a', n: 1 }, { userId: 'b', n: 2 }, { userId: 'a', n: 3 }])
   assert.deepEqual(rounds.map((round) => round.map((item) => item.n)), [[1, 2], [3]])
@@ -344,9 +368,9 @@ test('runtime wiring: schedulers exported, receipt hooked into the learner save,
   assert.equal(indexSource.match(/pushStudentNotices: \(deliveries\) => pushStudentNotices\(deliveries\)/g).length, 2)
   assert.match(indexSource, /await notifyAdminScheduleEdit\(\{ command, payload, week, result \}\)/)
   assert.match(indexSource, /await deliverStudentReminderPushes\(created, new Date\(\)\)/)
-  assert.match(publishSource, /await onSchedulePublished\(\{ branchId, weekId: week, version: result\.version, notices: studentNotices \}\)/)
+  assert.match(publishSource, /await onSchedulePublished\(\{ branchId, weekId: week, version: result\.version, notices: studentNotices \|\| \[\], trainerNotices: trainerNotices \|\| \[\] \}\)/)
   // The client never receives the learner notice payload from a publish.
-  assert.match(publishSource, /const \{ studentNotices, \.\.\.response \} = result/)
+  assert.match(publishSource, /const \{ studentNotices, trainerNotices, \.\.\.response \} = result/)
   assert.match(scheduleV2Source, /availabilityReopenedNotification\(\{ accountUid, studentId, weekId: week/)
   assert.match(paymentsSource, /paymentClaimReceivedNotification\(\{ accountUid: actor\.uid, claimId, revision/)
   assert.match(feedbackSource, new RegExp(`const FEEDBACK_WINDOW_HOURS = ${FEEDBACK_WINDOW_HOURS}\\b`))
