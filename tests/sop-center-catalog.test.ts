@@ -22,16 +22,16 @@ async function catalog() {
 
 test('SOP Center catalog carries the complete controlled knowledge inventory', async () => {
   const value = await catalog()
-  assert.equal(value.stats.total, 298)
+  assert.equal(value.stats.total, 339)
   assert.deepEqual(value.stats.byKind, {
-    dialogue: 41,
+    dialogue: 45,
     escalation: 11,
     kpi: 28,
-    objection: 21,
+    objection: 25,
     policy: 29,
     price: 10,
     promotion: 1,
-    script: 104,
+    script: 137,
     skill: 24,
     sop: 10,
     variable: 13,

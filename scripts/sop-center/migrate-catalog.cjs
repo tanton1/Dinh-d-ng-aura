@@ -81,8 +81,13 @@ function plainFirestoreFields(fields) {
   return Object.fromEntries(Object.entries(fields || {}).map(([key, value]) => [key, plainFirestoreValue(value)]))
 }
 
+// The migration owns what it created from the catalog, whether the entry came
+// from the SOP aura reference import or from in-repo authoring, for as long as
+// nobody edits it in the SOP centre (an edit records the editor as updatedBy).
+const MANAGED_SOURCE_SYSTEMS = new Set(['sop-aura-reference', 'sop-center-authoring'])
+
 function isManagedMigrationDocument(value) {
-  return value?.sourceSystem === 'sop-aura-reference'
+  return MANAGED_SOURCE_SYSTEMS.has(value?.sourceSystem)
     && /^migration:sop-aura-v\d+$/.test(String(value?.createdBy || ''))
     && /^migration:sop-aura-v\d+$/.test(String(value?.updatedBy || ''))
 }

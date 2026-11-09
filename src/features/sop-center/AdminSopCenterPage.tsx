@@ -793,6 +793,24 @@ export default function AdminSopCenterPage({
     </section>
   }
 
+  // Under a step's phrases, every full script, sample dialogue and objection
+  // handler of the step: the content of its skill written for this SOP, with
+  // the moment each one is for, so the short lines lead to complete wording.
+  function renderStepScripts(sop: SopKnowledgeResource, step: SopStepPayload | undefined) {
+    const skill = skillForStep(step)
+    if (!skill) return null
+    const content = resources.filter((item) => customerKinds.includes(item.kind) && (item.relatedSkillIds ?? []).includes(skill.sourceId) && (item.relatedSopIds ?? []).includes(sop.sourceId))
+    if (!content.length) return null
+    const groups = customerKinds.map((kind) => ({ kind, items: content.filter((item) => item.kind === kind) })).filter((group) => group.items.length > 0)
+    return <section className="sop-center-step-scripts" aria-label="Kịch bản đầy đủ cho bước này">
+      <div className="sop-center-section-title"><MessageSquareText size={18} /><h3>{content.length} kịch bản đầy đủ cho bước này</h3></div>
+      {groups.map((group) => <div className="sop-center-step-scripts-group" key={group.kind}>
+        <strong>{kindLabels[group.kind]}<small>{group.items.length}</small></strong>
+        <div>{group.items.map((item) => <button type="button" key={item.id} onClick={() => navigateFeature(resourceSection(item), item.id)}><span>{item.title}</span>{item.summary && <small>{item.summary}</small>}<ChevronRight size={14} /></button>)}</div>
+      </div>)}
+    </section>
+  }
+
   function renderRelations(resource: SopKnowledgeResource) {
     const sopIds = resource.kind === 'sop' ? [resource.sourceId] : (resource.relatedSopIds ?? [])
     // A skill lists itself in relatedSkillIds; it is not its own related skill.
@@ -875,7 +893,7 @@ export default function AdminSopCenterPage({
           <span>Các bước</span>
           {steps.length ? <ol>{steps.map((step, index) => <li key={`${index}-${step.title}`} className={index === activeStep ? 'is-active' : ''}><button type="button" aria-current={index === activeStep ? 'step' : undefined} onClick={() => selectStep(index)}><i>{pad(index + 1)}</i><span><strong>{step.title || `Bước ${index + 1}`}</strong><small>{step.when || step.owner}</small>{skillForStep(step) && <em>{skillForStep(step)?.title}</em>}</span></button></li>)}</ol> : <p className="sop-center-empty-copy">SOP này chưa có bước nào.</p>}
         </aside>}
-        <main><ResourceContent resource={resource} activeStep={activeStep} stepSkill={isSop ? renderStepSkill(resource, steps[activeStep]) : undefined} stepView={stepView} onStepViewChange={selectStepView} />{renderRelations(resource)}</main>
+        <main><ResourceContent resource={resource} activeStep={activeStep} stepSkill={isSop ? renderStepSkill(resource, steps[activeStep]) : undefined} stepScripts={isSop ? renderStepScripts(resource, steps[activeStep]) : undefined} stepView={stepView} onStepViewChange={selectStepView} />{renderRelations(resource)}</main>
       </div>}
     </section>
   }

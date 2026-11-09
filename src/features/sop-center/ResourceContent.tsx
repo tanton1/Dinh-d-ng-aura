@@ -28,9 +28,10 @@ const stepViews: SopStepView[] = ['guide', 'say', 'cases', 'quiz']
 export const isSopStepView = (value: unknown): value is SopStepView => stepViews.includes(value as SopStepView)
 
 // A step reads as four short pages instead of one long one: the guide
-// (what to do, what to avoid, the example), the phrases, the situations
-// grouped by their kind, and the quick check.
-function SopStepContent({ step, index, skill, view, onViewChange }: { step: SopStepPayload; index: number; skill?: ReactNode; view: SopStepView; onViewChange: (view: SopStepView) => void }) {
+// (what to do, what to avoid, the example), the phrases followed by the
+// step's full scripts, the situations grouped by their kind, and the quick
+// check.
+function SopStepContent({ step, index, skill, scripts, view, onViewChange }: { step: SopStepPayload; index: number; skill?: ReactNode; scripts?: ReactNode; view: SopStepView; onViewChange: (view: SopStepView) => void }) {
   const cases = Array.isArray(step.cases) ? step.cases : []
   const quizzes = Array.isArray(step.quiz) ? step.quiz : []
   const say = step.say ?? []
@@ -97,6 +98,7 @@ function SopStepContent({ step, index, skill, view, onViewChange }: { step: SopS
         {say.length
           ? <div className="sop-center-quote-stack">{say.map((item, itemIndex) => <blockquote key={`${itemIndex}-${item}`}>{item}</blockquote>)}</div>
           : <p className="sop-center-empty-copy">Bước này chưa có mẫu câu.</p>}
+        {scripts}
       </div>}
 
       {active === 'cases' && <div role="tabpanel" id="sop-step-panel-cases" aria-labelledby="sop-step-tab-cases" className="sop-center-step-panel">
@@ -220,10 +222,10 @@ function PolicyContent({ resource }: { resource: SopKnowledgeResource }) {
   </div>
 }
 
-export default function ResourceContent({ resource, activeStep, stepSkill, stepView = 'guide', onStepViewChange }: { resource: SopKnowledgeResource; activeStep: number; stepSkill?: ReactNode; stepView?: SopStepView; onStepViewChange?: (view: SopStepView) => void }) {
+export default function ResourceContent({ resource, activeStep, stepSkill, stepScripts, stepView = 'guide', onStepViewChange }: { resource: SopKnowledgeResource; activeStep: number; stepSkill?: ReactNode; stepScripts?: ReactNode; stepView?: SopStepView; onStepViewChange?: (view: SopStepView) => void }) {
   if (resource.kind === 'sop') {
     const playbook = Array.isArray(resource.payload.playbook) ? resource.payload.playbook as SopStepPayload[] : []
-    return <SopStepContent step={playbook[activeStep] ?? { title: resource.title, goal: resource.summary }} index={activeStep} skill={playbook[activeStep] ? stepSkill : undefined} view={stepView} onViewChange={(view) => onStepViewChange?.(view)} />
+    return <SopStepContent step={playbook[activeStep] ?? { title: resource.title, goal: resource.summary }} index={activeStep} skill={playbook[activeStep] ? stepSkill : undefined} scripts={playbook[activeStep] ? stepScripts : undefined} view={stepView} onViewChange={(view) => onStepViewChange?.(view)} />
   }
   if (resource.kind === 'skill') return <SkillContent resource={resource} />
   if (resource.kind === 'script' || resource.kind === 'dialogue') return <ScriptContent resource={resource} />
