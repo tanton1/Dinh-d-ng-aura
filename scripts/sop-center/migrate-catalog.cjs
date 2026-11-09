@@ -237,6 +237,22 @@ async function applyCatalogWithGcloud(catalog, projectId, databaseId, { planOnly
     projectId,
     auth: 'gcloud-rest',
   }
+  // --list-drift names every existing document whose catalog entry changed,
+  // and says whether the migration still owns it; a document someone edited
+  // in the SOP centre shows its editor so the team can merge by hand.
+  if (process.argv.includes('--list-drift')) {
+    summary.drift = catalog.resources.flatMap((resource) => {
+      const value = existingDocuments.get(resource.id)?.data
+      if (!value || value.migrationDigest === digest(resource)) return []
+      return [{
+        id: resource.id,
+        managed: isManagedMigrationDocument(value),
+        status: value.status || null,
+        updatedBy: value.updatedBy || null,
+        updatedAt: value.updatedAt || null,
+      }]
+    })
+  }
   if (planOnly) return summary
   let created = 0
   let updated = 0
