@@ -98,6 +98,17 @@ function needsManagedRefresh(existing, resource) {
   return isManagedMigrationDocument(existing) && existing.migrationDigest !== digest(resource)
 }
 
+// --force-ids=a,b names documents to refresh from the catalog although someone
+// touched them in the SOP centre (a status change also hands ownership over).
+// The refresh writes a new revision and version snapshot, so the version the
+// team approved stays in the history, and the status comes from the catalog,
+// which puts the document back in the review queue.
+const forcedIds = new Set((argValue('--force-ids') || '').split(',').map((item) => item.trim()).filter(Boolean))
+
+function needsForcedRefresh(existing, resource) {
+  return forcedIds.has(resource.id) && Boolean(existing) && existing.migrationDigest !== digest(resource)
+}
+
 function migrationDocuments(resource, catalog, existing = null) {
   const actor = migrationActor(catalog)
   const revision = existing ? Math.max(1, Number(existing.revision || 1)) + 1 : Math.max(1, Number(resource.revision || 1))
@@ -215,9 +226,10 @@ async function applyCatalogWithGcloud(catalog, projectId, databaseId, { planOnly
 
   const refreshManaged = process.argv.includes('--refresh-managed')
   const createResources = catalog.resources.filter((resource) => !existingDocuments.has(resource.id))
-  const updateResources = refreshManaged
-    ? catalog.resources.filter((resource) => needsManagedRefresh(existingDocuments.get(resource.id)?.data, resource))
-    : []
+  const updateResources = catalog.resources.filter((resource) => {
+    const existing = existingDocuments.get(resource.id)?.data
+    return (refreshManaged && needsManagedRefresh(existing, resource)) || needsForcedRefresh(existing, resource)
+  })
   const skippedResources = catalog.resources.length - createResources.length - updateResources.length
   const verifiedResources = catalog.resources.filter((resource) => (
     existingDocuments.get(resource.id)?.data?.migrationDigest === digest(resource)
@@ -314,9 +326,11 @@ async function applyCatalog(catalog) {
   const existing = await db.getAll(...refs)
   const createResources = catalog.resources.filter((_, index) => !existing[index].exists)
   const existingById = new Map(existing.filter((snapshot) => snapshot.exists).map((snapshot) => [snapshot.id, snapshot.data()]))
-  const updateResources = process.argv.includes('--refresh-managed')
-    ? catalog.resources.filter((resource) => needsManagedRefresh(existingById.get(resource.id), resource))
-    : []
+  const refreshManaged = process.argv.includes('--refresh-managed')
+  const updateResources = catalog.resources.filter((resource) => {
+    const existing = existingById.get(resource.id)
+    return (refreshManaged && needsManagedRefresh(existing, resource)) || needsForcedRefresh(existing, resource)
+  })
   const skippedResources = catalog.resources.length - createResources.length - updateResources.length
   let created = 0
   let updated = 0
