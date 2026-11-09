@@ -259,7 +259,7 @@
 .student-schedule-matrix td button.is-available { color: #e32272; border-color: #f79abc; background: var(--aura-pink-soft); }
 .student-schedule-matrix td button.is-booked { color: #e96625; border-color: #ffb288; background: #fff3eb; }
 .student-schedule-matrix td button.is-linked { color: #fff; border-color: transparent; background: linear-gradient(135deg, var(--schedule-pink), var(--schedule-orange)); box-shadow: 0 6px 15px rgba(246,47,130,.24); }
-.student-schedule-matrix td button small { position: absolute; top: 2px; right: 4px; font-size: 8px; }
+.student-schedule-matrix td button small { position: absolute; top: 1px; right: 3px; font-size: 12px; line-height: 1; }
 
 .student-availability-card > footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 14px; padding: 16px 22px calc(16px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid #f2e6eb; background: #fffafb; }
 .student-availability-card footer strong, .student-availability-card footer span { display: block; }
