@@ -8,6 +8,7 @@ const { contractSchedulingRemaining } = require('./contract-scheduling')
 const { canonicalUsageSummary, contractWithUsageView } = require('./contract-usage-view-core')
 const { vietnamDateKey, dateKey, addDateDays } = require('./pt-policy')
 const { reviewPage } = require('./scoped-review-pagination')
+const { hiddenExpiredStudent } = require('./schedule-entitlement-policy')
 
 const STATUSES = new Set(['all', 'active', 'expiring_week', 'expiring_month', 'expired', 'paused', 'inactive', 'cancelled'])
 const ATTENTION = new Set(['', 'stable', 'attention', 'action_required'])
@@ -75,8 +76,17 @@ function basicMatch(student, filters) {
   return true
 }
 
+// The plain list (no search, no filter) hides learners whose last contract
+// ended more than a month ago, the same rule as the schedule workspace.
+// Searching or choosing any filter brings them back.
+function directoryBrowsing(filters) {
+  return !filters.query && !filters.branchId && !filters.trainerId && !filters.nutritionPTId && !filters.attention
+    && filters.contractStatus === 'all' && !filters.joinedFrom && !filters.joinedTo
+}
+
 function directoryMatches(student, contracts, eligibility, projection, filters) {
   if (!basicMatch(student, filters)) return false
+  if (directoryBrowsing(filters) && hiddenExpiredStudent(contracts, student.id, filters.referenceDate)) return false
   if (filters.attention && projection?.health?.status !== filters.attention) return false
   const active = eligibility.eligibleContracts
   if (filters.trainerId && !(filters.trainerId === 'none'
@@ -225,4 +235,4 @@ async function listAdminStudentDirectory({ db, actor, data = {} }) {
   }, { readOnly: true, ...(config.readTime ? { readTime: config.readTime } : {}) })
 }
 
-module.exports = { listAdminStudentDirectory, directoryWeekEligibility, directoryMatches, configFor }
+module.exports = { listAdminStudentDirectory, directoryBrowsing, directoryWeekEligibility, directoryMatches, configFor }

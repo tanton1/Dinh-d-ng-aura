@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { studentEligibilityForWeek } from '../src/domain/pt/studentEligibility'
 import { isContractSchedulableOn } from '../src/utils/scheduler'
 import type { Student, StudentContract } from '../src/types'
-import { filterStudentDirectory, type StudentDirectoryFilters } from '../src/domain/pt/studentDirectoryFilters'
+import { monthAfterKey, expiredOverAMonth, filterStudentDirectory, type StudentDirectoryFilters } from '../src/domain/pt/studentDirectoryFilters'
 
 const student = { id: 'student-a', status: 'active', branchId: 'cs1' } as Student
 const contract = {
@@ -87,10 +87,36 @@ test('explicit status filters include inactive, cancelled, frozen and long-expir
     directoryContract('frozen', { status: 'frozen' }),
     directoryContract('expired', { status: 'expired', endDate: '2026-09-10' }),
   ])
-  assert.deepEqual(filterStudentDirectory(sources, directoryFilters, directoryNow).map((entry) => entry.id), students.map((entry) => entry.id), 'all statuses includes the complete authorized roster')
+  // The plain roster hides the learner whose contract ended 2026-09-10 (more
+  // than a month before 2026-10-30); a search or any filter shows them again.
+  assert.deepEqual(filterStudentDirectory(sources, directoryFilters, directoryNow).map((entry) => entry.id), students.map((entry) => entry.id).filter((id) => id !== 'expired'), 'plain roster hides learners expired over a month')
+  assert.deepEqual(filterStudentDirectory(sources, { ...directoryFilters, search: 'expired' }, directoryNow).map((entry) => entry.id), ['expired'], 'search finds a long-expired learner')
   for (const [contractStatus, expected] of [['inactive', 'left'], ['cancelled', 'cancelled'], ['paused', 'frozen'], ['expired', 'expired'], ['active', 'current']] as const) {
     assert.deepEqual(filterStudentDirectory(sources, { ...directoryFilters, contractStatus }, directoryNow).map((entry) => entry.id), [expected])
   }
+})
+
+test('the plain roster hides learners whose last live contract ended over a month ago; searching or filtering shows them', () => {
+  const students = [directoryStudent('current'), directoryStudent('recent'), directoryStudent('old'), directoryStudent('renewed'), directoryStudent('cancelledOld'), directoryStudent('noContract'), directoryStudent('monthEdge')]
+  const sources = directorySources(students, [
+    directoryContract('current'),
+    directoryContract('recent', { status: 'expired', endDate: '2026-10-01' }),
+    directoryContract('old', { status: 'expired', endDate: '2026-09-10' }),
+    directoryContract('renewed', { id: 'renewed-old', status: 'expired', startDate: '2026-06-01', endDate: '2026-08-31' }),
+    directoryContract('renewed', { id: 'renewed-new', status: 'future', startDate: '2026-11-15', endDate: '2027-02-15' }),
+    directoryContract('cancelledOld', { status: 'cancelled', endDate: '2026-08-01' }),
+    directoryContract('monthEdge', { status: 'expired', endDate: '2026-09-30' }),
+  ])
+  const ids = (filters: StudentDirectoryFilters) => filterStudentDirectory(sources, filters, directoryNow).map((entry) => entry.id)
+  // 2026-09-30 + one month is 2026-10-30, which is not before today: still shown.
+  assert.deepEqual(ids(directoryFilters), ['current', 'recent', 'renewed', 'cancelledOld', 'noContract', 'monthEdge'])
+  assert.deepEqual(ids({ ...directoryFilters, search: 'old' }), ['old', 'cancelledOld'])
+  assert.deepEqual(ids({ ...directoryFilters, contractStatus: 'expired' }), ['recent', 'old', 'monthEdge'])
+  assert.ok(ids({ ...directoryFilters, branchId: student.branchId || 'none' }).includes('old'))
+  assert.ok(ids({ ...directoryFilters, dateRange: { start: new Date(2026, 9, 1), end: new Date(2026, 9, 31) } }).includes('old'))
+  assert.equal(monthAfterKey('2026-01-31'), '2026-02-28')
+  assert.equal(expiredOverAMonth([directoryContract('x', { status: 'expired', endDate: '2026-09-10' })], '2026-10-11'), true)
+  assert.equal(expiredOverAMonth([directoryContract('x', { status: 'expired', endDate: '2026-09-10' })], '2026-10-10'), false)
 })
 
 test('all statuses and all time retain every authorized learner across pages, including unknown join dates', () => {

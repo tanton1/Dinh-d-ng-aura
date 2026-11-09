@@ -16,6 +16,20 @@ test('directory active-week eligibility excludes future, frozen, exhausted and o
   assert.equal(matches([{ ...base, startDate: '2026-11-05' }], { contractStatus: 'active', joinedFrom: '2026-10-01', joinedTo: '2026-10-31' }), false)
 })
 
+test('the plain admin list hides learners expired over a month; search or any filter shows them', () => {
+  const old = [{ ...base, status: 'expired', endDate: '2026-09-10' }]
+  const recent = [{ ...base, status: 'expired', endDate: '2026-10-01' }]
+  assert.equal(matches(old), false)
+  assert.equal(matches(recent), true)
+  assert.equal(matches(old, { query: 'nguyen' }), true)
+  assert.equal(matches(old, { contractStatus: 'expired' }), true)
+  assert.equal(matches(old, { branchId: 'a' }), true)
+  assert.equal(matches(old, { attention: 'stable' }), false, 'attention filter still needs a matching health projection')
+  assert.equal(matches(old, { joinedFrom: '2026-10-01', joinedTo: '2026-10-31' }), true)
+  assert.equal(matches([...old, { ...base, id: 'renewal', status: 'future', startDate: '2026-11-15', endDate: '2027-02-15' }]), true, 'a renewal keeps the learner visible')
+  assert.equal(matches([{ ...base, status: 'cancelled', endDate: '2026-08-01' }]), true, 'cancelled contracts do not count as expired')
+})
+
 test('directory contract, trainer, nutrition and joined-date filters use the same predicate for rows/counts', () => {
   assert.equal(matches([base], { trainerId: 'pt', nutritionPTId: 'coach' }), true)
   assert.equal(matches([base], { trainerId: 'other' }), false)

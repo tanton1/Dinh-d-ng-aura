@@ -34,15 +34,53 @@ function joinDateKey(value?: string) {
   return Number.isNaN(date.getTime()) ? '' : dateKey(date)
 }
 
-/** Filter the complete authorized roster before the UI applies pagination. */
+const TERMINAL_CONTRACT_STATUSES = new Set(['cancelled', 'inactive', 'archived', 'draft'])
+
+/** Same calendar day one month later, clamped to the month's last day (mirrors functions/schedule-entitlement-policy.js). */
+export function monthAfterKey(key: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return ''
+  const date = new Date(`${key}T00:00:00Z`)
+  const day = date.getUTCDate()
+  date.setUTCDate(1)
+  date.setUTCMonth(date.getUTCMonth() + 1)
+  const end = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate()
+  date.setUTCDate(Math.min(day, end))
+  return date.toISOString().slice(0, 10)
+}
+
+/** True when the learner's latest live contract ended more than a month before `todayKey`. */
+export function expiredOverAMonth(contracts: StudentContract[], todayKey: string) {
+  const latestEnd = contracts
+    .filter((contract) => !TERMINAL_CONTRACT_STATUSES.has(String(contract.status || '').toLowerCase()))
+    .map((contract) => String(contract.endDate || '').slice(0, 10))
+    .filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value))
+    .sort()
+    .at(-1)
+  return Boolean(latestEnd && monthAfterKey(latestEnd) < todayKey)
+}
+
+/** No search and every filter at its default: the plain roster. */
+export function isBrowsingDirectory(filters: StudentDirectoryFilters) {
+  return !filters.search.trim() && filters.branchId === 'all' && filters.trainerId === 'all' && filters.nutritionPTId === 'all'
+    && filters.contractStatus === 'all' && !(filters.dateRange && filters.dateRange.start.getTime() !== 0)
+}
+
+/**
+ * Filter the complete authorized roster before the UI applies pagination.
+ * The plain roster hides learners whose last contract ended more than a
+ * month ago; searching or choosing any filter shows them again.
+ */
 export function filterStudentDirectory(sources: DirectorySources, filters: StudentDirectoryFilters, now = new Date()) {
   const search = filters.search.trim().toLowerCase()
   const hasDateFilter = Boolean(filters.dateRange && filters.dateRange.start.getTime() !== 0)
   const fromDate = hasDateFilter ? dateKey(filters.dateRange!.start) : ''
   const toDate = hasDateFilter ? dateKey(filters.dateRange!.end) : ''
+  const browsing = isBrowsingDirectory(filters)
+  const todayKey = dateKey(now)
 
   return sources.students.filter((student) => {
     const contracts = sources.contractsByStudent.get(student.id) || []
+    if (browsing && expiredOverAMonth(contracts, todayKey)) return false
     const latestContract = contracts[0]
     const eligibility = sources.eligibilityByStudent.get(student.id)
 

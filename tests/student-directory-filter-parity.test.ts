@@ -24,6 +24,18 @@ test('canonical admin directory weekly eligibility remains in parity with the le
   }
 })
 
+test('the plain list hides the same long-expired learners in the browser and on the server', () => {
+  const longExpired = [{ ...base, endDate: '2026-09-10', status: 'expired' }] as StudentContract[]
+  const monthEdge = [{ ...base, endDate: '2026-09-30', status: 'expired' }] as StudentContract[]
+  for (const contracts of [...cases, longExpired, monthEdge]) {
+    const eligibility = studentEligibilityForWeek(student, contracts, week, today)
+    const filters: StudentDirectoryFilters = { search: '', branchId: 'all', trainerId: 'all', nutritionPTId: 'all', contractStatus: 'all', dateRange: null }
+    const expected = filterStudentDirectory({ students: [student], contractsByStudent: new Map([['a', contracts]]), eligibilityByStudent: new Map([['a', eligibility]]) }, filters, new Date('2026-10-30T12:00:00+07:00')).length > 0
+    const actual = directoryMatches(student, contracts, directoryWeekEligibility(student, contracts, week, today), null, { query: '', branchId: '', trainerId: '', nutritionPTId: '', attention: '', contractStatus: 'all', joinedFrom: '', joinedTo: '', referenceDate: today, weekId: week })
+    assert.equal(actual, expected, JSON.stringify(contracts))
+  }
+})
+
 test('canonical admin directory status, PT, nutrition, join-date predicates match frontend filters', () => {
   for (const contracts of cases) for (const status of ['all', 'active', 'paused', 'cancelled', 'inactive', 'expired', 'expiring_week', 'expiring_month'] as const) {
     for (const trainerId of ['all', 'pt', 'none']) {
