@@ -13,25 +13,25 @@
     "operational_records"
   ],
   "stats": {
-    "total": 274,
+    "total": 298,
     "byKind": {
-      "dialogue": 37,
+      "dialogue": 41,
       "escalation": 11,
-      "kpi": 25,
-      "objection": 19,
+      "kpi": 28,
+      "objection": 21,
       "policy": 29,
       "price": 10,
       "promotion": 1,
-      "script": 90,
+      "script": 104,
       "skill": 24,
-      "sop": 9,
+      "sop": 10,
       "variable": 13,
       "voice": 6
     },
     "contentMetrics": {
-      "phraseCount": 1049,
-      "situationCount": 504,
-      "variantCount": 237
+      "phraseCount": 1203,
+      "situationCount": 559,
+      "variantCount": 285
     }
   },
   "resources": [
@@ -673,6 +673,105 @@
       }
     },
     {
+      "id": "dialogue__d-nut-plateau",
+      "schemaVersion": 1,
+      "kind": "dialogue",
+      "sourceId": "d-nut-plateau",
+      "code": "dialogue__d-nut-plateau",
+      "title": "“Em ăn đúng mà cân không xuống”",
+      "summary": "Review 2 tuần: khách ghi món 12/14 ngày, cân nặng không đổi, vòng eo giảm 1 cm, khách thất vọng.",
+      "status": "review",
+      "version": "1.0",
+      "revision": 1,
+      "publishedVersionId": null,
+      "ownerRole": "pt",
+      "audiences": [
+        "pt",
+        "cs"
+      ],
+      "branchScope": [
+        "all"
+      ],
+      "tags": [
+        "hội thoại mẫu",
+        "dinh dưỡng",
+        "advanced"
+      ],
+      "relatedSopIds": [
+        "sop10"
+      ],
+      "relatedSkillIds": [
+        "23"
+      ],
+      "contentMetrics": {
+        "phraseCount": 5,
+        "situationCount": 2,
+        "variantCount": 0
+      },
+      "searchText": "dialogue d nut plateau em an dung ma can khong xuong review 2 tuan khach ghi mon 12 14 ngay can nang khong doi vong eo giam 1 cm khach that vong pt hoi thoai mau dinh duong advanced id d nut plateau title em an dung ma can khong xuong sopid sop10 skillid 23 level advanced channel counter situation review 2 tuan khach ghi mon 12 14 ngay can nang khong doi vong eo giam 1 cm khach that vong persona chi trang 36 tuoi 2 con ngu 5 6 tieng dem uong 2 ly ca phe sua moi ngay chua ghi goal giu dong luc tim dung nguyen nhan thay vi cat manh nang luong chot 1 dieu chinh cho 2 tuan toi turns who customer text em an dung nhu chi noi 2 tuan roi ma can y nguyen chac co dia em khong giam duoc who staff text da chi ghi mon 12 14 ngay bua toi da co rau deu do la dieu em thay ro nhat a can chua doi nhung vong eo giam 1 cm nghia la co the dang thay doi dung huong minh xem them vai thu nhe dao nay chi ngu duoc khoang may tieng a tip mo dau bang hanh vi tot chi so phu hoi 1 cau who customer text tam 5 6 tieng thoi con nho hay day dem ca phe sua ngay 2 ly cho tinh who staff text da vay la em hieu roi a thieu ngu lam co the giu nuoc va them ngot con 2 ly ca phe sua khoang 300 kcal ma chua vao nhat ky minh khong cat bot bua an dau a chi chinh 1 dieu doi 1 ly ca phe sua sang ca phe den it sua va ghi do uong vao app 7 ngay toi tip chinh 1 dieu toi da 10 khong nghi ngo khach who customer text vay chung nao can moi xuong who staff text da em khong hua moc duoc a vi moi nguoi khac nhau voi nhip nay 2 tuan toi minh theo doi vong eo va nang luong khi tap can thuong se theo sau em hen chi do lai ngay ngay review nhe tip khong cam ket ket qua hen moc review branches if khach doi giam manh calo cho ra ket qua say da cat manh luc nay de met va mat co can xuong roi len lai a minh chinh nhe 1 dieu truoc sau 2 tuan chua doi thi em xem cung quan ly de dieu chinh tiep if khach muon bo dinh duong chi tap say da em hieu phan an uong de nan hon tap a chi cho em biet dieu gi lam chi met nhat chup mon so lieu hay cam giac bi theo doi minh bo bot phan do giu phan de nhat thoi avoid noi chac chi an len cat qua 10 nang luong vi can chua xuong hua moc can nang crm student 360 review 2 tuan ngu 5 6 tieng ca phe sua 2 ly chua ghi dieu chinh 1 dieu review ke tiep ngay",
+      "sortKey": "dialogue:em an dung ma can khong xuong",
+      "sourceSystem": "sop-center-authoring",
+      "sourceReviewRequired": true,
+      "updatedAt": "2026-11-09T00:00:00.000Z",
+      "updatedBy": "authoring:nutrition-care-2026-11",
+      "payload": {
+        "id": "d-nut-plateau",
+        "title": "“Em ăn đúng mà cân không xuống”",
+        "sopId": "sop10",
+        "skillId": 23,
+        "level": "advanced",
+        "channel": "counter",
+        "situation": "Review 2 tuần: khách ghi món 12/14 ngày, cân nặng không đổi, vòng eo giảm 1 cm, khách thất vọng.",
+        "persona": "Chị Trang, 36 tuổi, 2 con, ngủ 5–6 tiếng/đêm, uống 2 ly cà phê sữa mỗi ngày (chưa ghi).",
+        "goal": "Giữ động lực, tìm đúng nguyên nhân thay vì cắt mạnh năng lượng, chốt 1 điều chỉnh cho 2 tuần tới.",
+        "turns": [
+          {
+            "who": "customer",
+            "text": "Em ăn đúng như chị nói 2 tuần rồi mà cân y nguyên. Chắc cơ địa em không giảm được."
+          },
+          {
+            "who": "staff",
+            "text": "Dạ chị ghi món 12/14 ngày, bữa tối đã có rau đều, đó là điều em thấy rõ nhất ạ. Cân chưa đổi nhưng vòng eo giảm 1 cm, nghĩa là cơ thể đang thay đổi đúng hướng. Mình xem thêm vài thứ nhé: dạo này chị ngủ được khoảng mấy tiếng ạ?",
+            "tip": "Mở đầu bằng hành vi tốt; chỉ số phụ; hỏi 1 câu."
+          },
+          {
+            "who": "customer",
+            "text": "Tầm 5–6 tiếng thôi, con nhỏ hay dậy đêm. Cà phê sữa ngày 2 ly cho tỉnh."
+          },
+          {
+            "who": "staff",
+            "text": "Dạ vậy là em hiểu rồi ạ. Thiếu ngủ làm cơ thể giữ nước và thèm ngọt, còn 2 ly cà phê sữa khoảng 300 kcal mà chưa vào nhật ký. Mình không cắt bớt bữa ăn đâu ạ, chỉ chỉnh 1 điều: đổi 1 ly cà phê sữa sang cà phê đen ít sữa, và ghi đồ uống vào app 7 ngày tới.",
+            "tip": "Chỉnh 1 điều, tối đa 10%; không nghi ngờ khách."
+          },
+          {
+            "who": "customer",
+            "text": "Vậy chừng nào cân mới xuống?"
+          },
+          {
+            "who": "staff",
+            "text": "Dạ em không hứa mốc được ạ vì mỗi người khác nhau. Với nhịp này, 2 tuần tới mình theo dõi vòng eo và năng lượng khi tập, cân thường sẽ theo sau. Em hẹn chị đo lại ngày [ngày review] nhé.",
+            "tip": "Không cam kết kết quả; hẹn mốc review."
+          }
+        ],
+        "branches": [
+          {
+            "if": "Khách đòi giảm mạnh calo “cho ra kết quả”",
+            "say": "Dạ cắt mạnh lúc này dễ mệt và mất cơ, cân xuống rồi lên lại ạ. Mình chỉnh nhẹ 1 điều trước, sau 2 tuần chưa đổi thì em xem cùng quản lý để điều chỉnh tiếp."
+          },
+          {
+            "if": "Khách muốn bỏ dinh dưỡng, chỉ tập",
+            "say": "Dạ em hiểu phần ăn uống dễ nản hơn tập ạ. Chị cho em biết điều gì làm chị mệt nhất: chụp món, số liệu, hay cảm giác bị theo dõi? Mình bỏ bớt phần đó, giữ phần dễ nhất thôi."
+          }
+        ],
+        "avoid": [
+          "Nói “chắc chị ăn lén”.",
+          "Cắt quá 10% năng lượng vì cân chưa xuống.",
+          "Hứa mốc cân nặng."
+        ],
+        "crm": "Student 360 · review 2 tuần: ngủ 5–6 tiếng, cà phê sữa 2 ly chưa ghi; điều chỉnh 1 điều; review kế tiếp [ngày]"
+      }
+    },
+    {
       "id": "dialogue__d-phone-hotlead",
       "schemaVersion": 1,
       "kind": "dialogue",
@@ -771,6 +870,105 @@
           "Gọi lại nhiều lần trong ngày khi khách không nghe."
         ],
         "crm": "Ghi kênh: phone · kết quả cuộc gọi · lịch hẹn."
+      }
+    },
+    {
+      "id": "dialogue__d-nut-supplement",
+      "schemaVersion": 1,
+      "kind": "dialogue",
+      "sourceId": "d-nut-supplement",
+      "code": "dialogue__d-nut-supplement",
+      "title": "Hỏi về whey, viên đốt mỡ và detox",
+      "summary": "Khách hỏi tại quầy: “Em uống whey với viên đốt mỡ được không, bạn em uống giảm 4 kg/tháng”.",
+      "status": "review",
+      "version": "1.0",
+      "revision": 1,
+      "publishedVersionId": null,
+      "ownerRole": "pt",
+      "audiences": [
+        "pt",
+        "cs"
+      ],
+      "branchScope": [
+        "all"
+      ],
+      "tags": [
+        "hội thoại mẫu",
+        "dinh dưỡng",
+        "advanced"
+      ],
+      "relatedSopIds": [
+        "sop10"
+      ],
+      "relatedSkillIds": [
+        "11"
+      ],
+      "contentMetrics": {
+        "phraseCount": 5,
+        "situationCount": 2,
+        "variantCount": 0
+      },
+      "searchText": "dialogue d nut supplement hoi ve whey vien dot mo va detox khach hoi tai quay em uong whey voi vien dot mo duoc khong ban em uong giam 4 kg thang pt hoi thoai mau dinh duong advanced id d nut supplement title hoi ve whey vien dot mo va detox sopid sop10 skillid 11 level advanced channel counter situation khach hoi tai quay em uong whey voi vien dot mo duoc khong ban em uong giam 4 kg thang persona chi linh 27 tuoi muc tieu san chac khong co benh nen khai bao goal tra loi dung pham vi whey chi la thuc pham bo sung dam khong bat buoc khong tu van vien dot mo chuyen bac si neu khach muon dung khong khuyen khich turns who customer text em uong whey voi vien dot mo duoc khong chi ban em uong giam 4 kg mot thang who staff text da hai thu nay khac nhau a whey chi la nguon dam tien loi chi an du dam tu bua chinh thi khong bat buoc con vien dot mo thi em khong tu van duoc va ben em khong khuyen khich vi rui ro cho suc khoe a tip tach 2 cau hoi noi ro pham vi who customer text vay whey thi uong loai nao bao nhieu who staff text da em khong goi y nhan hay lieu a neu chi muon dung chi chon whey dam thuong khong pha them chat dot mo va chi bu khi bua an thieu dam truoc mat minh xem nhat ky 1 tuan xem chi thieu dam that khong da nhe tip khong khuyen nghi san pham hay lieu quay ve du lieu nhat ky who customer text con detox 3 ngay nuoc ep thi sao thay nhieu nguoi lam who staff text da detox nhieu ngay chi uong nuoc ep thi em khong dong hanh duoc vi khong an toan a de ha duong huyet khi tap neu chi muon nhe bung minh lam 3 ngay an nhe co du dam va rau em gui goi y nhe tip dua phuong an thay the an toan branches if khach noi da mua vien dot mo roi say da em ton trong lua chon cua chi nhung em xin phep ghi chu va bao quan ly de pt dieu chinh cuong do tap cho an toan a neu chi thay tim dap nhanh hay mat ngu chi dung va hoi bac si giup em nhe if khach hoi aura co ban whey khong say da ben em khong ban thuc pham bo sung a em chi ho tro chi an du dam tu bua chinh va eat clean neu chi can avoid goi y nhan hieu lieu luong noi vien dot mo cung duoc neu uong it che ban cua khach crm student 360 hoi ve thuc pham bo sung co an toan neu da dung vien dot mo bao quan ly",
+      "sortKey": "dialogue:hoi ve whey vien dot mo va detox",
+      "sourceSystem": "sop-center-authoring",
+      "sourceReviewRequired": true,
+      "updatedAt": "2026-11-09T00:00:00.000Z",
+      "updatedBy": "authoring:nutrition-care-2026-11",
+      "payload": {
+        "id": "d-nut-supplement",
+        "title": "Hỏi về whey, viên đốt mỡ và detox",
+        "sopId": "sop10",
+        "skillId": 11,
+        "level": "advanced",
+        "channel": "counter",
+        "situation": "Khách hỏi tại quầy: “Em uống whey với viên đốt mỡ được không, bạn em uống giảm 4 kg/tháng”.",
+        "persona": "Chị Linh, 27 tuổi, mục tiêu săn chắc, không có bệnh nền khai báo.",
+        "goal": "Trả lời đúng phạm vi: whey chỉ là thực phẩm bổ sung đạm, không bắt buộc; không tư vấn viên đốt mỡ; chuyển bác sĩ nếu khách muốn dùng; không khuyến khích.",
+        "turns": [
+          {
+            "who": "customer",
+            "text": "Em uống whey với viên đốt mỡ được không chị? Bạn em uống giảm 4 kg một tháng."
+          },
+          {
+            "who": "staff",
+            "text": "Dạ hai thứ này khác nhau ạ. Whey chỉ là nguồn đạm tiện lợi, chị ăn đủ đạm từ bữa chính thì không bắt buộc. Còn viên đốt mỡ thì em không tư vấn được và bên em không khuyến khích vì rủi ro cho sức khỏe ạ.",
+            "tip": "Tách 2 câu hỏi; nói rõ phạm vi."
+          },
+          {
+            "who": "customer",
+            "text": "Vậy whey thì uống loại nào, bao nhiêu?"
+          },
+          {
+            "who": "staff",
+            "text": "Dạ em không gợi ý nhãn hay liều ạ. Nếu chị muốn dùng, chị chọn whey đạm thường, không pha thêm chất đốt mỡ, và chỉ bù khi bữa ăn thiếu đạm. Trước mắt mình xem nhật ký 1 tuần xem chị thiếu đạm thật không đã nhé.",
+            "tip": "Không khuyến nghị sản phẩm hay liều; quay về dữ liệu nhật ký."
+          },
+          {
+            "who": "customer",
+            "text": "Còn detox 3 ngày nước ép thì sao? Thấy nhiều người làm."
+          },
+          {
+            "who": "staff",
+            "text": "Dạ detox nhiều ngày chỉ uống nước ép thì em không đồng hành được vì không an toàn ạ, dễ hạ đường huyết khi tập. Nếu chị muốn nhẹ bụng, mình làm 3 ngày ăn nhẹ có đủ đạm và rau, em gửi gợi ý nhé.",
+            "tip": "Đưa phương án thay thế an toàn."
+          }
+        ],
+        "branches": [
+          {
+            "if": "Khách nói đã mua viên đốt mỡ rồi",
+            "say": "Dạ em tôn trọng lựa chọn của chị, nhưng em xin phép ghi chú và báo quản lý để PT điều chỉnh cường độ tập cho an toàn ạ. Nếu chị thấy tim đập nhanh hay mất ngủ, chị dừng và hỏi bác sĩ giúp em nhé."
+          },
+          {
+            "if": "Khách hỏi Aura có bán whey không",
+            "say": "Dạ bên em không bán thực phẩm bổ sung ạ. Em chỉ hỗ trợ chị ăn đủ đạm từ bữa chính và Eat Clean nếu chị cần."
+          }
+        ],
+        "avoid": [
+          "Gợi ý nhãn hiệu, liều lượng.",
+          "Nói viên đốt mỡ “cũng được nếu uống ít”.",
+          "Chê bạn của khách."
+        ],
+        "crm": "Student 360 · hỏi về thực phẩm bổ sung; cờ An toàn nếu đã dùng viên đốt mỡ, báo quản lý"
       }
     },
     {
@@ -940,6 +1138,105 @@
           "Để hội viên tự tập tiếp khi chưa có ý kiến bác sĩ."
         ],
         "crm": "Cờ An toàn: mang thai · chờ xác nhận y tế."
+      }
+    },
+    {
+      "id": "dialogue__d-nut-skip-meals",
+      "schemaVersion": 1,
+      "kind": "dialogue",
+      "sourceId": "d-nut-skip-meals",
+      "code": "dialogue__d-nut-skip-meals",
+      "title": "Hội viên bỏ bữa sáng và trưa để giảm nhanh",
+      "summary": "Sau 1 tuần, khách ghi chỉ 1 bữa tối mỗi ngày, năng lượng khoảng 700 kcal, nhắn: “Em nhịn sáng với trưa cho nhanh giảm chị ơi”.",
+      "status": "review",
+      "version": "1.0",
+      "revision": 1,
+      "publishedVersionId": null,
+      "ownerRole": "pt",
+      "audiences": [
+        "pt",
+        "cs"
+      ],
+      "branchScope": [
+        "all"
+      ],
+      "tags": [
+        "hội thoại mẫu",
+        "dinh dưỡng",
+        "basic"
+      ],
+      "relatedSopIds": [
+        "sop10"
+      ],
+      "relatedSkillIds": [
+        "20"
+      ],
+      "contentMetrics": {
+        "phraseCount": 5,
+        "situationCount": 2,
+        "variantCount": 0
+      },
+      "searchText": "dialogue d nut skip meals hoi vien bo bua sang va trua de giam nhanh sau 1 tuan khach ghi chi 1 bua toi moi ngay nang luong khoang 700 kcal nhan em nhin sang voi trua cho nhanh giam chi oi pt hoi thoai mau dinh duong basic id d nut skip meals title hoi vien bo bua sang va trua de giam nhanh sopid sop10 skillid 20 level basic channel zalo situation sau 1 tuan khach ghi chi 1 bua toi moi ngay nang luong khoang 700 kcal nhan em nhin sang voi trua cho nhanh giam chi oi persona chi hanh 29 tuoi nhan vien van phong muc tieu giam 6 kg truoc dam cuoi em gai 2 thang nua goal dua khach ve du bua ma khong lam khach thay bi mang nang nang luong ve muc an toan bao quan ly vi da co hoa mat turns who customer text em nhin sang voi trua cho nhanh giam chi oi toi an 1 bua thoi tuan nay xuong 1 5 kg roi ne who staff text da em cam on chi da ke that voi em a em doc nhat ky thay moi ngay chi chi khoang 700 kcal thap hon muc an toan kha nhieu may hom nay chi tap co thay met hay chong mat khong a tip khong khen xuong 1 5 kg hoi ve cam giac truoc who customer text co hoi hoa mat buoi chieu nhung em chiu duoc sap dam cuoi em gai roi who staff text da em hieu chi muon dep dung ngay a nhung nhin vay phan giam chu yeu la nuoc va co qua dam cuoi de len lai va tap cung khong ra suc minh doi cach 3 bua gon moi bua co dam va rau van giam deu 0 5 1 kg moi tuan den ngay cuoi chi vua gon vua khoe tip neu ly do ngan dua phuong an thay the co so cu the who customer text vay an sao cho nhanh ma khong met who staff text da em gui chi khung 3 bua don gian sang 2 trung va trai cay trua com 1 chen voi ca hoac ga va rau toi dam va rau khong com neu chi muon nhe chi thu 3 ngay roi em xem nhat ky va chinh tiep nhe hom nay chi an trua giup em nha tip ghi co an toan vao student 360 bao quan ly trong ngay vi da co hoa mat branches if khach van muon nhin vi sap den ngay say da em ton trong quyet dinh cua chi nhung voi muc an nay em khong the dong hanh phan tap nang vi khong an toan a em xin phep bao quan ly de minh cung xem cach phu hop hon cho chi nhe if khach hoi co thuoc gi uong cho nhanh say da em khong tu van thuoc duoc va ben em khong khuyen khich a chi muon dung gi thi hoi bac si truoc giup em con an uong thuong ngay em lo voi chi avoid khen ket qua giam nhanh noi nhin vay hong nguoi hoac doa gui thuc don 1 000 kcal de chieu y khach crm co an toan nang luong duoi nguong 3 ngay bao quan ly trong ngay",
+      "sortKey": "dialogue:hoi vien bo bua sang va trua de giam nhanh",
+      "sourceSystem": "sop-center-authoring",
+      "sourceReviewRequired": true,
+      "updatedAt": "2026-11-09T00:00:00.000Z",
+      "updatedBy": "authoring:nutrition-care-2026-11",
+      "payload": {
+        "id": "d-nut-skip-meals",
+        "title": "Hội viên bỏ bữa sáng và trưa để giảm nhanh",
+        "sopId": "sop10",
+        "skillId": 20,
+        "level": "basic",
+        "channel": "zalo",
+        "situation": "Sau 1 tuần, khách ghi chỉ 1 bữa tối mỗi ngày, năng lượng khoảng 700 kcal, nhắn: “Em nhịn sáng với trưa cho nhanh giảm chị ơi”.",
+        "persona": "Chị Hạnh, 29 tuổi, nhân viên văn phòng, mục tiêu giảm 6 kg trước đám cưới em gái 2 tháng nữa.",
+        "goal": "Đưa khách về đủ bữa mà không làm khách thấy bị mắng; nâng năng lượng về mức an toàn; báo quản lý vì đã có hoa mắt.",
+        "turns": [
+          {
+            "who": "customer",
+            "text": "Em nhịn sáng với trưa cho nhanh giảm chị ơi, tối ăn 1 bữa thôi. Tuần này xuống 1,5 kg rồi nè."
+          },
+          {
+            "who": "staff",
+            "text": "Dạ em cảm ơn chị đã kể thật với em ạ. Em đọc nhật ký thấy mỗi ngày chị chỉ khoảng 700 kcal, thấp hơn mức an toàn khá nhiều. Mấy hôm nay chị tập có thấy mệt hay chóng mặt không ạ?",
+            "tip": "Không khen “xuống 1,5 kg”. Hỏi về cảm giác trước."
+          },
+          {
+            "who": "customer",
+            "text": "Có hơi hoa mắt buổi chiều, nhưng em chịu được. Sắp đám cưới em gái rồi."
+          },
+          {
+            "who": "staff",
+            "text": "Dạ em hiểu chị muốn đẹp đúng ngày ạ. Nhưng nhịn vậy phần giảm chủ yếu là nước và cơ, qua đám cưới dễ lên lại và tập cũng không ra sức. Mình đổi cách: 3 bữa gọn, mỗi bữa có đạm và rau, vẫn giảm đều 0,5–1 kg mỗi tuần, đến ngày cưới chị vừa gọn vừa khỏe.",
+            "tip": "Nêu lý do ngắn, đưa phương án thay thế có số cụ thể."
+          },
+          {
+            "who": "customer",
+            "text": "Vậy ăn sao cho nhanh mà không mệt?"
+          },
+          {
+            "who": "staff",
+            "text": "Dạ em gửi chị khung 3 bữa đơn giản: sáng 2 trứng và trái cây, trưa cơm 1 chén với cá hoặc gà và rau, tối đạm và rau không cơm nếu chị muốn nhẹ. Chị thử 3 ngày rồi em xem nhật ký và chỉnh tiếp nhé. Hôm nay chị ăn trưa giúp em nha.",
+            "tip": "Ghi cờ An toàn vào Student 360; báo quản lý trong ngày vì đã có hoa mắt."
+          }
+        ],
+        "branches": [
+          {
+            "if": "Khách vẫn muốn nhịn vì “sắp đến ngày”",
+            "say": "Dạ em tôn trọng quyết định của chị, nhưng với mức ăn này em không thể đồng hành phần tập nặng vì không an toàn ạ. Em xin phép báo quản lý để mình cùng xem cách phù hợp hơn cho chị nhé."
+          },
+          {
+            "if": "Khách hỏi có thuốc gì uống cho nhanh",
+            "say": "Dạ em không tư vấn thuốc được và bên em không khuyến khích ạ. Chị muốn dùng gì thì hỏi bác sĩ trước giúp em, còn ăn uống thường ngày em lo với chị."
+          }
+        ],
+        "avoid": [
+          "Khen kết quả giảm nhanh.",
+          "Nói “nhịn vậy hỏng người” hoặc dọa.",
+          "Gửi thực đơn 1.000 kcal để chiều ý khách."
+        ],
+        "crm": "Cờ An toàn · năng lượng dưới ngưỡng 3 ngày; báo quản lý trong ngày"
       }
     },
     {
@@ -3248,6 +3545,105 @@
       }
     },
     {
+      "id": "dialogue__d-nut-party",
+      "schemaVersion": 1,
+      "kind": "dialogue",
+      "sourceId": "d-nut-party",
+      "code": "dialogue__d-nut-party",
+      "title": "Tiệc cuối tuần rồi muốn bỏ cuộc",
+      "summary": "Thứ Hai, khách nhắn sau 2 ngày tiệc: “Em ăn phá hết rồi, công cốc, chắc em bỏ luôn”.",
+      "status": "review",
+      "version": "1.0",
+      "revision": 1,
+      "publishedVersionId": null,
+      "ownerRole": "pt",
+      "audiences": [
+        "pt",
+        "cs"
+      ],
+      "branchScope": [
+        "all"
+      ],
+      "tags": [
+        "hội thoại mẫu",
+        "dinh dưỡng",
+        "basic"
+      ],
+      "relatedSopIds": [
+        "sop10"
+      ],
+      "relatedSkillIds": [
+        "21"
+      ],
+      "contentMetrics": {
+        "phraseCount": 5,
+        "situationCount": 2,
+        "variantCount": 0
+      },
+      "searchText": "dialogue d nut party tiec cuoi tuan roi muon bo cuoc thu hai khach nhan sau 2 ngay tiec em an pha het roi cong coc chac em bo luon pt hoi thoai mau dinh duong basic id d nut party title tiec cuoi tuan roi muon bo cuoc sopid sop10 skillid 21 level basic channel zalo situation thu hai khach nhan sau 2 ngay tiec em an pha het roi cong coc chac em bo luon persona chi vy 31 tuoi tuan thu 3 cua khoa truoc do ghi mon rat deu goal binh thuong hoa bua tu do keo khach ve nhip ngay bua ke tiep khong nhin bu turns who customer text em an pha ca cuoi tuan roi chi oi bia voi lau cong coc 2 tuan chac em bo luon qua who staff text da em khong nghi la cong coc dau a 2 tuan qua chi ghi mon 13 14 ngay bua toi co rau deu hai ngay tiec khong xoa duoc dieu do cuoi tuan co vui khong a tip khong noi khong sao dau suong nhac bang chung cu the who customer text vui thi vui ma gio thay toi loi sang nay em nhin luon cho nhe who staff text da minh khong can nhin bu dau a nhin xong de an don toi chi an trua binh thuong voi rau va dam uong du nuoc toi nay nhe hon chut la co the tu can bang chi chup bua trua gui em nhe tip hanh dong nho ngay bua ke tiep who customer text da vay em an trua ma tuan nao cung co tiec thi sao chi who staff text da minh len ke hoach luon a moi tuan 1 bua tu do chi bao em truoc an rau va dam truoc roi toi mon khac bia thi 1 2 ly vay chi van vui ma van dung huong tip bua tu do co ke hoach 1 emoji o tin vui branches if khach van noi muon dung say da em ton trong a chi cho em 1 tuan nua minh giam do kho chi chup 1 bua chinh moi ngay neu van thay nang em ban voi pt de doi cach phu hop voi chi hon if khach hoi tap bu gap doi duoc khong say da khong can tap bu gap doi dau a de chan thuong chi giu lich tap binh thuong co the tu dieu chinh trong 2 3 ngay avoid dung lai tu pha toi loi voi khach khuyen nhin hoac tap bu nhan kieu em da noi roi ma crm student 360 gian doan 2 ngay do tiec da quay lai nhip ke hoach 1 bua tu do tuan",
+      "sortKey": "dialogue:tiec cuoi tuan roi muon bo cuoc",
+      "sourceSystem": "sop-center-authoring",
+      "sourceReviewRequired": true,
+      "updatedAt": "2026-11-09T00:00:00.000Z",
+      "updatedBy": "authoring:nutrition-care-2026-11",
+      "payload": {
+        "id": "d-nut-party",
+        "title": "Tiệc cuối tuần rồi muốn bỏ cuộc",
+        "sopId": "sop10",
+        "skillId": 21,
+        "level": "basic",
+        "channel": "zalo",
+        "situation": "Thứ Hai, khách nhắn sau 2 ngày tiệc: “Em ăn phá hết rồi, công cốc, chắc em bỏ luôn”.",
+        "persona": "Chị Vy, 31 tuổi, tuần thứ 3 của khóa, trước đó ghi món rất đều.",
+        "goal": "Bình thường hóa bữa tự do, kéo khách về nhịp ngay bữa kế tiếp, không nhịn bù.",
+        "turns": [
+          {
+            "who": "customer",
+            "text": "Em ăn phá cả cuối tuần rồi chị ơi, bia với lẩu. Công cốc 2 tuần, chắc em bỏ luôn quá."
+          },
+          {
+            "who": "staff",
+            "text": "Dạ em không nghĩ là công cốc đâu ạ. 2 tuần qua chị ghi món 13/14 ngày, bữa tối có rau đều, hai ngày tiệc không xóa được điều đó. Cuối tuần có vui không ạ?",
+            "tip": "Không nói “không sao đâu” suông; nhắc bằng chứng cụ thể."
+          },
+          {
+            "who": "customer",
+            "text": "Vui thì vui mà giờ thấy tội lỗi, sáng nay em nhịn luôn cho nhẹ."
+          },
+          {
+            "who": "staff",
+            "text": "Dạ mình không cần nhịn bù đâu ạ, nhịn xong dễ ăn dồn tối. Chị ăn trưa bình thường với rau và đạm, uống đủ nước, tối nay nhẹ hơn chút là cơ thể tự cân bằng. Chị chụp bữa trưa gửi em nhé.",
+            "tip": "Hành động nhỏ, ngay bữa kế tiếp."
+          },
+          {
+            "who": "customer",
+            "text": "Dạ, vậy em ăn trưa. Mà tuần nào cũng có tiệc thì sao chị?"
+          },
+          {
+            "who": "staff",
+            "text": "Dạ mình lên kế hoạch luôn ạ: mỗi tuần 1 bữa tự do, chị báo em trước, ăn rau và đạm trước rồi tới món khác, bia thì 1–2 ly. Vậy chị vẫn vui mà vẫn đúng hướng 🩷",
+            "tip": "Bữa tự do có kế hoạch; 1 emoji ở tin vui."
+          }
+        ],
+        "branches": [
+          {
+            "if": "Khách vẫn nói muốn dừng",
+            "say": "Dạ em tôn trọng ạ. Chị cho em 1 tuần nữa, mình giảm độ khó: chỉ chụp 1 bữa chính mỗi ngày. Nếu vẫn thấy nặng, em bàn với PT để đổi cách phù hợp với chị hơn."
+          },
+          {
+            "if": "Khách hỏi tập bù gấp đôi được không",
+            "say": "Dạ không cần tập bù gấp đôi đâu ạ, dễ chấn thương. Chị giữ lịch tập bình thường, cơ thể tự điều chỉnh trong 2–3 ngày."
+          }
+        ],
+        "avoid": [
+          "Dùng lại từ “phá”, “tội lỗi” với khách.",
+          "Khuyên nhịn hoặc tập bù.",
+          "Nhắn kiểu “em đã nói rồi mà”."
+        ],
+        "crm": "Student 360 · gián đoạn 2 ngày do tiệc, đã quay lại nhịp; kế hoạch 1 bữa tự do/tuần"
+      }
+    },
+    {
       "id": "dialogue__d-fb-profile-booking",
       "schemaVersion": 1,
       "kind": "dialogue",
@@ -4131,6 +4527,102 @@
       }
     },
     {
+      "id": "kpi__26-Duyệt món trong 24 giờ",
+      "schemaVersion": 1,
+      "kind": "kpi",
+      "sourceId": "26-Duyệt món trong 24 giờ",
+      "code": "kpi__26-Duy-t-m-n-trong-24-gi-",
+      "title": "Duyệt món trong 24 giờ",
+      "summary": "Bữa được duyệt trong 24 giờ kể từ khi ghi ÷ tổng bữa đã ghi",
+      "status": "review",
+      "version": "1.0",
+      "revision": 1,
+      "publishedVersionId": null,
+      "ownerRole": "admin",
+      "audiences": [
+        "PT + Coach online"
+      ],
+      "branchScope": [
+        "all"
+      ],
+      "tags": [
+        "kpi",
+        "tham chiếu cần duyệt",
+        "dinh dưỡng"
+      ],
+      "relatedSopIds": [
+        "sop10"
+      ],
+      "relatedSkillIds": [],
+      "contentMetrics": {
+        "phraseCount": 0,
+        "situationCount": 0,
+        "variantCount": 0
+      },
+      "searchText": "kpi 26 duy t m n trong 24 gi duyet mon trong 24 gio bua duoc duyet trong 24 gio ke tu khi ghi tong bua da ghi admin kpi tham chieu can duyet dinh duong name duyet mon trong 24 gio formula bua duoc duyet trong 24 gio ke tu khi ghi tong bua da ghi target 90 chot sau baseline tuan 4 owner pt coach online freq hang tuan source duyet mon aura",
+      "sortKey": "kpi:duyet mon trong 24 gio",
+      "sourceSystem": "sop-center-authoring",
+      "sourceReviewRequired": true,
+      "updatedAt": "2026-11-09T00:00:00.000Z",
+      "updatedBy": "authoring:nutrition-care-2026-11",
+      "payload": {
+        "name": "Duyệt món trong 24 giờ",
+        "formula": "Bữa được duyệt trong 24 giờ kể từ khi ghi ÷ tổng bữa đã ghi",
+        "target": "≥ 90% · chốt sau baseline tuần 4",
+        "owner": "PT + Coach online",
+        "freq": "Hằng tuần",
+        "source": "Duyệt món (Aura)"
+      }
+    },
+    {
+      "id": "kpi__27-Ghi nhật ký ăn đủ 5 ngày/tuần",
+      "schemaVersion": 1,
+      "kind": "kpi",
+      "sourceId": "27-Ghi nhật ký ăn đủ 5 ngày/tuần",
+      "code": "kpi__27-Ghi-nh-t-k-n-5-ng-y-tu-n",
+      "title": "Ghi nhật ký ăn đủ 5 ngày/tuần",
+      "summary": "Hội viên có ≥ 5 ngày ghi món trong tuần ÷ hội viên đang có mục tiêu dinh dưỡng",
+      "status": "review",
+      "version": "1.0",
+      "revision": 1,
+      "publishedVersionId": null,
+      "ownerRole": "admin",
+      "audiences": [
+        "CSKH + PT"
+      ],
+      "branchScope": [
+        "all"
+      ],
+      "tags": [
+        "kpi",
+        "tham chiếu cần duyệt",
+        "dinh dưỡng"
+      ],
+      "relatedSopIds": [
+        "sop10"
+      ],
+      "relatedSkillIds": [],
+      "contentMetrics": {
+        "phraseCount": 0,
+        "situationCount": 0,
+        "variantCount": 0
+      },
+      "searchText": "kpi 27 ghi nh t k n 5 ng y tu n ghi nhat ky an du 5 ngay tuan hoi vien co 5 ngay ghi mon trong tuan hoi vien dang co muc tieu dinh duong admin kpi tham chieu can duyet dinh duong name ghi nhat ky an du 5 ngay tuan formula hoi vien co 5 ngay ghi mon trong tuan hoi vien dang co muc tieu dinh duong target 60 chot sau baseline tuan 4 owner cskh pt freq hang tuan source nhat ky dinh duong aura",
+      "sortKey": "kpi:ghi nhat ky an du 5 ngay tuan",
+      "sourceSystem": "sop-center-authoring",
+      "sourceReviewRequired": true,
+      "updatedAt": "2026-11-09T00:00:00.000Z",
+      "updatedBy": "authoring:nutrition-care-2026-11",
+      "payload": {
+        "name": "Ghi nhật ký ăn đủ 5 ngày/tuần",
+        "formula": "Hội viên có ≥ 5 ngày ghi món trong tuần ÷ hội viên đang có mục tiêu dinh dưỡng",
+        "target": "≥ 60% · chốt sau baseline tuần 4",
+        "owner": "CSKH + PT",
+        "freq": "Hằng tuần",
+        "source": "Nhật ký dinh dưỡng (Aura)"
+      }
+    },
+    {
       "id": "kpi__3-Inbox-l-ch-x-c-nh-n",
       "schemaVersion": 1,
       "kind": "kpi",
@@ -4505,6 +4997,54 @@
         "owner": "Sales / CS",
         "freq": "Hằng tháng",
         "source": "Renewal Center"
+      }
+    },
+    {
+      "id": "kpi__28-Review dinh dưỡng đúng mốc",
+      "schemaVersion": 1,
+      "kind": "kpi",
+      "sourceId": "28-Review dinh dưỡng đúng mốc",
+      "code": "kpi__28-Review-dinh-d-ng-ng-m-c",
+      "title": "Review dinh dưỡng đúng mốc",
+      "summary": "Review ngày 14 / 28 thực hiện trong ±3 ngày ÷ review đến hạn",
+      "status": "review",
+      "version": "1.0",
+      "revision": 1,
+      "publishedVersionId": null,
+      "ownerRole": "admin",
+      "audiences": [
+        "PT chính"
+      ],
+      "branchScope": [
+        "all"
+      ],
+      "tags": [
+        "kpi",
+        "tham chiếu cần duyệt",
+        "dinh dưỡng"
+      ],
+      "relatedSopIds": [
+        "sop10"
+      ],
+      "relatedSkillIds": [],
+      "contentMetrics": {
+        "phraseCount": 0,
+        "situationCount": 0,
+        "variantCount": 0
+      },
+      "searchText": "kpi 28 review dinh d ng ng m c review dinh duong dung moc review ngay 14 28 thuc hien trong 3 ngay review den han admin kpi tham chieu can duyet dinh duong name review dinh duong dung moc formula review ngay 14 28 thuc hien trong 3 ngay review den han target 85 owner pt chinh freq hang thang source student 360 action center",
+      "sortKey": "kpi:review dinh duong dung moc",
+      "sourceSystem": "sop-center-authoring",
+      "sourceReviewRequired": true,
+      "updatedAt": "2026-11-09T00:00:00.000Z",
+      "updatedBy": "authoring:nutrition-care-2026-11",
+      "payload": {
+        "name": "Review dinh dưỡng đúng mốc",
+        "formula": "Review ngày 14 / 28 thực hiện trong ±3 ngày ÷ review đến hạn",
+        "target": "≥ 85%",
+        "owner": "PT chính",
+        "freq": "Hằng tháng",
+        "source": "Student 360 / Action Center"
       }
     },
     {
@@ -5315,6 +5855,87 @@
       }
     },
     {
+      "id": "objection__nutrition-no-diet",
+      "schemaVersion": 1,
+      "kind": "objection",
+      "sourceId": "nutrition-no-diet",
+      "code": "objection__nutrition-no-diet",
+      "title": "Xử lý: “Chị không muốn ăn kiêng khổ sở”",
+      "summary": "Khách từng ăn kiêng khắt khe và thất bại. · Khách sợ mất niềm vui ăn uống. · Khách hiểu dinh dưỡng là cấm đoán.",
+      "status": "review",
+      "version": "1.0",
+      "revision": 1,
+      "publishedVersionId": null,
+      "ownerRole": "pt",
+      "audiences": [
+        "pt",
+        "cs"
+      ],
+      "branchScope": [
+        "all"
+      ],
+      "tags": [
+        "xử lý băn khoăn",
+        "dinh dưỡng"
+      ],
+      "relatedSopIds": [
+        "sop10"
+      ],
+      "relatedSkillIds": [
+        "15"
+      ],
+      "contentMetrics": {
+        "phraseCount": 3,
+        "situationCount": 1,
+        "variantCount": 3
+      },
+      "searchText": "objection nutrition no diet xu ly chi khong muon an kieng kho so khach tung an kieng khat khe va that bai khach so mat niem vui an uong khach hieu dinh duong la cam doan pt xu ly ban khoan dinh duong id nutrition no diet say chi khong muon an kieng kho so crm nutrition no diet skillid 15 variants an kieng chi khong theo noi dau chi thich an ngon khong nhin duoc em dung bat chi bo com nha meaning khach tung an kieng khat khe va that bai khach so mat niem vui an uong khach hieu dinh duong la cam doan clarify da em cung khong muon chi an kieng kho so dau a truoc day chi tung thu cach nao ma thay kho theo nhat a responses when khach so phai bo com bo mon yeu thich text da o aura minh khong bo mon nao ca a com van an chi chinh luong mon yeu thich giu 1 2 lan moi tuan muc tieu la chi an ngon ma van dung huong when khach tung an kieng that bai text da an kieng khat khe kho theo la binh thuong a khong phai loi cua chi lan nay minh doi 1 thoi quen moi 2 tuan thoi vi du them rau bua toi nen khong co cam giac kieng when khach hoi vay co giam duoc khong text da em khong hua con so a nhung cach doi thoi quen tung chut thuong giu ket qua lau hon an kieng gap minh thu 2 tuan roi xem chi so cung nhau nhe next chot 1 thoi quen dau tien do khach tu chon ghi vao student 360 avoid dung tu kieng cam phai bo gui thuc don mau khat khe hua ket qua de thuyet phuc",
+      "sortKey": "objection:xu ly chi khong muon an kieng kho so",
+      "sourceSystem": "sop-center-authoring",
+      "sourceReviewRequired": true,
+      "updatedAt": "2026-11-09T00:00:00.000Z",
+      "updatedBy": "authoring:nutrition-care-2026-11",
+      "payload": {
+        "id": "nutrition-no-diet",
+        "say": "Chị không muốn ăn kiêng khổ sở",
+        "crm": "NUTRITION_NO_DIET",
+        "skillId": 15,
+        "variants": [
+          "Ăn kiêng chị không theo nổi đâu",
+          "Chị thích ăn ngon, không nhịn được",
+          "Em đừng bắt chị bỏ cơm nha"
+        ],
+        "meaning": [
+          "Khách từng ăn kiêng khắt khe và thất bại.",
+          "Khách sợ mất niềm vui ăn uống.",
+          "Khách hiểu dinh dưỡng là cấm đoán."
+        ],
+        "clarify": [
+          "Dạ em cũng không muốn chị ăn kiêng khổ sở đâu ạ. Trước đây chị từng thử cách nào mà thấy khó theo nhất ạ?"
+        ],
+        "responses": [
+          {
+            "when": "Khách sợ phải bỏ cơm, bỏ món yêu thích",
+            "text": "Dạ ở Aura mình không bỏ món nào cả ạ. Cơm vẫn ăn, chỉ chỉnh lượng; món yêu thích giữ 1–2 lần mỗi tuần. Mục tiêu là chị ăn ngon mà vẫn đúng hướng."
+          },
+          {
+            "when": "Khách từng ăn kiêng thất bại",
+            "text": "Dạ ăn kiêng khắt khe khó theo là bình thường ạ, không phải lỗi của chị. Lần này mình đổi 1 thói quen mỗi 2 tuần thôi, ví dụ thêm rau bữa tối, nên không có cảm giác kiêng."
+          },
+          {
+            "when": "Khách hỏi “vậy có giảm được không?”",
+            "text": "Dạ em không hứa con số ạ, nhưng cách đổi thói quen từng chút thường giữ kết quả lâu hơn ăn kiêng gấp. Mình thử 2 tuần rồi xem chỉ số cùng nhau nhé."
+          }
+        ],
+        "next": "Chốt 1 thói quen đầu tiên do khách tự chọn; ghi vào Student 360.",
+        "avoid": [
+          "Dùng từ “kiêng”, “cấm”, “phải bỏ”.",
+          "Gửi thực đơn mẫu khắt khe.",
+          "Hứa kết quả để thuyết phục."
+        ]
+      }
+    },
+    {
       "id": "objection__pt-fit",
       "schemaVersion": 1,
       "kind": "objection",
@@ -5890,6 +6511,87 @@
         "avoid": [
           "Nói xấu đối thủ.",
           "“Bên kia toàn PT không có chứng chỉ.”"
+        ]
+      }
+    },
+    {
+      "id": "objection__nutrition-log-burden",
+      "schemaVersion": 1,
+      "kind": "objection",
+      "sourceId": "nutrition-log-burden",
+      "code": "objection__nutrition-log-burden",
+      "title": "Xử lý: “Ghi món phiền quá, chị không có thời gian”",
+      "summary": "Việc ghi món đang chiếm nhiều bước hơn khách chịu được. · Khách chưa thấy lợi ích của việc ghi. · Khách ngại bị theo dõi.",
+      "status": "review",
+      "version": "1.0",
+      "revision": 1,
+      "publishedVersionId": null,
+      "ownerRole": "pt",
+      "audiences": [
+        "pt",
+        "cs"
+      ],
+      "branchScope": [
+        "all"
+      ],
+      "tags": [
+        "xử lý băn khoăn",
+        "dinh dưỡng"
+      ],
+      "relatedSopIds": [
+        "sop10"
+      ],
+      "relatedSkillIds": [
+        "10"
+      ],
+      "contentMetrics": {
+        "phraseCount": 3,
+        "situationCount": 1,
+        "variantCount": 3
+      },
+      "searchText": "objection nutrition log burden xu ly ghi mon phien qua chi khong co thoi gian viec ghi mon dang chiem nhieu buoc hon khach chiu duoc khach chua thay loi ich cua viec ghi khach ngai bi theo doi pt xu ly ban khoan dinh duong id nutrition log burden say ghi mon phien qua chi khong co thoi gian crm nutrition log burden skillid 10 variants chup hoai met lam em chi quen suot bo qua duoc khong de chi an roi ke em nghe khoi chup meaning viec ghi mon dang chiem nhieu buoc hon khach chiu duoc khach chua thay loi ich cua viec ghi khach ngai bi theo doi clarify da em hieu a phan nao lam chi thay phien nhat mo app chup anh hay sua khau phan a responses when khach ngai chup tung bua text da minh giam xuong con 1 bua chinh moi ngay thoi a bua khac chi nhan 1 dong em ghi giup em can hieu thoi quen cua chi chu khong can anh dep when khach hay quen text da em dat nhac nhe luc 12 30 va 19 30 tren app cho chi nhe chi 1 dong thoi quen thi hom sau ghi tiep khong can bu a when khach ngai bi theo doi text da nhat ky chi em va chi xem em dung de chinh bua cho hop chu khong cham diem a chi thu 1 tuan ghi gon neu van thay nang minh doi cach next chot muc ghi toi thieu khach dong y ghi vao student 360 hoi lai sau 7 ngay avoid noi khong ghi thi khong giam duoc gui lai huong dan dai nhac hang ngay khi khach da noi phien",
+      "sortKey": "objection:xu ly ghi mon phien qua chi khong co thoi gian",
+      "sourceSystem": "sop-center-authoring",
+      "sourceReviewRequired": true,
+      "updatedAt": "2026-11-09T00:00:00.000Z",
+      "updatedBy": "authoring:nutrition-care-2026-11",
+      "payload": {
+        "id": "nutrition-log-burden",
+        "say": "Ghi món phiền quá, chị không có thời gian",
+        "crm": "NUTRITION_LOG_BURDEN",
+        "skillId": 10,
+        "variants": [
+          "Chụp hoài mệt lắm em",
+          "Chị quên suốt, bỏ qua được không?",
+          "Để chị ăn rồi kể em nghe, khỏi chụp"
+        ],
+        "meaning": [
+          "Việc ghi món đang chiếm nhiều bước hơn khách chịu được.",
+          "Khách chưa thấy lợi ích của việc ghi.",
+          "Khách ngại bị theo dõi."
+        ],
+        "clarify": [
+          "Dạ em hiểu ạ. Phần nào làm chị thấy phiền nhất: mở app, chụp ảnh hay sửa khẩu phần ạ?"
+        ],
+        "responses": [
+          {
+            "when": "Khách ngại chụp từng bữa",
+            "text": "Dạ mình giảm xuống còn 1 bữa chính mỗi ngày thôi ạ, bữa khác chị nhắn 1 dòng, em ghi giúp. Em cần hiểu thói quen của chị chứ không cần ảnh đẹp."
+          },
+          {
+            "when": "Khách hay quên",
+            "text": "Dạ em đặt nhắc nhẹ lúc 12:30 và 19:30 trên app cho chị nhé, chỉ 1 dòng thôi. Quên thì hôm sau ghi tiếp, không cần bù ạ."
+          },
+          {
+            "when": "Khách ngại bị theo dõi",
+            "text": "Dạ nhật ký chỉ em và chị xem, em dùng để chỉnh bữa cho hợp chứ không chấm điểm ạ. Chị thử 1 tuần ghi gọn, nếu vẫn thấy nặng mình đổi cách."
+          }
+        ],
+        "next": "Chốt mức ghi tối thiểu khách đồng ý; ghi vào Student 360; hỏi lại sau 7 ngày.",
+        "avoid": [
+          "Nói “không ghi thì không giảm được”.",
+          "Gửi lại hướng dẫn dài.",
+          "Nhắc hằng ngày khi khách đã nói phiền."
         ]
       }
     },
@@ -8366,6 +9068,128 @@
       }
     },
     {
+      "id": "script__s-nut-eat-out",
+      "schemaVersion": 1,
+      "kind": "script",
+      "sourceId": "s-nut-eat-out",
+      "code": "script__s-nut-eat-out",
+      "title": "Ăn ngoài, tiệc, du lịch",
+      "summary": "Khách báo có tiệc, đi công tác hoặc du lịch",
+      "status": "review",
+      "version": "1.0",
+      "revision": 1,
+      "publishedVersionId": null,
+      "ownerRole": "pt",
+      "audiences": [
+        "pt",
+        "cs"
+      ],
+      "branchScope": [
+        "all"
+      ],
+      "tags": [
+        "nutrition",
+        "mẫu câu"
+      ],
+      "relatedSopIds": [
+        "sop10"
+      ],
+      "relatedSkillIds": [
+        "10"
+      ],
+      "contentMetrics": {
+        "phraseCount": 3,
+        "situationCount": 0,
+        "variantCount": 2
+      },
+      "searchText": "script s nut eat out an ngoai tiec du lich khach bao co tiec di cong tac hoac du lich pt nutrition mau cau id s nut eat out category nutrition skillid 10 title an ngoai tiec du lich trigger khach bao co tiec di cong tac hoac du lich body da chi cu an vui nhe em gui 3 nguyen tac nho an rau va dam truoc tinh bot sau uong du nuoc an cham n nhom sau minh quay lai bua binh thuong khong can nhin bu a guidance khong cam khong bu bang nhin hoac tap qua suc variants audience di cong tac body da di cong tac chi ghi duoc bua nao hay bua do a khong can du em goi y vai mon de goi o quan com ga luoc bun bo it mo pho them rau audience tiec cuoi body da tiec cuoi la bua tu do co ke hoach a chi an ngon mieng hom sau quay lai nhip cu la minh van dung huong",
+      "sortKey": "script:an ngoai tiec du lich",
+      "sourceSystem": "sop-center-authoring",
+      "sourceReviewRequired": true,
+      "updatedAt": "2026-11-09T00:00:00.000Z",
+      "updatedBy": "authoring:nutrition-care-2026-11",
+      "payload": {
+        "id": "s-nut-eat-out",
+        "category": "nutrition",
+        "skillId": 10,
+        "title": "Ăn ngoài, tiệc, du lịch",
+        "trigger": "Khách báo có tiệc, đi công tác hoặc du lịch",
+        "body": "Dạ chị cứ ăn vui nhé 🩷 Em gửi 3 nguyên tắc nhỏ: ăn rau và đạm trước, tinh bột sau; uống đủ nước; ăn chậm.\n\nHôm sau mình quay lại bữa bình thường, không cần nhịn bù ạ.",
+        "guidance": "Không cấm; không bù bằng nhịn hoặc tập quá sức.",
+        "variants": [
+          {
+            "audience": "Đi công tác",
+            "body": "Dạ đi công tác chị ghi được bữa nào hay bữa đó ạ, không cần đủ. Em gợi ý vài món dễ gọi ở quán: cơm gà luộc, bún bò ít mỡ, phở thêm rau."
+          },
+          {
+            "audience": "Tiệc cưới",
+            "body": "Dạ tiệc cưới là bữa tự do có kế hoạch ạ. Chị ăn ngon miệng, hôm sau quay lại nhịp cũ là mình vẫn đúng hướng."
+          }
+        ]
+      }
+    },
+    {
+      "id": "script__s-nut-photo-unclear",
+      "schemaVersion": 1,
+      "kind": "script",
+      "sourceId": "s-nut-photo-unclear",
+      "code": "script__s-nut-photo-unclear",
+      "title": "Ảnh mờ hoặc khẩu phần không rõ",
+      "summary": "Không nhìn rõ món hoặc lượng trong ảnh",
+      "status": "review",
+      "version": "1.0",
+      "revision": 1,
+      "publishedVersionId": null,
+      "ownerRole": "pt",
+      "audiences": [
+        "pt",
+        "cs"
+      ],
+      "branchScope": [
+        "all"
+      ],
+      "tags": [
+        "nutrition",
+        "mẫu câu"
+      ],
+      "relatedSopIds": [
+        "sop10"
+      ],
+      "relatedSkillIds": [
+        "20"
+      ],
+      "contentMetrics": {
+        "phraseCount": 3,
+        "situationCount": 0,
+        "variantCount": 2
+      },
+      "searchText": "script s nut photo unclear anh mo hoac khau phan khong ro khong nhin ro mon hoac luong trong anh pt nutrition mau cau id s nut photo unclear category nutrition skillid 20 title anh mo hoac khau phan khong ro trigger khong nhin ro mon hoac luong trong anh body da anh hoi toi nen em chua nhin ro phan com va thit a chi cho em biet khoang bao nhieu chen com va mieng thit co nao de em ghi dung nhe guidance hoi 1 cau khong doan roi duyet variants audience xin chup lai body da chi chup giup em them 1 tam tu tren xuong o cho sang nhe em muon uoc luong khau phan cho dung a audience app thieu mon body da em thay co 2 mon trong khay nhung app chi nhan 1 a chi bam them mon con lai giup em nhe hoac nhan ten mon em them vao",
+      "sortKey": "script:anh mo hoac khau phan khong ro",
+      "sourceSystem": "sop-center-authoring",
+      "sourceReviewRequired": true,
+      "updatedAt": "2026-11-09T00:00:00.000Z",
+      "updatedBy": "authoring:nutrition-care-2026-11",
+      "payload": {
+        "id": "s-nut-photo-unclear",
+        "category": "nutrition",
+        "skillId": 20,
+        "title": "Ảnh mờ hoặc khẩu phần không rõ",
+        "trigger": "Không nhìn rõ món hoặc lượng trong ảnh",
+        "body": "Dạ ảnh hơi tối nên em chưa nhìn rõ phần cơm và thịt ạ. Chị cho em biết khoảng bao nhiêu chén cơm và miếng thịt cỡ nào để em ghi đúng nhé?",
+        "guidance": "Hỏi 1 câu, không đoán rồi duyệt.",
+        "variants": [
+          {
+            "audience": "Xin chụp lại",
+            "body": "Dạ chị chụp giúp em thêm 1 tấm từ trên xuống ở chỗ sáng nhé, em muốn ước lượng khẩu phần cho đúng ạ."
+          },
+          {
+            "audience": "App thiếu món",
+            "body": "Dạ em thấy có 2 món trong khay nhưng app chỉ nhận 1 ạ. Chị bấm thêm món còn lại giúp em nhé, hoặc nhắn tên món em thêm vào."
+          }
+        ]
+      }
+    },
+    {
       "id": "script__s-sched-aura-change",
       "schemaVersion": 1,
       "kind": "script",
@@ -8414,6 +9238,67 @@
         "body": "Chị ơi, em xin lỗi chị vì phải báo đổi lịch buổi [ngày giờ buổi tập] ạ. Lý do là [lý do vận hành].\n\nBuổi này không tính vào số buổi của chị. Em đề xuất buổi bù vào [khung giờ A] hoặc [khung giờ B], chị chọn giúp em khung nào tiện hơn nhé.\n\nCảm ơn chị đã thông cảm cho bên em 🩷",
         "guidance": "HĐ-CT Điều 6: Aura đổi lịch thì Aura xếp buổi bù. Báo sớm nhất có thể.",
         "variants": []
+      }
+    },
+    {
+      "id": "script__s-nut-handover",
+      "schemaVersion": 1,
+      "kind": "script",
+      "sourceId": "s-nut-handover",
+      "code": "script__s-nut-handover",
+      "title": "Bàn giao chăm sóc dinh dưỡng khi đổi PT hoặc giao CSKH",
+      "summary": "Đổi PT giữa khóa hoặc giao khách cho CSKH",
+      "status": "review",
+      "version": "1.0",
+      "revision": 1,
+      "publishedVersionId": null,
+      "ownerRole": "pt",
+      "audiences": [
+        "pt",
+        "cs"
+      ],
+      "branchScope": [
+        "all"
+      ],
+      "tags": [
+        "nutrition",
+        "mẫu câu"
+      ],
+      "relatedSopIds": [
+        "sop10"
+      ],
+      "relatedSkillIds": [
+        "12"
+      ],
+      "contentMetrics": {
+        "phraseCount": 3,
+        "situationCount": 0,
+        "variantCount": 2
+      },
+      "searchText": "script s nut handover ban giao cham soc dinh duong khi doi pt hoac giao cskh doi pt giua khoa hoac giao khach cho cskh pt nutrition mau cau id s nut handover category nutrition skillid 12 title ban giao cham soc dinh duong khi doi pt hoac giao cskh trigger doi pt giua khoa hoac giao khach cho cskh body da chao chi em la ten pt cskh moi tu tuan nay em dong hanh phan an uong voi chi a em da doc ghi chu cua ten nguoi cu chi dang giu bua toi co rau rat deu do la dieu em muon minh tiep tuc n ntuan nay chi cu ghi mon nhu binh thuong em xem va phan hoi trong ngay nhe guidance chao trong 24 gio nhac 1 dieu khach da lam tot tu student 360 khach khong phai ke lai tu dau variants audience giao cskh pt van duyet body da tu nay ten cskh se nhac nhip va hoi tham chi hang tuan con phan xem mon va review van la em a chi nhan mot trong hai ben deu duoc nhe audience pt cu chao tam biet body da truoc khi ban giao cho ten pt moi em gui chi tom tat 2 tuan qua de chi nam phan nay em cung de trong ho so a",
+      "sortKey": "script:ban giao cham soc dinh duong khi doi pt hoac giao cskh",
+      "sourceSystem": "sop-center-authoring",
+      "sourceReviewRequired": true,
+      "updatedAt": "2026-11-09T00:00:00.000Z",
+      "updatedBy": "authoring:nutrition-care-2026-11",
+      "payload": {
+        "id": "s-nut-handover",
+        "category": "nutrition",
+        "skillId": 12,
+        "title": "Bàn giao chăm sóc dinh dưỡng khi đổi PT hoặc giao CSKH",
+        "trigger": "Đổi PT giữa khóa hoặc giao khách cho CSKH",
+        "body": "Dạ chào chị, em là [tên PT/CSKH mới], từ tuần này em đồng hành phần ăn uống với chị ạ. Em đã đọc ghi chú của [tên người cũ]: chị đang giữ bữa tối có rau rất đều, đó là điều em muốn mình tiếp tục.\n\nTuần này chị cứ ghi món như bình thường, em xem và phản hồi trong ngày nhé.",
+        "guidance": "Chào trong 24 giờ; nhắc 1 điều khách đã làm tốt từ Student 360; khách không phải kể lại từ đầu.",
+        "variants": [
+          {
+            "audience": "Giao CSKH, PT vẫn duyệt",
+            "body": "Dạ từ nay [tên CSKH] sẽ nhắc nhịp và hỏi thăm chị hằng tuần, còn phần xem món và review vẫn là em ạ. Chị nhắn một trong hai bên đều được nhé."
+          },
+          {
+            "audience": "PT cũ chào tạm biệt",
+            "body": "Dạ trước khi bàn giao cho [tên PT mới], em gửi chị tóm tắt 2 tuần qua để chị nắm, phần này em cũng để trong hồ sơ ạ."
+          }
+        ]
       }
     },
     {
@@ -8588,6 +9473,67 @@
           {
             "audience": "u40",
             "body": "Dạ thưa chị, Aura có 3 hình thức: tự tập [giá tự tập], PT 1:1 [giá PT 1:1] và PT 1:1 VIP [giá PT VIP].\n\nVới mình, em gợi ý có PT theo sát ít nhất giai đoạn đầu để tập an toàn, tăng dần. Chị có đang lưu ý gì về khớp, huyết áp hay sức khỏe không ạ?"
+          }
+        ]
+      }
+    },
+    {
+      "id": "script__s-nut-plateau",
+      "schemaVersion": 1,
+      "kind": "script",
+      "sourceId": "s-nut-plateau",
+      "code": "script__s-nut-plateau",
+      "title": "Cân không giảm sau 2 tuần",
+      "summary": "Khách hỏi “em ăn đúng mà cân không xuống”",
+      "status": "review",
+      "version": "1.0",
+      "revision": 1,
+      "publishedVersionId": null,
+      "ownerRole": "pt",
+      "audiences": [
+        "pt",
+        "cs"
+      ],
+      "branchScope": [
+        "all"
+      ],
+      "tags": [
+        "nutrition",
+        "mẫu câu"
+      ],
+      "relatedSopIds": [
+        "sop10"
+      ],
+      "relatedSkillIds": [
+        "23"
+      ],
+      "contentMetrics": {
+        "phraseCount": 3,
+        "situationCount": 0,
+        "variantCount": 2
+      },
+      "searchText": "script s nut plateau can khong giam sau 2 tuan khach hoi em an dung ma can khong xuong pt nutrition mau cau id s nut plateau category nutrition skillid 23 title can khong giam sau 2 tuan trigger khach hoi em an dung ma can khong xuong body da 2 tuan can chua doi la chuyen hay gap a nhat la khi chi moi tap co the dang giu nuoc va thay doi ben trong n nminh xem 3 thu khau phan that cua bua toi giac ngu va vong eo chi cho em biet may hom nay chi ngu duoc khoang may tieng a guidance khong nghi ngo khach khong cat nang luong qua 10 doi chi so theo doi variants audience vong eo da giam body da vong eo chi giam 1 5 cm du can chua doi nghia la dung huong roi a minh giu muc tieu va do lai sau 2 tuan nhe audience nghi do uong chua ghi body da em de xuat tuan nay chi ghi them ca do uong nhu ca phe sua nuoc ngot a co the phan do chua vao nhat ky",
+      "sortKey": "script:can khong giam sau 2 tuan",
+      "sourceSystem": "sop-center-authoring",
+      "sourceReviewRequired": true,
+      "updatedAt": "2026-11-09T00:00:00.000Z",
+      "updatedBy": "authoring:nutrition-care-2026-11",
+      "payload": {
+        "id": "s-nut-plateau",
+        "category": "nutrition",
+        "skillId": 23,
+        "title": "Cân không giảm sau 2 tuần",
+        "trigger": "Khách hỏi “em ăn đúng mà cân không xuống”",
+        "body": "Dạ 2 tuần cân chưa đổi là chuyện hay gặp ạ, nhất là khi chị mới tập, cơ thể đang giữ nước và thay đổi bên trong.\n\nMình xem 3 thứ: khẩu phần thật của bữa tối, giấc ngủ, và vòng eo. Chị cho em biết mấy hôm nay chị ngủ được khoảng mấy tiếng ạ?",
+        "guidance": "Không nghi ngờ khách; không cắt năng lượng quá 10%; đổi chỉ số theo dõi.",
+        "variants": [
+          {
+            "audience": "Vòng eo đã giảm",
+            "body": "Dạ vòng eo chị giảm 1,5 cm dù cân chưa đổi, nghĩa là đúng hướng rồi ạ. Mình giữ mục tiêu và đo lại sau 2 tuần nhé."
+          },
+          {
+            "audience": "Nghi đồ uống chưa ghi",
+            "body": "Dạ em đề xuất tuần này chị ghi thêm cả đồ uống như cà phê sữa, nước ngọt ạ, có thể phần đó chưa vào nhật ký."
           }
         ]
       }
@@ -9342,6 +10288,67 @@
       }
     },
     {
+      "id": "script__s-nut-target",
+      "schemaVersion": 1,
+      "kind": "script",
+      "sourceId": "s-nut-target",
+      "code": "script__s-nut-target",
+      "title": "Giải thích mục tiêu ngày trên app",
+      "summary": "Sau khi đặt mục tiêu năng lượng và đạm",
+      "status": "review",
+      "version": "1.0",
+      "revision": 1,
+      "publishedVersionId": null,
+      "ownerRole": "pt",
+      "audiences": [
+        "pt",
+        "cs"
+      ],
+      "branchScope": [
+        "all"
+      ],
+      "tags": [
+        "nutrition",
+        "mẫu câu"
+      ],
+      "relatedSopIds": [
+        "sop10"
+      ],
+      "relatedSkillIds": [
+        "15"
+      ],
+      "contentMetrics": {
+        "phraseCount": 3,
+        "situationCount": 0,
+        "variantCount": 2
+      },
+      "searchText": "script s nut target giai thich muc tieu ngay tren app sau khi dat muc tieu nang luong va dam pt nutrition mau cau id s nut target category nutrition skillid 15 title giai thich muc tieu ngay tren app trigger sau khi dat muc tieu nang luong va dam body da em vua dat muc tieu ngay tren app cho chi khoang muc tieu nang luong kcal va muc tieu dam g dam day la muc app tinh theo chi so cua chi khong phai muc an kieng n nchi khong can dat dung tung so dau a lech 10 la binh thuong sau 2 tuan minh xem lai va chinh nhe guidance khong dat duoi nguong app canh bao khong hua ket qua theo muc tieu variants audience khach thay so dam cao body da chi thay muc tieu dam hoi cao thi minh chia nho moi bua mot phan dam co long ban tay la toi a audience khach hay so voi app khac body da muc tieu tren app la diem tham chieu de chi nhin moi ngay thoi a minh chinh theo thuc te cua chi sau 2 tuan chu khong theo con so chung",
+      "sortKey": "script:giai thich muc tieu ngay tren app",
+      "sourceSystem": "sop-center-authoring",
+      "sourceReviewRequired": true,
+      "updatedAt": "2026-11-09T00:00:00.000Z",
+      "updatedBy": "authoring:nutrition-care-2026-11",
+      "payload": {
+        "id": "s-nut-target",
+        "category": "nutrition",
+        "skillId": 15,
+        "title": "Giải thích mục tiêu ngày trên app",
+        "trigger": "Sau khi đặt mục tiêu năng lượng và đạm",
+        "body": "Dạ em vừa đặt mục tiêu ngày trên app cho chị: khoảng [mục tiêu năng lượng] kcal và [mục tiêu đạm] g đạm. Đây là mức app tính theo chỉ số của chị, không phải mức ăn kiêng.\n\nChị không cần đạt đúng từng số đâu ạ, lệch 10% là bình thường. Sau 2 tuần mình xem lại và chỉnh nhé.",
+        "guidance": "Không đặt dưới ngưỡng app cảnh báo; không hứa kết quả theo mục tiêu.",
+        "variants": [
+          {
+            "audience": "Khách thấy số đạm cao",
+            "body": "Dạ chị thấy mục tiêu đạm hơi cao thì mình chia nhỏ: mỗi bữa một phần đạm cỡ lòng bàn tay là tới ạ."
+          },
+          {
+            "audience": "Khách hay so với app khác",
+            "body": "Dạ mục tiêu trên app là điểm tham chiếu để chị nhìn mỗi ngày thôi ạ, mình chỉnh theo thực tế của chị sau 2 tuần chứ không theo con số chung."
+          }
+        ]
+      }
+    },
+    {
       "id": "script__s-rec-expired",
       "schemaVersion": 1,
       "kind": "script",
@@ -9390,6 +10397,67 @@
         "body": "Dạ chị ơi, em kiểm tra thấy gói của mình đã hết hiệu lực từ ngày [ngày hết hạn] ạ.\n\nNếu chị muốn tập tiếp, em gửi chị bảng giá hiện tại để mình chọn:\n[bảng giá tự tập]\n\nChị có muốn em hỗ trợ gia hạn ngay hôm nay, hoặc em gửi thông tin để chị xem thêm ở nhà ạ?",
         "guidance": "Nói nhỏ, không để hội viên khác nghe. Không cho vào tập khi chưa gia hạn.",
         "variants": []
+      }
+    },
+    {
+      "id": "script__s-nut-eatclean",
+      "schemaVersion": 1,
+      "kind": "script",
+      "sourceId": "s-nut-eatclean",
+      "code": "script__s-nut-eatclean",
+      "title": "Gợi ý Eat Clean khi khách bận nấu",
+      "summary": "Khách nói không có thời gian nấu hoặc hỏi về Eat Clean",
+      "status": "review",
+      "version": "1.0",
+      "revision": 1,
+      "publishedVersionId": null,
+      "ownerRole": "pt",
+      "audiences": [
+        "pt",
+        "cs"
+      ],
+      "branchScope": [
+        "all"
+      ],
+      "tags": [
+        "nutrition",
+        "mẫu câu"
+      ],
+      "relatedSopIds": [
+        "sop10"
+      ],
+      "relatedSkillIds": [
+        "4"
+      ],
+      "contentMetrics": {
+        "phraseCount": 3,
+        "situationCount": 0,
+        "variantCount": 2
+      },
+      "searchText": "script s nut eatclean goi y eat clean khi khach ban nau khach noi khong co thoi gian nau hoac hoi ve eat clean pt nutrition mau cau id s nut eatclean category nutrition skillid 4 title goi y eat clean khi khach ban nau trigger khach noi khong co thoi gian nau hoac hoi ve eat clean body da chi ban nau thi em goi y 2 huong a cong thuc 15 phut trong muc vao bep cung aura hoac dat eat clean giao tan noi mot phan gia eat clean n nkhong bat buoc dau a chi thu 1 2 bua eat clean vao ngay ban nhat xem hop khong nhe chi muon em gui cong thuc hay huong dan dat truoc a guidance chi goi y khi co nhu cau gia du don vi khong noi an ngoai hay tu nau kem hieu qua variants audience khach thay dat body da eat clean hop cho 2 3 bua ban nhat trong tuan a con lai minh tu chuan bi theo cong thuc vua tien vua khong ton nhieu audience khach muon tu nau body da em chon san 3 mon mot noi 15 phut trong vao bep cung aura theo muc tieu cua chi chi xem thu nhe",
+      "sortKey": "script:goi y eat clean khi khach ban nau",
+      "sourceSystem": "sop-center-authoring",
+      "sourceReviewRequired": true,
+      "updatedAt": "2026-11-09T00:00:00.000Z",
+      "updatedBy": "authoring:nutrition-care-2026-11",
+      "payload": {
+        "id": "s-nut-eatclean",
+        "category": "nutrition",
+        "skillId": 4,
+        "title": "Gợi ý Eat Clean khi khách bận nấu",
+        "trigger": "Khách nói không có thời gian nấu hoặc hỏi về Eat Clean",
+        "body": "Dạ chị bận nấu thì em gợi ý 2 hướng ạ: công thức 15 phút trong mục Vào Bếp cùng Aura, hoặc đặt Eat Clean giao tận nơi, một phần [giá Eat Clean].\n\nKhông bắt buộc đâu ạ, chị thử 1–2 bữa Eat Clean vào ngày bận nhất xem hợp không nhé. Chị muốn em gửi công thức hay hướng dẫn đặt trước ạ?",
+        "guidance": "Chỉ gợi ý khi có nhu cầu; giá đủ đơn vị; không nói ăn ngoài hay tự nấu kém hiệu quả.",
+        "variants": [
+          {
+            "audience": "Khách thấy đắt",
+            "body": "Dạ Eat Clean hợp cho 2–3 bữa bận nhất trong tuần ạ, còn lại mình tự chuẩn bị theo công thức, vừa tiện vừa không tốn nhiều."
+          },
+          {
+            "audience": "Khách muốn tự nấu",
+            "body": "Dạ em chọn sẵn 3 món một nồi 15 phút trong Vào Bếp cùng Aura theo mục tiêu của chị, chị xem thử nhé."
+          }
+        ]
       }
     },
     {
@@ -10055,6 +11123,128 @@
         "guidance": "Quản lý chốt 11/2026. Báo trước giờ tập là không trừ buổi, không giới hạn số lần. Buổi bù phải nằm trong thời hạn gói. Vắng không báo → tính đã tập, dùng kịch bản “Khách báo hủy dưới 12 giờ”.",
         "crm": "Ghi buổi nghỉ VIP + buổi bù đã xếp",
         "variants": []
+      }
+    },
+    {
+      "id": "script__s-nut-first-log",
+      "schemaVersion": 1,
+      "kind": "script",
+      "sourceId": "s-nut-first-log",
+      "code": "script__s-nut-first-log",
+      "title": "Hướng dẫn ghi món đầu tiên",
+      "summary": "Khách chưa ghi món nào sau 48 giờ",
+      "status": "review",
+      "version": "1.0",
+      "revision": 1,
+      "publishedVersionId": null,
+      "ownerRole": "pt",
+      "audiences": [
+        "pt",
+        "cs"
+      ],
+      "branchScope": [
+        "all"
+      ],
+      "tags": [
+        "nutrition",
+        "mẫu câu"
+      ],
+      "relatedSopIds": [
+        "sop10"
+      ],
+      "relatedSkillIds": [
+        "15"
+      ],
+      "contentMetrics": {
+        "phraseCount": 3,
+        "situationCount": 0,
+        "variantCount": 2
+      },
+      "searchText": "script s nut first log huong dan ghi mon dau tien khach chua ghi mon nao sau 48 gio pt nutrition mau cau id s nut first log category nutrition skillid 15 title huong dan ghi mon dau tien trigger khach chua ghi mon nao sau 48 gio body da chi mo app vao muc dinh duong bam chup mon va de ca khay an vao khung hinh nhe app se nhan dien mon va uoc luong khau phan n nneu app doan chua dung chi bam vao ten mon de sua hoac chon trong kho mon bua dau chi chup thu em xem va phan hoi ngay a guidance neu khach ngai app cho phep gui anh qua zalo trong tuan dau va pt ghi thay variants channel zalo body da bua trua nay chi chup thu 1 tam gui em qua zalo cung duoc a em ghi vao app giup chi roi minh quen dan audience khach hoi cach chup body da chup o cho sang tu tren xuong de ca chen com va dia do an vao hinh la app nhan tot nhat a",
+      "sortKey": "script:huong dan ghi mon dau tien",
+      "sourceSystem": "sop-center-authoring",
+      "sourceReviewRequired": true,
+      "updatedAt": "2026-11-09T00:00:00.000Z",
+      "updatedBy": "authoring:nutrition-care-2026-11",
+      "payload": {
+        "id": "s-nut-first-log",
+        "category": "nutrition",
+        "skillId": 15,
+        "title": "Hướng dẫn ghi món đầu tiên",
+        "trigger": "Khách chưa ghi món nào sau 48 giờ",
+        "body": "Dạ chị mở app vào mục Dinh dưỡng, bấm chụp món và để cả khay ăn vào khung hình nhé. App sẽ nhận diện món và ước lượng khẩu phần.\n\nNếu app đoán chưa đúng, chị bấm vào tên món để sửa hoặc chọn trong Kho món. Bữa đầu chị chụp thử, em xem và phản hồi ngay ạ.",
+        "guidance": "Nếu khách ngại app, cho phép gửi ảnh qua Zalo trong tuần đầu và PT ghi thay.",
+        "variants": [
+          {
+            "channel": "Zalo",
+            "body": "Dạ bữa trưa nay chị chụp thử 1 tấm gửi em qua Zalo cũng được ạ, em ghi vào app giúp chị rồi mình quen dần."
+          },
+          {
+            "audience": "Khách hỏi cách chụp",
+            "body": "Dạ chụp ở chỗ sáng, từ trên xuống, để cả chén cơm và đĩa đồ ăn vào hình là app nhận tốt nhất ạ."
+          }
+        ]
+      }
+    },
+    {
+      "id": "script__s-nut-health-flag",
+      "schemaVersion": 1,
+      "kind": "script",
+      "sourceId": "s-nut-health-flag",
+      "code": "script__s-nut-health-flag",
+      "title": "Khách báo bệnh nền, thai kỳ, dị ứng",
+      "summary": "Khách nói đang điều trị bệnh, mang thai, sau sinh hoặc dị ứng",
+      "status": "review",
+      "version": "1.0",
+      "revision": 1,
+      "publishedVersionId": null,
+      "ownerRole": "pt",
+      "audiences": [
+        "pt",
+        "cs"
+      ],
+      "branchScope": [
+        "all"
+      ],
+      "tags": [
+        "nutrition",
+        "mẫu câu"
+      ],
+      "relatedSopIds": [
+        "sop10"
+      ],
+      "relatedSkillIds": [
+        "11"
+      ],
+      "contentMetrics": {
+        "phraseCount": 3,
+        "situationCount": 0,
+        "variantCount": 2
+      },
+      "searchText": "script s nut health flag khach bao benh nen thai ky di ung khach noi dang dieu tri benh mang thai sau sinh hoac di ung pt nutrition mau cau id s nut health flag category nutrition skillid 11 title khach bao benh nen thai ky di ung trigger khach noi dang dieu tri benh mang thai sau sinh hoac di ung body da em cam on chi da bao em a voi tinh trang suc khoe phan an uong can theo huong dan cua bac si dieu tri em khong tu len thuc don de tranh sai n nem bao pt va quan ly de sap xep huong phu hop cho chi chi co huong dan nao tu bac si thi gui em em ho tro chi ghi mon va nhac gio an theo do a guidance khong emoji khong ket luan chuyen mon chuyen sop 06 trong ngay ghi co o dau student 360 khong chia se ngoai nhom phu trach sop 08 variants audience dang cho con bu body da giai doan cho con bu em khong dat muc tieu giam nang luong cho chi a minh an du va da dang phan giam mo tinh sau khi bac si dong y nhe audience di ung thuc pham body da em ghi lai di ung mon cua chi roi a moi goi y mon em se loai phan nay ra chi co huong dan gi tu bac si thi gui em them nhe",
+      "sortKey": "script:khach bao benh nen thai ky di ung",
+      "sourceSystem": "sop-center-authoring",
+      "sourceReviewRequired": true,
+      "updatedAt": "2026-11-09T00:00:00.000Z",
+      "updatedBy": "authoring:nutrition-care-2026-11",
+      "payload": {
+        "id": "s-nut-health-flag",
+        "category": "nutrition",
+        "skillId": 11,
+        "title": "Khách báo bệnh nền, thai kỳ, dị ứng",
+        "trigger": "Khách nói đang điều trị bệnh, mang thai, sau sinh hoặc dị ứng",
+        "body": "Dạ em cảm ơn chị đã báo em ạ. Với [tình trạng sức khỏe], phần ăn uống cần theo hướng dẫn của bác sĩ điều trị, em không tự lên thực đơn để tránh sai.\n\nEm báo PT và quản lý để sắp xếp hướng phù hợp cho chị. Chị có hướng dẫn nào từ bác sĩ thì gửi em, em hỗ trợ chị ghi món và nhắc giờ ăn theo đó ạ.",
+        "guidance": "Không emoji; không kết luận chuyên môn; chuyển SOP 06 trong ngày; ghi cờ ở đầu Student 360; không chia sẻ ngoài nhóm phụ trách (SOP 08).",
+        "variants": [
+          {
+            "audience": "Đang cho con bú",
+            "body": "Dạ giai đoạn cho con bú em không đặt mục tiêu giảm năng lượng cho chị ạ. Mình ăn đủ và đa dạng, phần giảm mỡ tính sau khi bác sĩ đồng ý nhé."
+          },
+          {
+            "audience": "Dị ứng thực phẩm",
+            "body": "Dạ em ghi lại dị ứng [món] của chị rồi ạ, mọi gợi ý món em sẽ loại phần này ra. Chị có hướng dẫn gì từ bác sĩ thì gửi em thêm nhé."
+          }
+        ]
       }
     },
     {
@@ -10945,6 +12135,67 @@
       }
     },
     {
+      "id": "script__s-nut-extreme",
+      "schemaVersion": 1,
+      "kind": "script",
+      "sourceId": "s-nut-extreme",
+      "code": "script__s-nut-extreme",
+      "title": "Khách muốn nhịn ăn, detox, thuốc giảm cân",
+      "summary": "Khách đề cập nhịn ăn kéo dài, detox nước ép, thuốc hoặc trà giảm cân",
+      "status": "review",
+      "version": "1.0",
+      "revision": 1,
+      "publishedVersionId": null,
+      "ownerRole": "pt",
+      "audiences": [
+        "pt",
+        "cs"
+      ],
+      "branchScope": [
+        "all"
+      ],
+      "tags": [
+        "nutrition",
+        "mẫu câu"
+      ],
+      "relatedSopIds": [
+        "sop10"
+      ],
+      "relatedSkillIds": [
+        "11"
+      ],
+      "contentMetrics": {
+        "phraseCount": 3,
+        "situationCount": 0,
+        "variantCount": 2
+      },
+      "searchText": "script s nut extreme khach muon nhin an detox thuoc giam can khach de cap nhin an keo dai detox nuoc ep thuoc hoac tra giam can pt nutrition mau cau id s nut extreme category nutrition skillid 11 title khach muon nhin an detox thuoc giam can trigger khach de cap nhin an keo dai detox nuoc ep thuoc hoac tra giam can body da em cam on chi da hoi em truoc a voi thuoc hay tra giam can em khong tu van duoc va ben em khong khuyen khich vi rui ro cho suc khoe chi muon dung gi thi hoi y bac si truoc giup em n nneu chi muon nhe bung minh lam 3 ngay an nhe co du dam va rau thay cho detox nhe em gui goi y a guidance khong emoji khong goi y lieu luong ghi co an toan va bao quan ly neu khach da dung hoac nhin keo dai sop 06 variants audience nhin an ca ngay body da nhin ca ngay de met mat co va kho giu ket qua a minh quay lai 3 bua gon em gui goi y bua don gian cho chi nhe audience detox nuoc ep body da detox nhieu ngay chi uong nuoc ep thi em khong dong hanh duoc vi khong an toan a em de xuat cach nhe hon ma van hieu qua cho chi",
+      "sortKey": "script:khach muon nhin an detox thuoc giam can",
+      "sourceSystem": "sop-center-authoring",
+      "sourceReviewRequired": true,
+      "updatedAt": "2026-11-09T00:00:00.000Z",
+      "updatedBy": "authoring:nutrition-care-2026-11",
+      "payload": {
+        "id": "s-nut-extreme",
+        "category": "nutrition",
+        "skillId": 11,
+        "title": "Khách muốn nhịn ăn, detox, thuốc giảm cân",
+        "trigger": "Khách đề cập nhịn ăn kéo dài, detox nước ép, thuốc hoặc trà giảm cân",
+        "body": "Dạ em cảm ơn chị đã hỏi em trước ạ. Với thuốc hay trà giảm cân, em không tư vấn được và bên em không khuyến khích vì rủi ro cho sức khỏe. Chị muốn dùng gì thì hỏi ý bác sĩ trước giúp em.\n\nNếu chị muốn nhẹ bụng, mình làm 3 ngày ăn nhẹ có đủ đạm và rau thay cho detox nhé, em gửi gợi ý ạ.",
+        "guidance": "Không emoji; không gợi ý liều lượng; ghi cờ An toàn và báo quản lý nếu khách đã dùng hoặc nhịn kéo dài (SOP 06).",
+        "variants": [
+          {
+            "audience": "Nhịn ăn cả ngày",
+            "body": "Dạ nhịn cả ngày dễ mệt, mất cơ và khó giữ kết quả ạ. Mình quay lại 3 bữa gọn, em gửi gợi ý bữa đơn giản cho chị nhé."
+          },
+          {
+            "audience": "Detox nước ép",
+            "body": "Dạ detox nhiều ngày chỉ uống nước ép thì em không đồng hành được vì không an toàn ạ. Em đề xuất cách nhẹ hơn mà vẫn hiệu quả cho chị."
+          }
+        ]
+      }
+    },
+    {
       "id": "script__s-fb-weightloss-unknown",
       "schemaVersion": 1,
       "kind": "script",
@@ -11370,6 +12621,67 @@
       }
     },
     {
+      "id": "script__s-nut-kickoff",
+      "schemaVersion": 1,
+      "kind": "script",
+      "sourceId": "s-nut-kickoff",
+      "code": "script__s-nut-kickoff",
+      "title": "Mở đầu khảo sát thói quen ăn (tuần đầu)",
+      "summary": "Buổi đầu hoặc D1–D3 sau khi ký gói",
+      "status": "review",
+      "version": "1.0",
+      "revision": 1,
+      "publishedVersionId": null,
+      "ownerRole": "pt",
+      "audiences": [
+        "pt",
+        "cs"
+      ],
+      "branchScope": [
+        "all"
+      ],
+      "tags": [
+        "nutrition",
+        "mẫu câu"
+      ],
+      "relatedSopIds": [
+        "sop10"
+      ],
+      "relatedSkillIds": [
+        "15"
+      ],
+      "contentMetrics": {
+        "phraseCount": 3,
+        "situationCount": 0,
+        "variantCount": 2
+      },
+      "searchText": "script s nut kickoff mo dau khao sat thoi quen an tuan dau buoi dau hoac d1 d3 sau khi ky goi pt nutrition mau cau id s nut kickoff category nutrition skillid 15 title mo dau khao sat thoi quen an tuan dau trigger buoi dau hoac d1 d3 sau khi ky goi body da chi ten khach oi em la ten pt em dong hanh phan an uong voi chi trong khoa nay a n ntruoc khi ban an gi em muon hieu thoi quen hien tai cua chi mot ngay chi thuong an may bua va bua nao hay bi bo nhat a guidance hoi 1 cau moi tin chua noi ve calo hay thuc don ghi cau tra loi vao student 360 variants channel tai phong buoi dau body da de em tu van dung nhip song cua chi chi ke em nghe mot ngay binh thuong chi an nhung gi tu sang den toi nhe audience khach so an kieng body da em khong bat chi an kieng dau a minh bat dau bang viec hieu chi dang an the nao da chi hay an ngoai hay nau o nha nhieu hon a",
+      "sortKey": "script:mo dau khao sat thoi quen an tuan dau",
+      "sourceSystem": "sop-center-authoring",
+      "sourceReviewRequired": true,
+      "updatedAt": "2026-11-09T00:00:00.000Z",
+      "updatedBy": "authoring:nutrition-care-2026-11",
+      "payload": {
+        "id": "s-nut-kickoff",
+        "category": "nutrition",
+        "skillId": 15,
+        "title": "Mở đầu khảo sát thói quen ăn (tuần đầu)",
+        "trigger": "Buổi đầu hoặc D1–D3 sau khi ký gói",
+        "body": "Dạ chị [tên khách] ơi, em là [tên PT], em đồng hành phần ăn uống với chị trong khóa này ạ.\n\nTrước khi bàn ăn gì, em muốn hiểu thói quen hiện tại của chị: một ngày chị thường ăn mấy bữa, và bữa nào hay bị bỏ nhất ạ?",
+        "guidance": "Hỏi 1 câu mỗi tin; chưa nói về calo hay thực đơn. Ghi câu trả lời vào Student 360.",
+        "variants": [
+          {
+            "channel": "Tại phòng (buổi đầu)",
+            "body": "Dạ để em tư vấn đúng nhịp sống của chị, chị kể em nghe một ngày bình thường chị ăn những gì từ sáng đến tối nhé?"
+          },
+          {
+            "audience": "Khách sợ ăn kiêng",
+            "body": "Dạ em không bắt chị ăn kiêng đâu ạ. Mình bắt đầu bằng việc hiểu chị đang ăn thế nào đã. Chị hay ăn ngoài hay nấu ở nhà nhiều hơn ạ?"
+          }
+        ]
+      }
+    },
+    {
       "id": "script__s-fb-invite-check",
       "schemaVersion": 1,
       "kind": "script",
@@ -11475,6 +12787,67 @@
           {
             "audience": "u40",
             "body": "Thưa chị, mình sắp hoàn thành giai đoạn tập hiện tại rồi ạ. PT muốn cùng chị xem lại sức khỏe, sức bền và cảm nhận của khớp sau thời gian tập, để chọn hướng tiếp theo an toàn và phù hợp.\n\nChị tiện trao đổi sau buổi tập nào ạ?"
+          }
+        ]
+      }
+    },
+    {
+      "id": "script__s-nut-review-2w",
+      "schemaVersion": 1,
+      "kind": "script",
+      "sourceId": "s-nut-review-2w",
+      "code": "script__s-nut-review-2w",
+      "title": "Mời review dinh dưỡng 2 tuần",
+      "summary": "Ngày 12–13 sau khi đặt mục tiêu",
+      "status": "review",
+      "version": "1.0",
+      "revision": 1,
+      "publishedVersionId": null,
+      "ownerRole": "pt",
+      "audiences": [
+        "pt",
+        "cs"
+      ],
+      "branchScope": [
+        "all"
+      ],
+      "tags": [
+        "nutrition",
+        "mẫu câu"
+      ],
+      "relatedSopIds": [
+        "sop10"
+      ],
+      "relatedSkillIds": [
+        "23"
+      ],
+      "contentMetrics": {
+        "phraseCount": 3,
+        "situationCount": 0,
+        "variantCount": 2
+      },
+      "searchText": "script s nut review 2w moi review dinh duong 2 tuan ngay 12 13 sau khi dat muc tieu pt nutrition mau cau id s nut review 2w category nutrition skillid 23 title moi review dinh duong 2 tuan trigger ngay 12 13 sau khi dat muc tieu body da chi oi sap tron 2 tuan minh bat dau phan an uong roi a em moi chi 15 phut truoc hoac sau buoi tap ngay de xem lai chi da lam duoc gi chi so thay doi ra sao va 2 tuan toi minh chinh gi n nchi tien khung gio a hay gio b a guidance dua 2 khung gio that neu khach khong muon do van review bang cam giac va thoi quen variants audience khach ngai can body da neu chi chua muon can minh van review duoc bang vong eo giac ngu va nang luong khi tap a channel zalo nhac lai body da buoi review ngan thoi a chu yeu de chi thay minh da thay doi gi sau 2 tuan chi chon giup em gio a hay gio b nhe",
+      "sortKey": "script:moi review dinh duong 2 tuan",
+      "sourceSystem": "sop-center-authoring",
+      "sourceReviewRequired": true,
+      "updatedAt": "2026-11-09T00:00:00.000Z",
+      "updatedBy": "authoring:nutrition-care-2026-11",
+      "payload": {
+        "id": "s-nut-review-2w",
+        "category": "nutrition",
+        "skillId": 23,
+        "title": "Mời review dinh dưỡng 2 tuần",
+        "trigger": "Ngày 12–13 sau khi đặt mục tiêu",
+        "body": "Dạ chị ơi, sắp tròn 2 tuần mình bắt đầu phần ăn uống rồi ạ. Em mời chị 15 phút trước hoặc sau buổi tập [ngày] để xem lại: chị đã làm được gì, chỉ số thay đổi ra sao và 2 tuần tới mình chỉnh gì.\n\nChị tiện khung [giờ A] hay [giờ B] ạ?",
+        "guidance": "Đưa 2 khung giờ thật; nếu khách không muốn đo, vẫn review bằng cảm giác và thói quen.",
+        "variants": [
+          {
+            "audience": "Khách ngại cân",
+            "body": "Dạ nếu chị chưa muốn cân, mình vẫn review được bằng vòng eo, giấc ngủ và năng lượng khi tập ạ."
+          },
+          {
+            "channel": "Zalo (nhắc lại)",
+            "body": "Dạ buổi review ngắn thôi ạ, chủ yếu để chị thấy mình đã thay đổi gì sau 2 tuần. Chị chọn giúp em [giờ A] hay [giờ B] nhé."
           }
         ]
       }
@@ -11687,6 +13060,67 @@
       }
     },
     {
+      "id": "script__s-nut-no-log",
+      "schemaVersion": 1,
+      "kind": "script",
+      "sourceId": "s-nut-no-log",
+      "code": "script__s-nut-no-log",
+      "title": "Nhắc khi 2 ngày không ghi món",
+      "summary": "Khách không ghi món 2 ngày liên tiếp",
+      "status": "review",
+      "version": "1.0",
+      "revision": 1,
+      "publishedVersionId": null,
+      "ownerRole": "pt",
+      "audiences": [
+        "pt",
+        "cs"
+      ],
+      "branchScope": [
+        "all"
+      ],
+      "tags": [
+        "nutrition",
+        "mẫu câu"
+      ],
+      "relatedSopIds": [
+        "sop10"
+      ],
+      "relatedSkillIds": [
+        "10"
+      ],
+      "contentMetrics": {
+        "phraseCount": 3,
+        "situationCount": 0,
+        "variantCount": 2
+      },
+      "searchText": "script s nut no log nhac khi 2 ngay khong ghi mon khach khong ghi mon 2 ngay lien tiep pt nutrition mau cau id s nut no log category nutrition skillid 10 title nhac khi 2 ngay khong ghi mon trigger khach khong ghi mon 2 ngay lien tiep body da chi oi 2 hom nay em chua thay mon cua chi tren app hom nay chi an uong the nao a n nchi ke em nghe mot bua thoi cung duoc em ghi giup chi guidance tin dau tien nhe khong nhac muc tieu khong gui 21 00 07 00 ngay 5 moi goi variants channel zalo lan nhac 1 body da em ghe hoi tham chi thoi a may hom nay chi ban lam phai khong chi nhan em 1 dong bua trua nay an gi nhe audience khach ngai chup body da neu chup anh hoi phien chi go 1 dong sang pho trua com ga toi bun la em ghi duoc a",
+      "sortKey": "script:nhac khi 2 ngay khong ghi mon",
+      "sourceSystem": "sop-center-authoring",
+      "sourceReviewRequired": true,
+      "updatedAt": "2026-11-09T00:00:00.000Z",
+      "updatedBy": "authoring:nutrition-care-2026-11",
+      "payload": {
+        "id": "s-nut-no-log",
+        "category": "nutrition",
+        "skillId": 10,
+        "title": "Nhắc khi 2 ngày không ghi món",
+        "trigger": "Khách không ghi món 2 ngày liên tiếp",
+        "body": "Dạ chị ơi, 2 hôm nay em chưa thấy món của chị trên app. Hôm nay chị ăn uống thế nào ạ?\n\nChị kể em nghe một bữa thôi cũng được, em ghi giúp chị.",
+        "guidance": "Tin đầu tiên nhẹ, không nhắc mục tiêu; không gửi 21:00–07:00; ngày 5 mới gọi.",
+        "variants": [
+          {
+            "channel": "Zalo (lần nhắc 1)",
+            "body": "Dạ em ghé hỏi thăm chị thôi ạ, mấy hôm nay chị bận lắm phải không? Chị nhắn em 1 dòng bữa trưa nay ăn gì nhé."
+          },
+          {
+            "audience": "Khách ngại chụp",
+            "body": "Dạ nếu chụp ảnh hơi phiền, chị gõ 1 dòng “sáng phở, trưa cơm gà, tối bún” là em ghi được ạ."
+          }
+        ]
+      }
+    },
+    {
       "id": "script__s-fb-remind-day",
       "schemaVersion": 1,
       "kind": "script",
@@ -11889,6 +13323,128 @@
         "body": "Dạ cả hai gói đều có giáo án và chế độ dinh dưỡng riêng, PT kèm từng động tác và đo chỉ số theo mốc ạ. Khác nhau ở thời gian PT dành cho chị trong buổi:\n\n• PT 1:1 — [giá PT 1:1]. Trong lúc chị nghỉ giữa hiệp, PT có thể hướng dẫn thêm 1 bạn khác.\n• PT 1:1 VIP — [giá PT VIP]. [quyền lợi khác biệt của VIP].\n\nChị đang ưu tiên điều gì nhất khi tập với PT ạ: lịch linh hoạt, mức độ theo sát hay mục tiêu cụ thể nào đó?",
         "guidance": "Quản lý xác nhận 11/2026: gói VIP chỉ báo giá khi tư vấn trực tiếp tại phòng. Nói thật việc PT 1:1 có thể ghép thêm 1 bạn trong buổi. Chỉ nêu quyền lợi VIP có trong phụ lục hợp đồng; không chê gói PT 1:1 để đẩy VIP.",
         "variants": []
+      }
+    },
+    {
+      "id": "script__s-nut-review-adjust",
+      "schemaVersion": 1,
+      "kind": "script",
+      "sourceId": "s-nut-review-adjust",
+      "code": "script__s-nut-review-adjust",
+      "title": "Phản hồi bữa cần chỉnh",
+      "summary": "Bữa lệch rõ: thiếu đạm, nhiều dầu, thiếu rau",
+      "status": "review",
+      "version": "1.0",
+      "revision": 1,
+      "publishedVersionId": null,
+      "ownerRole": "pt",
+      "audiences": [
+        "pt",
+        "cs"
+      ],
+      "branchScope": [
+        "all"
+      ],
+      "tags": [
+        "nutrition",
+        "mẫu câu"
+      ],
+      "relatedSopIds": [
+        "sop10"
+      ],
+      "relatedSkillIds": [
+        "20"
+      ],
+      "contentMetrics": {
+        "phraseCount": 3,
+        "situationCount": 0,
+        "variantCount": 2
+      },
+      "searchText": "script s nut review adjust phan hoi bua can chinh bua lech ro thieu dam nhieu dau thieu rau pt nutrition mau cau id s nut review adjust category nutrition skillid 20 title phan hoi bua can chinh trigger bua lech ro thieu dam nhieu dau thieu rau body da mon nay ngon ma phan dau hoi nhieu so voi muc tieu a nen em danh can chinh de minh nho khong phai chi an sai dau n nlan sau chi goi phan nuong hoac hap con lai giu nguyen nhe bua toi chi them mot dia rau luoc la bu lai roi a guidance khong emoji neu dung 1 dieu chinh khong goi y nhin bu variants audience thieu dam body da bua nay du no nhung con thieu dam a chi them 1 qua trung hoac 100 g uc ga vao bua toi la du muc tieu ngay audience nhieu tinh bot body da phan com bua nay khoang 2 chen muc tieu cua chi la 1 5 chen a lan sau chi bot nua chen va them rau de van no nhe",
+      "sortKey": "script:phan hoi bua can chinh",
+      "sourceSystem": "sop-center-authoring",
+      "sourceReviewRequired": true,
+      "updatedAt": "2026-11-09T00:00:00.000Z",
+      "updatedBy": "authoring:nutrition-care-2026-11",
+      "payload": {
+        "id": "s-nut-review-adjust",
+        "category": "nutrition",
+        "skillId": 20,
+        "title": "Phản hồi bữa cần chỉnh",
+        "trigger": "Bữa lệch rõ: thiếu đạm, nhiều dầu, thiếu rau",
+        "body": "Dạ món này ngon mà phần dầu hơi nhiều so với mục tiêu ạ, nên em đánh “Cần chỉnh” để mình nhớ, không phải chị ăn sai đâu.\n\nLần sau chị gọi phần nướng hoặc hấp, còn lại giữ nguyên nhé. Bữa tối chị thêm một đĩa rau luộc là bù lại rồi ạ.",
+        "guidance": "Không emoji; nêu đúng 1 điều chỉnh; không gợi ý nhịn bù.",
+        "variants": [
+          {
+            "audience": "Thiếu đạm",
+            "body": "Dạ bữa này đủ no nhưng còn thiếu đạm ạ. Chị thêm 1 quả trứng hoặc 100 g ức gà vào bữa tối là đủ mục tiêu ngày."
+          },
+          {
+            "audience": "Nhiều tinh bột",
+            "body": "Dạ phần cơm bữa này khoảng 2 chén, mục tiêu của chị là 1,5 chén ạ. Lần sau chị bớt nửa chén và thêm rau để vẫn no nhé."
+          }
+        ]
+      }
+    },
+    {
+      "id": "script__s-nut-review-good",
+      "schemaVersion": 1,
+      "kind": "script",
+      "sourceId": "s-nut-review-good",
+      "code": "script__s-nut-review-good",
+      "title": "Phản hồi bữa đạt",
+      "summary": "Bữa hợp mục tiêu, đánh “Đã duyệt”",
+      "status": "review",
+      "version": "1.0",
+      "revision": 1,
+      "publishedVersionId": null,
+      "ownerRole": "pt",
+      "audiences": [
+        "pt",
+        "cs"
+      ],
+      "branchScope": [
+        "all"
+      ],
+      "tags": [
+        "nutrition",
+        "mẫu câu"
+      ],
+      "relatedSopIds": [
+        "sop10"
+      ],
+      "relatedSkillIds": [
+        "20"
+      ],
+      "contentMetrics": {
+        "phraseCount": 3,
+        "situationCount": 0,
+        "variantCount": 2
+      },
+      "searchText": "script s nut review good phan hoi bua dat bua hop muc tieu danh da duyet pt nutrition mau cau id s nut review good category nutrition skillid 20 title phan hoi bua dat trigger bua hop muc tieu danh da duyet body da bua ten bua hom nay du dam va co rau roi a phan com cung vua voi muc tieu n nbua toi chi giu y vay them mot ly nuoc truoc an la tron ngay nhe guidance khen dieu cu the khong khen chung chung gioi qua 1 goi y cho bua sau variants audience khach an ngoai dung cach body da em thich cach chi goi mon nuong thay chien a dung huong minh ban roi bua toi tuong tu la on channel duyet mon ghi chu ngan body du dam co rau khau phan hop muc tieu giu nhip nay cho bua toi",
+      "sortKey": "script:phan hoi bua dat",
+      "sourceSystem": "sop-center-authoring",
+      "sourceReviewRequired": true,
+      "updatedAt": "2026-11-09T00:00:00.000Z",
+      "updatedBy": "authoring:nutrition-care-2026-11",
+      "payload": {
+        "id": "s-nut-review-good",
+        "category": "nutrition",
+        "skillId": 20,
+        "title": "Phản hồi bữa đạt",
+        "trigger": "Bữa hợp mục tiêu, đánh “Đã duyệt”",
+        "body": "Dạ bữa [tên bữa] hôm nay đủ đạm và có rau rồi ạ 🩷 Phần cơm cũng vừa với mục tiêu.\n\nBữa tối chị giữ y vậy, thêm một ly nước trước ăn là tròn ngày nhé.",
+        "guidance": "Khen điều cụ thể, không khen chung chung “giỏi quá”; 1 gợi ý cho bữa sau.",
+        "variants": [
+          {
+            "audience": "Khách ăn ngoài đúng cách",
+            "body": "Dạ em thích cách chị gọi món nướng thay chiên ạ, đúng hướng mình bàn rồi. Bữa tối tương tự là ổn."
+          },
+          {
+            "channel": "Duyệt món (ghi chú ngắn)",
+            "body": "Đủ đạm, có rau, khẩu phần hợp mục tiêu. Giữ nhịp này cho bữa tối."
+          }
+        ]
       }
     },
     {
@@ -13118,7 +14674,8 @@
         "sop06",
         "sop07",
         "sop08",
-        "sop09"
+        "sop09",
+        "sop10"
       ],
       "relatedSkillIds": [
         "11"
@@ -13208,7 +14765,8 @@
         "sop01",
         "sop02",
         "sop05",
-        "sop07"
+        "sop07",
+        "sop10"
       ],
       "relatedSkillIds": [
         "5"
@@ -13962,7 +15520,8 @@
         "sop06",
         "sop07",
         "sop08",
-        "sop09"
+        "sop09",
+        "sop10"
       ],
       "relatedSkillIds": [
         "12"
@@ -14048,7 +15607,8 @@
       ],
       "relatedSopIds": [
         "sop01",
-        "sop02"
+        "sop02",
+        "sop10"
       ],
       "relatedSkillIds": [
         "4"
@@ -14233,7 +15793,8 @@
         "sop05",
         "sop07",
         "sop08",
-        "sop09"
+        "sop09",
+        "sop10"
       ],
       "relatedSkillIds": [
         "2"
@@ -14326,7 +15887,8 @@
         "sop04",
         "sop05",
         "sop06",
-        "sop07"
+        "sop07",
+        "sop10"
       ],
       "relatedSkillIds": [
         "21"
@@ -14419,7 +15981,8 @@
       "relatedSopIds": [
         "sop02",
         "sop03",
-        "sop06"
+        "sop06",
+        "sop10"
       ],
       "relatedSkillIds": [
         "15"
@@ -14695,7 +16258,8 @@
       ],
       "relatedSopIds": [
         "sop03",
-        "sop05"
+        "sop05",
+        "sop10"
       ],
       "relatedSkillIds": [
         "23"
@@ -14972,7 +16536,8 @@
         "sop04",
         "sop05",
         "sop06",
-        "sop08"
+        "sop08",
+        "sop10"
       ],
       "relatedSkillIds": [
         "20"
@@ -15152,7 +16717,8 @@
       "relatedSopIds": [
         "sop01",
         "sop02",
-        "sop05"
+        "sop05",
+        "sop10"
       ],
       "relatedSkillIds": [
         "10"
@@ -15985,6 +17551,1094 @@
           "11",
           "15",
           "20"
+        ]
+      }
+    },
+    {
+      "id": "sop__sop10",
+      "schemaVersion": 1,
+      "kind": "sop",
+      "sourceId": "sop10",
+      "code": "SOP 10",
+      "title": "Chăm sóc dinh dưỡng hội viên",
+      "summary": "Mỗi hội viên có mục tiêu ăn uống rõ trong tuần đầu, được phản hồi món trong 24 giờ, được nhắc đúng nhịp và review theo mốc; không ai nhận lời khuyên vượt phạm vi an toàn.",
+      "status": "review",
+      "version": "1.0",
+      "revision": 1,
+      "publishedVersionId": null,
+      "ownerRole": "admin",
+      "audiences": [
+        "pt",
+        "cs",
+        "admin"
+      ],
+      "branchScope": [
+        "all"
+      ],
+      "tags": [
+        "Nutrition Care",
+        "quy trình",
+        "dinh dưỡng"
+      ],
+      "relatedSopIds": [
+        "sop10"
+      ],
+      "relatedSkillIds": [
+        "2",
+        "4",
+        "5",
+        "10",
+        "11",
+        "12",
+        "15",
+        "20",
+        "21",
+        "23"
+      ],
+      "contentMetrics": {
+        "phraseCount": 86,
+        "situationCount": 45,
+        "variantCount": 14
+      },
+      "searchText": "sop 10 cham soc dinh duong hoi vien moi hoi vien co muc tieu an uong ro trong tuan dau duoc phan hoi mon trong 24 gio duoc nhac dung nhip va review theo moc khong ai nhan loi khuyen vuot pham vi an toan admin nutrition care quy trinh dinh duong id sop10 code sop 10 title cham soc dinh duong hoi vien stage nutrition care goal dinh duong la mot nua ket qua hoi vien biet an gi ghi mon deu nhan phan hoi kip thoi tu pt coach va duoc chuyen dung nguoi khi co yeu to suc khoe skillids 2 4 5 10 11 12 15 20 21 23 status review version 1 0 audience pt coach cs sections title checklist tuan dau dinh duong kind checklist items da doi chieu phieu khai bao suc khoe di ung benh nen thai ky sau sinh da hoi 5 cau thoi quen an da dat muc tieu ngay tren app trong khung an toan khach da ghi it nhat 1 mon va biet nut sua khau phan da hen review 2 tuan va ghi student 360 title nhip cham soc dinh duong kind timeline rows time d0 d7 action khao sat thoi quen dat muc tieu ngay huong dan ghi mon owner pt coach time hang ngay action duyet mon trong 24 gio theo cong thuc 1 1 1 owner pt coach admin duyet an time thu hai action tin tong ket tuan ngay ghi mon diem tot 1 viec cho tuan moi owner pt cskh time ngay 2 5 14 khong ghi action nhan nhe goi 3 phut retention case sop 04 owner cskh pt time ngay 14 28 moi 4 tuan action review tien do chinh muc tieu toi da 10 owner pt chinh time t 30 action tong hop dinh duong vao progress review sop 05 owner pt cs title cong thuc phan hoi 1 1 1 kind checklist items mot diem tot co that trong bua mot dieu chinh cu the cho bua sau mot goi y de lam duoi 3 dong khong cham diem khong emoji khi bua lech nhieu hoac khi noi ve suc khoe playbook title khoi dong dinh duong tuan dau when d0 d7 sau khi ky goi chay cung lich cham soc 90 ngay cua sop 03 owner pt chinh coach online skillid 15 supportskillids 20 2 handoffs sopid sop03 when chay song song lich 90 ngay d1 kiem tra app d7 hoi tham sopid sop06 when phieu suc khoe co muc co khach bao benh nen thai ky sau sinh hoac di ung goal hieu thoi quen an hien tai chot muc tieu ngay tren app va huong dan ghi mon dau tien trong 48 gio actions hoi 5 cau thoi quen may bua ngay bua nao hay bo an ngoai bao nhieu lan tuan uong gi ngoai nuoc loc ai nau o nha doi chieu phieu khai bao suc khoe di ung benh nen dang mang thai sau sinh thuoc dang dung co muc co thi chi dat muc tieu sau khi pt va quan ly xac nhan sop 06 dat muc tieu ngay tren app nang luong dam tinh bot beo theo muc app de xuat chi chinh trong khung an toan app cho phep huong dan chup mon dau tien ngay trong buoi chup ca khay xac nhan mon app nhan dien sua khau phan neu lech thong nhat nhip khach ghi mon moi bua pt coach phan hoi trong 24 gio review sau 2 tuan ghi vao student 360 thoi quen chinh muc tieu da dat ngay review 2 tuan say da chi oi truoc khi ban an gi em hoi chi 5 cau nho ve thoi quen hien tai nhe mot ngay chi thuong an may bua a da em khong bat chi an kieng khat khe dau a minh bat dau tu viec ghi lai dung nhung gi chi dang an trong 3 ngay roi chinh tung chut mot da muc tieu ngay em dat tren app la muc tieu nang luong kcal voi muc tieu dam g dam day la muc app tinh theo chi so cua chi minh se xem lai sau 2 tuan a da chi chup giup em ca khay an truoc khi an nhe app se nhan dien mon neu app doan sai chi bam sua khau phan la duoc a da chi co dang di ung mon nao hoac dang dieu tri benh gi can kieng khong a em hoi de tu van dung pham vi an toan cho chi da hang ngay chi ghi mon em se xem va phan hoi trong vong 24 gio sau 2 tuan minh ngoi lai xem can nang va cam giac an cua chi nhe avoid dua thuc don co dinh ngay buoi dau khi chua biet thoi quen va lich sinh hoat cua khach dat muc tieu nang luong duoi nguong app canh bao de giam nhanh cho khach vui ket luan chuyen mon ve benh nen thuoc hay thai ky tu van thay cho bac si binh luan ve co the khach chi an vay bao sao map crm student 360 ghi chu dinh duong thoi quen muc tieu ngay ngay review 2 tuan done muc tieu ngay da luu tren app khach da ghi it nhat 1 mon ngay review 2 tuan da co trong student 360 escalate phieu suc khoe co muc co khach dang mang thai sau sinh duoi 6 thang co benh nen hoac dang dung thuoc anh huong an uong sop 06 khong tu dat muc tieu tools app aura dinh duong muc tieu ngay ghi mon phieu khai bao suc khoe student 360 cases group thoi quen when khach bo bua sang thuong xuyen then khong ep an sang ngay de xuat bua sang gon 5 phut theo doi 1 tuan say da chi quen bo bua sang roi thi minh khong doi lien dau a tuan nay chi thu mot ly sua hat hoac 2 qua trung luoc luc 9 gio xem co the the nao nhe group thoi quen when khach an ngoai 5 7 bua tuan then chon 3 mon quen khach hay goi huong dan cach goi phien ban gon hon khong bat tu nau say da chi an ngoai nhieu thi minh chon mon thong minh thoi a chi hay goi mon gi nhat em goi y cach goi de van du dam ma bot dau mo nhe group muc tieu when khach muon giam 5 kg trong 1 thang then khong hua con so noi ro toc do an toan 0 5 1 kg tuan va tap trung vao thoi quen do duoc say da em hieu chi muon thay ket qua som muc giam ben va an toan thuong la 0 5 1 kg moi tuan nen minh dat muc tieu 2 tuan dau la ghi mon du 5 ngay tuan va ngu du can se theo sau a group muc tieu when khach muon tang co nhung an it dam then uu tien tang dam moi bua truoc chua ban thuc pham bo sung say da de tang co moi bua chi can co mot phan dam co long ban tay thit ca trung hoac dau hu minh lam quen 1 tuan roi tinh tiep nhe group suc khoe when khach bao dang co thai hoac sau sinh duoi 6 thang then dung dat muc tieu giam can chuyen sop 06 chi tiep tuc khi co xac nhan cua bac si va quan ly say da em cam on chi da bao giai doan nay em khong dat muc tieu giam can cho chi a em bao pt va quan ly de sap xep huong an uong phu hop chi nho hoi y bac si dang theo doi giup em nhe crm co an toan sop 06 group suc khoe when khach co benh nen tieu duong huyet ap da day gout then khong tu len thuc don xin huong dan cua bac si chi ho tro ghi mon va nhac nhip say da voi benh nen thi phan an uong can theo huong dan cua bac si dieu tri a chi gui em huong dan do em ho tro chi ghi mon va nhac gio an phan con lai em chuyen pt va quan ly cung xem nhe crm co an toan sop 06 group app when khach khong chup duoc mon hoac app khong nhan dien then huong dan chup du sang ca khay neu van loi chon mon thu cong trong kho mon say da chi chup lai o cho sang de ca khay vao khung hinh giup em nhe neu app van chua nhan ra chi bam chon mon roi go ten mon la duoc a group app when khach u40 ngai dung app then lam cung khach 2 lan tai phong cho phep gui anh qua zalo cho pt ghi thay trong tuan dau say da khong sao a tuan dau chi cu chup mon gui zalo cho em em ghi vao app giup chi khi chi quen roi minh tu ghi sau nhe example good chi chup giup em ca khay an truoc khi an nhe app se nhan dien mon neu app doan sai chi bam sua khau phan la duoc a bad chi phai an dung thuc don nay 1 200 kcal moi ngay cuoi thang giam 5 kg chac chan why bat dau bang thoi quen ghi mon khong ap thuc don cung va khong hua ket qua quiz question phieu suc khoe cua khach co muc co dang dieu tri tieu duong pt nen lam gi voi muc tieu dinh duong options dat muc tieu giam can nhu binh thuong chuyen sop 06 chi ho tro ghi mon va nhac nhip cho den khi co huong dan cua bac si tu len thuc don it duong tu choi cham soc dinh duong answer 1 why khong ket luan chuyen mon yeu to suc khoe di theo sop 06 question khach muon giam 5 kg trong 1 thang cau tra loi dung options hua se dat neu khach tuan thu neu toc do an toan 0 5 1 kg tuan va dat muc tieu thoi quen cho 2 tuan dau dat muc tieu 1 000 kcal ngay im lang chuyen sang chuyen khac answer 1 why chinh sach khong cam ket ket qua muc tieu do duoc bang thoi quen title duyet mon va phan hoi hang ngay when trong 24 gio ke tu khi khach ghi mon uu tien bua cho lau nhat owner pt chinh coach online admin duyet an khi pt vang skillid 20 supportskillids 2 12 handoffs sopid sop04 when khach ngung ghi mon 14 ngay hoac health score giam goal moi bua duoc duyet voi mot loi khen that mot dieu chinh cu the va mot goi y cho bua sau khach thay duoc lang nghe khong bi cham diem actions mo duyet mon loc cho duyet xu ly bua cho lau nhat truoc phan hoi theo cong thuc 1 1 1 1 diem tot 1 dieu chinh cu the 1 goi y cho bua sau duoi 3 dong danh da duyet khi bua hop muc tieu can chinh kem ly do ngan khi lech ro thieu dam qua nhieu dau bo rau khong duyet theo cam tinh xem du 3 chi so nang luong dam rau cua ca ngay truoc khi nhan xet mot bua bua co anh mo hoac khau phan khong ro hoi lai 1 cau khong doan thu hai gui khach 1 tin tong ket tuan so ngay ghi mon diem lam tot 1 viec cho tuan moi say da bua trua hom nay du dam va co rau roi a bua toi chi them mot nam rau luoc hoac salad nua la tron ngay nhe da mon nay ngon ma hoi nhieu dau a lan sau chi goi phan nuong hoac hap thay chien con lai giu nguyen nhe da hom nay chi thieu mot chut dam so voi muc tieu bua toi chi them 1 qua trung hoac 100 g uc ga la du a da anh hoi toi nen em chua nhin ro phan com a chi cho em biet khoang bao nhieu chen de em ghi dung nhe da em thay chi ghi duoc 5 7 ngay tuan nay deu hon tuan truoc roi a tuan moi minh giu nhip nay va them rau o bua toi nhe da em danh can chinh cho bua nay vi phan tinh bot hoi nhieu so voi muc tieu khong phai chi an sai dau a bua sau chi giam con 1 chen com la on avoid cham diem hoac dung tu an sai an bay pha khong dung emoji khi nhan xet bua lech nhieu duyet hang loat ma khong mo anh goi y cat han mot nhom thuc pham bo tinh bot bo beo hoac nhin bua de bu de bua cho qua 24 gio roi phan hoi don mot lan crm duyet mon trang thai da duyet can chinh kem ly do tong ket tuan ghi vao student 360 done khong con bua cho duyet qua 24 gio cua hoi vien minh phu trach moi bua can chinh co ly do ngan escalate khach ghi duoi 800 kcal ngay trong 3 ngay lien tiep bo bua nhieu ngay hoac nhac den non nhin de giam can bao quan ly trong ngay theo sop 06 tools duyet mon pt coach admin student 360 ghi chu dinh duong cases group bua lech when bua thieu dam nhieu tinh bot then khen phan co chinh 1 diem ve dam goi y nguon dam san co say da phan com va rau on roi a bua nay con thieu dam chi them 1 mieng ca hoac dau hu co long ban tay la du muc tieu ngay nhe group bua lech when an vat nhieu buoi toi tra sua banh ngot then khong cam de xuat doi tan suat va phien ban nhe hon say da ly tra sua toi nay em ghi nhan roi a minh khong bo han dau tuan nay chi thu giu 2 ly va chon size nho it duong nhe group bua lech when bo bua de bu cho bua truoc an nhieu then giai thich ngan vi sao khong bu bang nhin de xuat bua nhe say da an nhieu mot bua la chuyen binh thuong a minh khong can nhin bua sau de bu dau toi nay chi an nhe voi rau va dam la co the tu can bang nhe group anh ghi nhan when khach ghi mon bang chu khong co anh then van duyet theo mo ta nhac chup anh lan sau de uoc luong khau phan dung hon say da em ghi nhan bua chi mo ta roi a lan sau chi chup them anh giup em nhe nhin khau phan em tu van sat hon group anh ghi nhan when app nhan dien sai mon khach khong sua then sua giup trong lan duyet nhan 1 cau huong dan nut sua say da app doan mon nay la pho nhung em thay la bun bo nen em sua lai giup chi roi a lan sau chi bam vao ten mon de sua nhanh nhe group anh ghi nhan when khach ghi don 3 ngay trong mot lan then van phan hoi goi y ghi ngay sau bua de nho khau phan say da em thay chi vua ghi ca 3 ngay cam on chi da bo sung a chi ghi ngay sau khi an thi khau phan se dung hon va em phan hoi kip trong ngay nhe group nhip duyet when pt nghi phep bua cho qua 24 gio then ban giao danh sach hoi vien cho coach online hoac admin duyet an truoc khi nghi say da tuan nay pt ten pt nghi phep nen em la ten coach se xem mon cua chi chi cu ghi nhu binh thuong nhe a crm ban giao duyet mon student 360 group dau hieu rui ro when khach ghi duoi 800 kcal ngay 3 ngay lien tiep then khong khen gioi hoi tham suc khoe nang ve muc an toan bao quan ly trong ngay say da 3 ngay nay nang luong cua chi thap hon muc an toan kha nhieu a chi co thay met hay chong mat khi tap khong em muon minh nang lai bua an va em bao quan ly cung theo doi voi chi crm co an toan bao quan ly trong ngay example good da bua trua du dam va co rau roi a bua toi chi them mot phan rau nua la tron ngay nhe bad bua nay an sai roi nha qua nhieu com toi nhin di why khen that chinh mot diem khong ra lenh nhin an quiz question khach ghi 3 ngay lien tiep duoi 800 kcal pt nen lam gi options khen khach ky luat tot hoi tham suc khoe nang ve muc an toan bao quan ly trong ngay bo qua vi khach dang giam can dat muc tieu thap hon nua answer 1 why duoi nguong an toan la co rui ro khong phai thanh tich question cong thuc phan hoi mot bua la gi options liet ke moi loi 1 diem tot 1 dieu chinh 1 goi y cho bua sau chi danh trang thai khong nhan gui lai thuc don chuan answer 1 why phan hoi 1 1 1 ngan de lam theo title giu nhip ghi mon va dong luc when khong ghi mon 2 ngay nhan nhe 5 ngay goi 14 ngay mo retention case sop 04 owner cskh duoc giao hoac pt chinh skillid 10 supportskillids 21 2 handoffs sopid sop04 when ngung ghi mon 14 ngay hoac khach noi muon bo cuoc goal khach quay lai ghi mon trong 48 gio sau khi duoc nhac khong cam thay bi kiem soat actions ngay 2 khong ghi 1 tin nhan nhe hoi 1 cau mo khong nhac muc tieu ngay 5 goi 3 phut hoi dieu gi dang can tro ban chan khong thay ket qua ngai chup chon 1 cach go truoc cuoi tuan le du lich nhan truoc 1 kich ban an vui ma khong roi muc tieu ghi ly do gian doan vao student 360 de pt dieu chinh muc tieu toi da 2 3 lan lien he chu dong trong 14 ngay khong nhan 21 00 07 00 ngay 14 khong ghi va khong phan hoi mo retention case theo sop 04 say da chi oi 2 hom nay em chua thay mon cua chi tren app hom nay chi an uong the nao a chi ke em nghe mot bua thoi cung duoc da neu chup anh moi bua hoi phien chi chi can ghi 1 dong sang pho trua com ga toi bun la em ghi giup duoc a da cuoi tuan chi co tiec thi cu an vui nhe meo nho an rau va dam truoc tinh bot sau uong du nuoc thu hai minh quay lai nhip cu la duoc a da em goi 3 phut hoi tham chi thoi a tuan roi viec ghi mon bi gian doan co dieu gi lam chi thay khong tien khong a da chi di cong tac thi ghi duoc bua nao hay bua do khong can du a em goi y vai mon de goi o quan cho chi nhe da khong sao dau a nghi vai ngay la binh thuong minh bat dau lai tu bua ke tiep khong can bu gi ca avoid nhan kieu kiem tra sao chi khong ghi chi bo cuoc roi a gui cung mot tin nhac lap lai moi ngay nhan ngoai gio 21 00 07 00 doa ket qua khong ghi thi khong giam duoc dau nhac qua 3 lan trong 14 ngay khi khach khong phan hoi crm student 360 ly do gian doan lan nhac thu may retention case khi du 14 ngay done khach ghi mon tro lai trong 48 gio sau nhac hoac ly do gian doan da duoc ghi va pt biet escalate khach noi muon bo dinh duong vi khong thay ket qua hoac im lang 14 ngay sop 04 retention case nhac den nhin an non thuoc giam can sop 06 tools zalo inbox student 360 action center buoc nhac cases group gian doan when khach ban noi khong co thoi gian chup then giam yeu cau ghi chu 1 dong hoac chup 1 bua ngay say da chi ban thi minh ghi gon thoi a moi ngay chi chup dung 1 bua chinh bua khac nhan 1 dong la duoc em lo phan con lai nhe group gian doan when khach ngai vi an xau nen khong dam ghi then noi ro ghi de hieu khong de cham khen hanh dong ghi say da chi cu ghi that a ke ca bua an vat em can hieu thoi quen cua chi de chinh cho hop khong ai cham diem chi ca group gian doan when khach chan vi chua thay can giam sau 10 ngay then chuyen sang chi so khac ngu nang luong vong eo hen review 2 tuan voi pt say da 10 ngay can chua doi la chuyen hay gap a co the dang dieu chinh chi de y giup em giac ngu va nang luong khi tap co khac khong tuan sau pt ten pt se do lai cung chi group su kien when khach bao di du lich 1 tuan then gui 3 nguyen tac an khi di choi tam dung nhac hen ngay quay lai say da chi di choi vui nhe a em gui 3 nguyen tac nho moi bua co rau va dam uong du nuoc an cham ve chi nhan em minh noi lai nhip ghi mon group su kien when khach bao tiec cuoi hoac le cuoi tuan then cho phep bua tu do co ke hoach khong bu bang nhin say da tiec thi minh cu an a mot bua tu do nam trong ke hoach hom sau chi quay lai bua binh thuong khong can nhin bu nhe group dong luc when khach noi chac em bo phan an uong chi tap thoi then lang nghe hoi ly do de xuat giam do kho neu van muon dung ghi nhan bao pt mo sop 04 neu kem nguy co roi bo say da em hieu a phan an uong de nan hon tap chi cho em biet dieu gi lam chi met nhat chup mon so lieu hay cam giac bi theo doi minh bo bot phan do giu phan de nhat thoi crm ly do muon dung bao pt chinh group dong luc when khach ghi deu 4 tuan lien tuc then ghi nhan trong tin ca nhan de xuat buoc moi nau 1 mon tu vao bep cung aura say da 4 tuan ghi mon deu em phuc chi that a tuan toi minh thu mot mon trong muc vao bep cung aura nhe em chon mon 15 phut cho chi example good da 2 hom nay em chua thay mon cua chi tren app hom nay chi an uong the nao a bad chi khong ghi mon thi em khong giup duoc dau ket qua khong co dung trach why hoi mo va khong doa ket qua quiz question khach khong ghi mon 2 ngay buoc dau tien la gi options goi dien ngay 1 tin nhan nhe hoi 1 cau mo bao quan ly dat lai muc tieu thap hon answer 1 why nhac theo bac ngay 2 nhan ngay 5 goi ngay 14 retention case question khach bao tiec cuoi cuoi tuan loi khuyen dung options nhin trua de danh bung an binh thuong rau va dam truoc hom sau quay lai nhip cu bo tiec an roi tap bu gap doi answer 1 why bua tu do co ke hoach khong bu bang nhin hay tap qua suc title review tien do 2 tuan va 4 tuan when ngay 14 va ngay 28 sau khi dat muc tieu sau do moi 4 tuan owner pt chinh co the cung coach online skillid 23 supportskillids 15 20 handoffs sopid sop05 when review thang cuoi truoc het goi dua ket qua dinh duong vao progress review t 30 sopid sop08 when do chi so chup anh tien do theo phieu dong y goal khach thay ro minh da thay doi gi thoi quen chi so cam giac va biet muc tieu 2 tuan toi muc tieu ngay duoc chinh co can cu actions chuan bi truoc 10 phut so ngay ghi mon trung binh nang luong dam can nang va vong eo lan truoc ghi chu duyet mon mo dau bang dieu khach lam duoc roi moi den chi so do can nang vong eo cung dieu kien sang truoc an theo phieu dong y sop 08 khong do khi khach khong muon neu can khong doi kiem tra 4 yeu to theo thu tu tuan thu ghi mon khau phan that giac ngu chu ky giu nuoc chinh muc tieu toi da 10 moi lan chot 1 muc tieu thoi quen cho 2 tuan toi ghi vao app va student 360 review thang cuoi truoc het goi dua ket qua vao progress review cua sop 05 say da 2 tuan qua chi ghi mon 11 14 ngay va bua toi da co rau deu do la thay doi lon nhat a minh xem chi so nhe da can nang giam 0 8 kg vong eo giam 2 cm toc do nay la on va ben a khong can day nhanh hon da can chua doi nhung vong eo giam 1 5 cm va chi ngu ngon hon nghia la co the dang thay doi dung huong a minh giu muc tieu va theo doi them 2 tuan da em de xuat 2 tuan toi minh chinh nhe them 1 phan dam vao bua sang cac thu khac giu nguyen chi thay lam duoc khong a da em khong do hom nay neu chi chua san sang a minh noi chuyen ve cam giac an va ngu cung du de dieu chinh roi da con 1 thang la het goi em se gui phan dinh duong nay vao buoi progress review de chi thay ca chang duong nhe avoid mo dau bang con so can nang hoac so sanh voi hoi vien khac cat muc tieu nang luong manh qua 10 vi can chua xuong hua moc ket qua cho 2 tuan toi ep do hoac chup anh khi khach chua dong y crm student 360 ket qua review ngay ghi chi so dieu chinh muc tieu 2 tuan toi muc tieu ngay cap nhat tren app done khach co 1 muc tieu thoi quen moi muc tieu ngay duoc cap nhat neu can va lich review ke tiep da dat escalate sut can tren 1 5 kg tuan chong mat mat kinh nguyet hoac khach muon giam duoi nguong an toan dung dieu chinh bao quan ly theo sop 06 tools student 360 tien do app aura muc tieu ngay phieu dong y do hinh anh cases group ket qua when can khong doi sau 2 tuan ghi mon du then soat khau phan that va giac ngu chinh toi da 10 doi chi so theo doi sang vong eo anh say da chi ghi du nen minh xem ky khau phan mot chut a em thay bua toi com khoang 2 chen minh thu 1 5 chen va them rau con giac ngu chi khoang may tieng mot dem a group ket qua when can tang du khach noi an it then khong nghi ngo khach xem lai cach uoc luong do uong an vat chua ghi de xuat ghi du 7 ngay toi say da co the vai phan nho chua vao nhat ky nhu do uong hay an vat a tuan toi chi ghi giup em ca nuoc ngot ca phe sua em xem lai roi minh chinh nhe group ket qua when khach giam nhanh tren 1 5 kg tuan then hoi cach an kiem tra co nhin cat bua nang ve muc an toan bao quan ly say da toc do giam nay nhanh hon muc an toan a chi co bo bua hay cat han tinh bot khong em muon minh an lai du bua de giu co va suc tap em cung bao quan ly cung theo doi voi chi crm co an toan sop 06 group ket qua when khach dat muc tieu som then chuyen sang giai doan giu can tang nhe nang luong muc tieu duy tri 4 tuan say da chi dat muc tieu som hon du kien roi a giai doan toi minh giu can bang cach tang nhe bua an va theo doi 4 tuan de co the on dinh nhe group buoi review when khach khong muon can then ton trong dung vong eo quan ao cam giac ghi khong do theo mong muon hoi vien say da minh khong can hom nay cung duoc a chi thay quan ao mac co rong hon khong va nang luong luc tap the nao crm khong do theo mong muon hoi vien sop 08 group buoi review when khach hoi vay bao gio em duoc 50 kg then khong hua moc noi ve khoang thoi gian hop ly va dieu kien say da em khong hua moc ngay duoc a vi moi co the khac nhau voi nhip hien tai moi thang chi co the giam 2 3 kg neu giu deu an va tap minh xem lai sau moi 4 tuan nhe example good da 2 tuan qua chi ghi mon 11 14 ngay va bua toi da co rau deu minh xem chi so nhe bad can chi tang 0 5 kg chac chi an len roi gio giam con 1 000 kcal nhe why bat dau tu hanh vi tot khong nghi ngo khach khong cat manh nang luong quiz question can khong doi sau 2 tuan ghi mon day du viec dau tien options cat 30 nang luong soat khau phan that va giac ngu chinh toi da 10 doi pt ngung dinh duong answer 1 why chinh co can cu tung buoc nho question khach giam 2 kg trong 1 tuan pt nen lam gi options chuc mung va giu nguyen hoi cach an nang ve muc an toan bao quan ly giam them muc tieu tang buoi tap answer 1 why sut can nhanh la co an toan title an toan dinh duong va chuyen dung nguoi when ngay khi xuat hien dau hieu trong cung ngay owner nguoi phat hien pt coach cskh quan ly chi nhanh skillid 11 supportskillids 2 handoffs sopid sop06 when moi yeu to suc khoe benh nen thai ky sau sinh di ung dau hieu roi loan an uong sut can nhanh goal khong nhan vien nao dua loi khuyen vuot pham vi khach co yeu to suc khoe duoc chuyen dung nguoi trong ngay voi thai do ton trong actions nhan dien co do nhin an keo dai non sau an dung thuoc tra giam can detox nhieu ngay mat kinh nguyet chong mat khi tap di ung benh nen thai ky sau sinh duoi 6 thang dung tu van chi tiet noi dung pham vi aura ho tro an can bang va ghi mon khong thay bac si bao quan ly chi nhanh trong ngay qua kenh noi bo ghi co an toan vao student 360 de nghi khach hoi bac si chuyen gia dinh duong lam sang khi co huong dan thi ho tro theo huong dan do khong chia se thong tin suc khoe cua khach ra ngoai nhom phu trach sop 08 hoi tham lai sau 48 gio va ghi ket qua say da em cam on chi da chia se voi em phan nay vuot pham vi cua pt nen em khong tu van them de tranh sai em bao quan ly de sap xep huong phu hop cho chi a da voi viec dung thuoc giam can em khong khuyen khich va cung khong tu van duoc a chi cho em xin y kien bac si truoc phan an uong em ho tro theo huong dan do da neu chi thay chong mat khi tap sau may ngay an it minh dung buoi hom nay va an nhe truoc a em bao quan ly de cung theo doi voi chi da detox nhieu ngay chi uong nuoc ep thi em khong dong hanh duoc vi khong an toan a neu chi muon nhe bung minh lam 3 ngay an nhe co du dam va rau thay the nhe da thong tin suc khoe chi chia se chi co em va quan ly biet de cham soc chi em khong ghi ra ngoai nhom phu trach a da hom nay chi thay the nao roi a em hoi tham lai sau hai ngay nhu da hen avoid goi y lieu luong thuoc thuc pham chuc nang hoac thuc don cho benh nen khen hanh vi nguy co nhin gioi giam nhanh ghe noi ve roi loan an uong truoc mat nguoi khac hoac qua nhom chat chung tri hoan bao quan ly sang hom sau crm student 360 co an toan noi dung ngan bao quan ly chi nhanh trong ngay done quan ly da nhan thong tin trong ngay student 360 co co an toan khach duoc chuyen huong dan phu hop escalate luon chuyen quan ly chi nhanh trong ngay dau hieu cap tinh ngat dau nguc non keo dai xu ly su co theo sop 06 ngay tools phieu khai bao suc khoe kenh noi bo quan ly chi nhanh student 360 co an toan cases group hanh vi nguy co when khach khoe nhin an ca ngay de giam nhanh then khong khen hoi cam giac giai thich ngan tac hai bao quan ly neu lap lai say da em lo cho chi hon la mung a nhin ca ngay de met va mat co ket qua lai kho giu minh quay lai 3 bua gon nhe nhe em gui goi y bua don gian cho chi group hanh vi nguy co when khach hoi mua thuoc hoac tra giam can then khong tu van san pham noi ro khong khuyen khich chuyen bac si say da em khong tu van thuoc hay tra giam can duoc a ben em khong khuyen khich vi rui ro cho suc khoe chi muon dung gi thi hoi bac si truoc giup em phan an uong thuong ngay em dong hanh voi chi group hanh vi nguy co when khach noi non sau khi an nhieu then lang nghe khong phan xet bao quan ly trong ngay de nghi gap chuyen gia say da em cam on chi da tin em de ke a em khong du chuyen mon cho viec nay nen em bao quan ly de tim nguoi phu hop ho tro chi va em van o day dong hanh voi chi crm co an toan bao quan ly ngay group suc khoe when khach bi di ung hai san hoac gluten then ghi ro vao student 360 loai tru khi goi y mon khong tu de xuat thay the thuoc say da em ghi lai di ung mon cua chi roi a moi goi y mon em se loai phan nay ra chi co huong dan gi tu bac si thi gui em them nhe crm di ung student 360 group suc khoe when khach dang dieu tri da day hay dau khi tap then khong ket luan de nghi theo huong dan bac si chinh gio an truoc tap bao pt va quan ly say da voi da day thi phan an uong nen theo huong dan cua bac si a em chi chinh giup chi gio an nhe truoc tap khoang 60 90 phut de do kho chiu va em bao pt cung quan ly biet nhe group suc khoe when khach sau sinh muon giam mo dang cho con bu then khong dat muc tieu giam nang luong chuyen sop 06 chi ho tro an du da dang say da giai doan cho con bu em khong dat muc tieu giam nang luong cho chi a minh an du va da dang de co sua phan giam mo minh tinh sau khi bac si dong y nhe crm co an toan sop 06 example good da em khong tu van thuoc giam can duoc a ben em khong khuyen khich vi rui ro cho suc khoe chi hoi bac si truoc giup em nhe bad chi uong loai nay di em thay nhieu nguoi dung giam nhanh lam why khong khuyen nghi san pham ngoai pham vi chuyen dung nguoi quiz question khach ke non sau khi an nhieu nhan vien nen lam gi options khuyen an it lai lang nghe bao quan ly trong ngay de nghi gap chuyen gia ke cho nhom pt de cung gop y bo qua vi khong phai viec minh answer 1 why dau hieu roi loan an uong can nguoi phu hop va bao mat question khach hoi mua tra giam can cau dung options gioi thieu loai minh biet khong tu van san pham noi ro khong khuyen khich chuyen bac si noi tuy chi khen chi quyet tam answer 1 why ngoai pham vi va co rui ro title phoi hop eat clean va vao bep cung aura when khi khach noi ban nau an ngoai nhieu hoac hoi goi y mon khong chu dong chao ban owner pt chinh cskh skillid 4 supportskillids 5 handoffs sopid sop07 when khieu nai mon eat clean chat luong giao tre tiep nhan va phan hoi theo quy trinh khieu nai goal khach co cach an dung muc tieu ma vua voi thoi gian va tui tien goi y eat clean chi khi giup khach khong phai de ban actions nghe nhu cau truoc ban nau an ngoai khong biet nau can doi mon uu tien goi y mien phi cong thuc 15 phut trong vao bep cung aura cach goi mon o quan quen chi goi y eat clean khi khach can giao tan noi hoac khong co thoi gian neu gia du don vi va cach dat tren app khong noi eat clean la bat buoc hay an ngoai thi khong giam duoc ghi mon eat clean khach dat vao nhat ky giup khach neu app chua tu ghi ghi nhan phan hoi mon ngon man it vao kenh van hanh eat clean de bep dieu chinh say da chi ban nau thi em goi y 2 huong a cong thuc 15 phut trong muc vao bep cung aura hoac dat eat clean giao tan noi chi muon xem huong nao truoc da trong app co muc vao bep cung aura em chon san 3 mon de lam theo muc tieu cua chi chi xem thu nhe da neu chi muon thu eat clean mot phan la gia eat clean dat trong app muc eat clean giao trong ngay a khong bat buoc dau minh thu 1 2 bua xem hop khong nhe da phan eat clean chi dat em da ghi vao nhat ky hom nay giup chi roi a chi khong can chup nua da chi thay phan an hoi man thi em bao bep dieu chinh ngay a cam on chi da gop y da an ngoai van giam duoc binh thuong a chi can chon mon va khau phan em gui chi danh sach mon goi o quan com van phong nhe avoid chao ban eat clean khi khach khong hoi hoac khong co nhu cau noi an ngoai hoac tu nau thi khong hieu qua bao gia thieu don vi hoac hua uu dai chua co goi y mon co nguyen lieu khach da bao di ung crm student 360 ghi chu goi y da gui phan hoi mon chuyen kenh van hanh eat clean done khach co it nhat 1 cach an phu hop voi thoi gian cua minh cong thuc hoac eat clean va da thu trong tuan escalate khieu nai ve mon eat clean chat luong giao tre van hanh eat clean trong ngay va quy trinh khieu nai cua sop 07 tools app aura vao bep cung aura app aura eat clean kenh van hanh eat clean cases group nhu cau when khach khong biet nau song mot minh then goi y 3 cong thuc mot noi 15 phut sau 1 tuan hoi lai say da em chon 3 mon mot noi 15 phut nguyen lieu mua o sieu thi gan nha a chi thu 1 mon tuan nay roi ke em nghe nhe group nhu cau when khach hoi eat clean co bat buoc khong then tra loi ro khong bat buoc neu khi nao huu ich say da khong bat buoc a eat clean hop khi chi ban khong nau duoc hoac muon phan an can san con chi tu nau hay an ngoai dung cach van dat muc tieu binh thuong group nhu cau when khach thay eat clean dat then khong ep goi y dung 2 3 bua tuan o ngay ban nhat con lai tu nau say da chi dung eat clean cho 2 3 bua ban nhat trong tuan thoi cung duoc a con lai minh tu chuan bi theo cong thuc vay vua tien vua khong ton nhieu group van hanh when khach khieu nai mon giao tre hoac khong dung then xin loi ghi nhan chuyen van hanh eat clean trong ngay phan hoi lai ket qua say da em xin loi chi vi phan an hom nay giao tre a em chuyen ben van hanh kiem tra ngay va bao lai chi trong hom nay crm khieu nai eat clean chuyen van hanh group van hanh when khach di ung hai san nhung thuc don tuan co ca then doi mon theo ghi chu di ung xac nhan lai voi bep say da thuc don thu tu co ca em doi sang mon ga cho chi theo ghi chu di ung a em da bao bep xac nhan lai roi nhe example good da chi ban nau thi em goi y 2 huong cong thuc 15 phut trong vao bep cung aura hoac dat eat clean giao tan noi chi muon xem huong nao truoc bad chi phai dat eat clean moi giam duoc an ngoai la hong het why dua lua chon that khong ep mua khong phu nhan cach an cua khach quiz question khi nao nen goi y eat clean options moi hoi vien moi khi khach ban khong nau duoc hoac can phan an can san khi doanh so bep thap khi khach an ngoai answer 1 why goi y theo nhu cau khong chao ban question khach thay eat clean dat cau tra loi dung options uu dai ngay 20 goi y dung 2 3 bua ban nhat con lai tu nau theo cong thuc noi khong dat thi khong giam im lang answer 1 why giu lua chon vua tui tien khong hua uu dai chua co title ghi nhan va ban giao cham soc dinh duong when sau moi tuong tac dang ke khi doi pt giao cskh t 30 truoc het goi owner pt chinh cskh coach online skillid 12 supportskillids 20 11 handoffs sopid sop05 when t 30 ket qua dinh duong vao progress review va ke hoach gia han sopid sop04 when health score giam vi ngung ghi mon hoac bo review sopid sop08 when khach yeu cau xoa du lieu an uong anh mon hoac chi so goal nguoi tiep theo doc student 360 trong 2 phut hieu duoc khach an the nao da thu gi can tranh gi actions sau review va sau moi dieu chinh muc tieu ghi 3 dong vao student 360 hien trang da lam buoc toi ghi co di ung suc khoe o dau ghi chu khong lan trong van ban dai khi doi pt hoac giao cskh ban giao truc tiep 5 phut ghi chu nguoi moi chao khach trong 24 gio nhac lai 1 dieu khach da lam tot t 30 truoc het goi tong hop so ngay ghi chi so dau cuoi thoi quen da doi gui pt cho progress review sop 05 khong ghi nhan xet cam tinh ve co the hay tinh cach khach khach yeu cau xoa du lieu an uong theo sop 08 say da chao chi em la ten pt cskh moi tu tuan nay em dong hanh phan an uong voi chi em da doc ghi chu chi dang giu bua toi co rau rat deu minh tiep tuc nhe da em ghi lai hom nay minh thong nhat them dam bua sang giu 1 5 chen com bua toi review ngay ngay review chi xem co dung khong a da truoc khi ban giao cho ten pt moi em gui chi tom tat 2 tuan qua de chi nam phan nay em cung de trong ho so cho pt moi a da goi cua chi con khoang 1 thang em tong hop phan dinh duong tu dau den gio de buoi progress review minh xem ca chang duong nhe da chi muon em xoa du lieu an uong thi em chuyen yeu cau theo quy trinh du lieu cua aura em xac nhan lai voi chi trong 3 ngay lam viec a avoid ghi chu kieu khach luoi khong hop tac map chi ghi hanh vi quan sat duoc ban giao chi bang mot tin nhan nhom khong co ghi chu trong student 360 de khach phai ke lai tu dau voi nguoi moi luu anh mon hoac chi so cua khach trong dien thoai ca nhan sop 08 crm student 360 ghi chu dinh duong 3 dong co di ung suc khoe action center buoc ban giao done ghi chu moi nhat khong qua 14 ngay nguoi moi da chao khach trong 24 gio t 30 co ban tong hop gui pt escalate ban giao khong co nguoi nhan trong 24 gio quan ly chi nhanh chi dinh tools student 360 action center progress review sop 05 cases group ban giao when khach doi pt giua khoa then pt cu ghi tom tat 3 dong co pt moi chao trong 24 gio nhac 1 dieu khach lam tot say da em la ten pt moi a em doc ho so thay chi da bo duoc thoi quen an khuya dieu nay rat dang ke minh giu nhip do va em xem tiep phan bua sang voi chi nhe group ban giao when giao khach cho cskh cham soc pt van duyet mon then phan vai ro trong ghi chu cskh nhac nhip pt duyet va review say da tu nay ten cskh se nhac nhip va hoi tham chi hang tuan con phan xem mon va review van la em a chi co gi cu nhan mot trong hai ben nhe crm phan vai cskh pt student 360 group du lieu when khach muon xoa anh mon va chi so then tiep nhan khong hua thoi gian ngoai quy trinh chuyen theo sop 08 say da em tiep nhan yeu cau xoa du lieu an uong cua chi a em chuyen theo quy trinh du lieu cua aura va xac nhan lai voi chi trong 3 ngay lam viec crm yeu cau xoa du lieu sop 08 group gia han when con 30 ngay het goi khach tien bo tot then tong hop dinh duong vao progress review khong chao goi trong tin nhan dinh duong say da em gui pt ban tong hop 3 thang an uong cua chi de buoi progress review minh xem day du a phan goi tap chi trao doi voi pt va cs trong buoi do nhe group gia han when khach khong gia han nhung muon giu thoi quen an then gui ban tom tat thoi quen va 3 nguyen tac chuc khach khong gay ap luc say da du chi tam dung tap em gui chi ban tom tat thoi quen an 3 thang qua va 3 nguyen tac giu can a khi nao chi quay lai ho so van con nguyen de minh tiep tuc example good da em la ten pt moi a em doc ho so thay chi da bo duoc thoi quen an khuya minh giu nhip do nhe bad chi ke lai cho em tu dau di em moi nhan chi nen khong biet gi why ban giao qua ho so khach khong phai ke lai quiz question ghi chu dinh duong trong student 360 nen co gi options nhan xet tinh cach khach hien trang da lam buoc toi co di ung suc khoe o dau toan bo lich su chat chi so can nang answer 1 why 3 dong doc trong 2 phut co an toan noi bat question khi doi pt giua khoa pt moi can lam gi trong 24 gio options cho khach nhan truoc chao khach nhac 1 dieu khach da lam tot tu ho so gui lai thuc don moi hoi khach ke lai tu dau answer 1 why lien mach trai nghiem khach khong ke lai kpis duyet mon trong 24 gio ghi nhat ky an du 5 ngay tuan review dinh duong dung moc updatedat 2026 11 09t00 00 00 000z declaredskillids 2 4 5 10 11 12 15 20 21 23",
+      "sortKey": "sop:cham soc dinh duong hoi vien",
+      "sourceSystem": "sop-center-authoring",
+      "sourceReviewRequired": true,
+      "updatedAt": "2026-11-09T00:00:00.000Z",
+      "updatedBy": "authoring:nutrition-care-2026-11",
+      "payload": {
+        "id": "sop10",
+        "code": "SOP 10",
+        "title": "Chăm sóc dinh dưỡng hội viên",
+        "stage": "Nutrition Care",
+        "goal": "Dinh dưỡng là một nửa kết quả. Hội viên biết ăn gì, ghi món đều, nhận phản hồi kịp thời từ PT / Coach và được chuyển đúng người khi có yếu tố sức khỏe.",
+        "skillIds": [
+          "2",
+          "4",
+          "5",
+          "10",
+          "11",
+          "12",
+          "15",
+          "20",
+          "21",
+          "23"
+        ],
+        "status": "review",
+        "version": "1.0",
+        "audience": [
+          "pt",
+          "coach",
+          "cs"
+        ],
+        "sections": [
+          {
+            "title": "Checklist tuần đầu dinh dưỡng",
+            "kind": "checklist",
+            "items": [
+              "Đã đối chiếu phiếu khai báo sức khỏe (dị ứng, bệnh nền, thai kỳ / sau sinh)",
+              "Đã hỏi 5 câu thói quen ăn",
+              "Đã đặt mục tiêu ngày trên app trong khung an toàn",
+              "Khách đã ghi ít nhất 1 món và biết nút sửa khẩu phần",
+              "Đã hẹn review 2 tuần và ghi Student 360"
+            ]
+          },
+          {
+            "title": "Nhịp chăm sóc dinh dưỡng",
+            "kind": "timeline",
+            "rows": [
+              {
+                "time": "D0–D7",
+                "action": "Khảo sát thói quen, đặt mục tiêu ngày, hướng dẫn ghi món",
+                "owner": "PT / Coach"
+              },
+              {
+                "time": "Hằng ngày",
+                "action": "Duyệt món trong 24 giờ theo công thức 1-1-1",
+                "owner": "PT / Coach / Admin duyệt ăn"
+              },
+              {
+                "time": "Thứ Hai",
+                "action": "Tin tổng kết tuần: ngày ghi món, điểm tốt, 1 việc cho tuần mới",
+                "owner": "PT / CSKH"
+              },
+              {
+                "time": "Ngày 2 / 5 / 14 không ghi",
+                "action": "Nhắn nhẹ / gọi 3 phút / Retention Case (SOP 04)",
+                "owner": "CSKH / PT"
+              },
+              {
+                "time": "Ngày 14, 28, mỗi 4 tuần",
+                "action": "Review tiến độ, chỉnh mục tiêu tối đa 10%",
+                "owner": "PT chính"
+              },
+              {
+                "time": "T-30",
+                "action": "Tổng hợp dinh dưỡng vào Progress Review (SOP 05)",
+                "owner": "PT / CS"
+              }
+            ]
+          },
+          {
+            "title": "Công thức phản hồi 1-1-1",
+            "kind": "checklist",
+            "items": [
+              "Một điểm tốt có thật trong bữa",
+              "Một điều chỉnh cụ thể cho bữa sau",
+              "Một gợi ý dễ làm; dưới 3 dòng, không chấm điểm, không emoji khi bữa lệch nhiều hoặc khi nói về sức khỏe"
+            ]
+          }
+        ],
+        "playbook": [
+          {
+            "title": "Khởi động dinh dưỡng tuần đầu",
+            "when": "D0–D7 sau khi ký gói, chạy cùng lịch chăm sóc 90 ngày của SOP 03",
+            "owner": "PT chính / Coach online",
+            "skillId": 15,
+            "supportSkillIds": [
+              20,
+              2
+            ],
+            "handoffs": [
+              {
+                "sopId": "sop03",
+                "when": "Chạy song song lịch 90 ngày: D1 kiểm tra app, D7 hỏi thăm"
+              },
+              {
+                "sopId": "sop06",
+                "when": "Phiếu sức khỏe có mục “Có”, khách báo bệnh nền, thai kỳ, sau sinh hoặc dị ứng"
+              }
+            ],
+            "goal": "Hiểu thói quen ăn hiện tại, chốt mục tiêu ngày trên app và hướng dẫn ghi món đầu tiên trong 48 giờ.",
+            "actions": [
+              "Hỏi 5 câu thói quen: mấy bữa/ngày, bữa nào hay bỏ, ăn ngoài bao nhiêu lần/tuần, uống gì ngoài nước lọc, ai nấu ở nhà.",
+              "Đối chiếu phiếu khai báo sức khỏe: dị ứng, bệnh nền, đang mang thai / sau sinh, thuốc đang dùng. Có mục “Có” thì chỉ đặt mục tiêu sau khi PT và quản lý xác nhận (SOP 06).",
+              "Đặt mục tiêu ngày trên app (năng lượng, đạm, tinh bột, béo) theo mức app đề xuất; chỉ chỉnh trong khung an toàn app cho phép.",
+              "Hướng dẫn chụp món đầu tiên ngay trong buổi: chụp cả khay, xác nhận món app nhận diện, sửa khẩu phần nếu lệch.",
+              "Thống nhất nhịp: khách ghi món mỗi bữa, PT/Coach phản hồi trong 24 giờ, review sau 2 tuần.",
+              "Ghi vào Student 360: thói quen chính, mục tiêu đã đặt, ngày review 2 tuần."
+            ],
+            "say": [
+              "Dạ chị ơi, trước khi bàn ăn gì, em hỏi chị 5 câu nhỏ về thói quen hiện tại nhé. Một ngày chị thường ăn mấy bữa ạ?",
+              "Dạ em không bắt chị ăn kiêng khắt khe đâu ạ. Mình bắt đầu từ việc ghi lại đúng những gì chị đang ăn trong 3 ngày, rồi chỉnh từng chút một.",
+              "Dạ mục tiêu ngày em đặt trên app là [mục tiêu năng lượng] kcal với [mục tiêu đạm] g đạm. Đây là mức app tính theo chỉ số của chị, mình sẽ xem lại sau 2 tuần ạ.",
+              "Dạ chị chụp giúp em cả khay ăn trước khi ăn nhé, app sẽ nhận diện món. Nếu app đoán sai, chị bấm sửa khẩu phần là được ạ.",
+              "Dạ chị có đang dị ứng món nào, hoặc đang điều trị bệnh gì cần kiêng không ạ? Em hỏi để tư vấn đúng phạm vi an toàn cho chị.",
+              "Dạ hằng ngày chị ghi món, em sẽ xem và phản hồi trong vòng 24 giờ. Sau 2 tuần mình ngồi lại xem cân nặng và cảm giác ăn của chị nhé."
+            ],
+            "avoid": [
+              "Đưa thực đơn cố định ngay buổi đầu khi chưa biết thói quen và lịch sinh hoạt của khách.",
+              "Đặt mục tiêu năng lượng dưới ngưỡng app cảnh báo để “giảm nhanh cho khách vui”.",
+              "Kết luận chuyên môn về bệnh nền, thuốc hay thai kỳ; tư vấn thay cho bác sĩ.",
+              "Bình luận về cơ thể khách (“chị ăn vậy bảo sao mập”)."
+            ],
+            "crm": "Student 360 · ghi chú dinh dưỡng: thói quen, mục tiêu ngày, ngày review 2 tuần",
+            "done": "Mục tiêu ngày đã lưu trên app, khách đã ghi ít nhất 1 món, ngày review 2 tuần đã có trong Student 360.",
+            "escalate": "Phiếu sức khỏe có mục “Có”, khách đang mang thai / sau sinh dưới 6 tháng, có bệnh nền hoặc đang dùng thuốc ảnh hưởng ăn uống → SOP 06, không tự đặt mục tiêu.",
+            "tools": [
+              "App Aura · Dinh dưỡng (mục tiêu ngày, ghi món)",
+              "Phiếu khai báo sức khỏe",
+              "Student 360"
+            ],
+            "cases": [
+              {
+                "group": "Thói quen",
+                "when": "Khách bỏ bữa sáng thường xuyên",
+                "then": "Không ép ăn sáng ngay; đề xuất bữa sáng gọn 5 phút, theo dõi 1 tuần.",
+                "say": [
+                  "Dạ chị quen bỏ bữa sáng rồi thì mình không đổi liền đâu ạ. Tuần này chị thử một ly sữa hạt hoặc 2 quả trứng luộc lúc 9 giờ xem cơ thể thế nào nhé."
+                ]
+              },
+              {
+                "group": "Thói quen",
+                "when": "Khách ăn ngoài 5–7 bữa/tuần",
+                "then": "Chọn 3 món quen khách hay gọi, hướng dẫn cách gọi phiên bản gọn hơn; không bắt tự nấu.",
+                "say": [
+                  "Dạ chị ăn ngoài nhiều thì mình chọn món thông minh thôi ạ. Chị hay gọi món gì nhất? Em gợi ý cách gọi để vẫn đủ đạm mà bớt dầu mỡ nhé."
+                ]
+              },
+              {
+                "group": "Mục tiêu",
+                "when": "Khách muốn giảm 5 kg trong 1 tháng",
+                "then": "Không hứa con số; nói rõ tốc độ an toàn 0,5–1 kg/tuần và tập trung vào thói quen đo được.",
+                "say": [
+                  "Dạ em hiểu chị muốn thấy kết quả sớm. Mức giảm bền và an toàn thường là 0,5–1 kg mỗi tuần, nên mình đặt mục tiêu 2 tuần đầu là ghi món đủ 5 ngày/tuần và ngủ đủ, cân sẽ theo sau ạ."
+                ]
+              },
+              {
+                "group": "Mục tiêu",
+                "when": "Khách muốn tăng cơ nhưng ăn ít đạm",
+                "then": "Ưu tiên tăng đạm mỗi bữa trước, chưa bàn thực phẩm bổ sung.",
+                "say": [
+                  "Dạ để tăng cơ, mỗi bữa chị cần có một phần đạm cỡ lòng bàn tay: thịt, cá, trứng hoặc đậu hũ. Mình làm quen 1 tuần rồi tính tiếp nhé."
+                ]
+              },
+              {
+                "group": "Sức khỏe",
+                "when": "Khách báo đang có thai hoặc sau sinh dưới 6 tháng",
+                "then": "Dừng đặt mục tiêu giảm cân; chuyển SOP 06; chỉ tiếp tục khi có xác nhận của bác sĩ và quản lý.",
+                "say": [
+                  "Dạ em cảm ơn chị đã báo. Giai đoạn này em không đặt mục tiêu giảm cân cho chị ạ. Em báo PT và quản lý để sắp xếp hướng ăn uống phù hợp, chị nhớ hỏi ý bác sĩ đang theo dõi giúp em nhé."
+                ],
+                "crm": "Cờ An toàn · SOP 06"
+              },
+              {
+                "group": "Sức khỏe",
+                "when": "Khách có bệnh nền (tiểu đường, huyết áp, dạ dày, gout)",
+                "then": "Không tự lên thực đơn; xin hướng dẫn của bác sĩ, chỉ hỗ trợ ghi món và nhắc nhịp.",
+                "say": [
+                  "Dạ với [bệnh nền] thì phần ăn uống cần theo hướng dẫn của bác sĩ điều trị ạ. Chị gửi em hướng dẫn đó, em hỗ trợ chị ghi món và nhắc giờ ăn, phần còn lại em chuyển PT và quản lý cùng xem nhé."
+                ],
+                "crm": "Cờ An toàn · SOP 06"
+              },
+              {
+                "group": "App",
+                "when": "Khách không chụp được món hoặc app không nhận diện",
+                "then": "Hướng dẫn chụp đủ sáng, cả khay; nếu vẫn lỗi, chọn món thủ công trong Kho món.",
+                "say": [
+                  "Dạ chị chụp lại ở chỗ sáng, để cả khay vào khung hình giúp em nhé. Nếu app vẫn chưa nhận ra, chị bấm “Chọn món” rồi gõ tên món là được ạ."
+                ]
+              },
+              {
+                "group": "App",
+                "when": "Khách U40 ngại dùng app",
+                "then": "Làm cùng khách 2 lần tại phòng; cho phép gửi ảnh qua Zalo cho PT ghi thay trong tuần đầu.",
+                "say": [
+                  "Dạ không sao ạ, tuần đầu chị cứ chụp món gửi Zalo cho em, em ghi vào app giúp chị. Khi chị quen rồi mình tự ghi sau nhé."
+                ]
+              }
+            ],
+            "example": {
+              "good": "Chị chụp giúp em cả khay ăn trước khi ăn nhé, app sẽ nhận diện món. Nếu app đoán sai, chị bấm sửa khẩu phần là được ạ.",
+              "bad": "Chị phải ăn đúng thực đơn này 1.200 kcal mỗi ngày, cuối tháng giảm 5 kg chắc chắn.",
+              "why": "Bắt đầu bằng thói quen ghi món, không áp thực đơn cứng và không hứa kết quả."
+            },
+            "quiz": [
+              {
+                "question": "Phiếu sức khỏe của khách có mục “Có” (đang điều trị tiểu đường). PT nên làm gì với mục tiêu dinh dưỡng?",
+                "options": [
+                  "Đặt mục tiêu giảm cân như bình thường",
+                  "Chuyển SOP 06, chỉ hỗ trợ ghi món và nhắc nhịp cho đến khi có hướng dẫn của bác sĩ",
+                  "Tự lên thực đơn ít đường",
+                  "Từ chối chăm sóc dinh dưỡng"
+                ],
+                "answer": 1,
+                "why": "Không kết luận chuyên môn; yếu tố sức khỏe đi theo SOP 06."
+              },
+              {
+                "question": "Khách muốn giảm 5 kg trong 1 tháng. Câu trả lời đúng?",
+                "options": [
+                  "Hứa sẽ đạt nếu khách tuân thủ",
+                  "Nêu tốc độ an toàn 0,5–1 kg/tuần và đặt mục tiêu thói quen cho 2 tuần đầu",
+                  "Đặt mục tiêu 1.000 kcal/ngày",
+                  "Im lặng, chuyển sang chuyện khác"
+                ],
+                "answer": 1,
+                "why": "Chính sách không cam kết kết quả; mục tiêu đo được bằng thói quen."
+              }
+            ]
+          },
+          {
+            "title": "Duyệt món và phản hồi hằng ngày",
+            "when": "Trong 24 giờ kể từ khi khách ghi món; ưu tiên bữa chờ lâu nhất",
+            "owner": "PT chính / Coach online; Admin duyệt ăn khi PT vắng",
+            "skillId": 20,
+            "supportSkillIds": [
+              2,
+              12
+            ],
+            "handoffs": [
+              {
+                "sopId": "sop04",
+                "when": "Khách ngừng ghi món 14 ngày hoặc Health Score giảm"
+              }
+            ],
+            "goal": "Mỗi bữa được duyệt với một lời khen thật, một điều chỉnh cụ thể và một gợi ý cho bữa sau; khách thấy được lắng nghe, không bị chấm điểm.",
+            "actions": [
+              "Mở Duyệt món, lọc “Chờ duyệt”, xử lý bữa chờ lâu nhất trước.",
+              "Phản hồi theo công thức 1-1-1: 1 điểm tốt, 1 điều chỉnh cụ thể, 1 gợi ý cho bữa sau; dưới 3 dòng.",
+              "Đánh “Đã duyệt” khi bữa hợp mục tiêu; “Cần chỉnh” kèm lý do ngắn khi lệch rõ (thiếu đạm, quá nhiều dầu, bỏ rau).",
+              "Không duyệt theo cảm tính: xem đủ 3 chỉ số năng lượng, đạm, rau của cả ngày trước khi nhận xét một bữa.",
+              "Bữa có ảnh mờ hoặc khẩu phần không rõ → hỏi lại 1 câu, không đoán.",
+              "Thứ Hai gửi khách 1 tin tổng kết tuần: số ngày ghi món, điểm làm tốt, 1 việc cho tuần mới."
+            ],
+            "say": [
+              "Dạ bữa trưa hôm nay đủ đạm và có rau rồi ạ 🩷 Bữa tối chị thêm một nắm rau luộc hoặc salad nữa là tròn ngày nhé.",
+              "Dạ món này ngon mà hơi nhiều dầu ạ. Lần sau chị gọi phần nướng hoặc hấp thay chiên, còn lại giữ nguyên nhé.",
+              "Dạ hôm nay chị thiếu một chút đạm so với mục tiêu. Bữa tối chị thêm 1 quả trứng hoặc 100 g ức gà là đủ ạ.",
+              "Dạ ảnh hơi tối nên em chưa nhìn rõ phần cơm ạ. Chị cho em biết khoảng bao nhiêu chén để em ghi đúng nhé?",
+              "Dạ em thấy chị ghi được 5/7 ngày tuần này, đều hơn tuần trước rồi ạ. Tuần mới mình giữ nhịp này và thêm rau ở bữa tối nhé.",
+              "Dạ em đánh “Cần chỉnh” cho bữa này vì phần tinh bột hơi nhiều so với mục tiêu, không phải chị ăn sai đâu ạ. Bữa sau chị giảm còn 1 chén cơm là ổn."
+            ],
+            "avoid": [
+              "Chấm điểm hoặc dùng từ “ăn sai”, “ăn bậy”, “phá”; không dùng emoji khi nhận xét bữa lệch nhiều.",
+              "Duyệt hàng loạt mà không mở ảnh.",
+              "Gợi ý cắt hẳn một nhóm thực phẩm (bỏ tinh bột, bỏ béo) hoặc nhịn bữa để “bù”.",
+              "Để bữa chờ quá 24 giờ rồi phản hồi dồn một lần."
+            ],
+            "crm": "Duyệt món · trạng thái Đã duyệt / Cần chỉnh kèm lý do; tổng kết tuần ghi vào Student 360",
+            "done": "Không còn bữa chờ duyệt quá 24 giờ của hội viên mình phụ trách; mỗi bữa “Cần chỉnh” có lý do ngắn.",
+            "escalate": "Khách ghi dưới 800 kcal/ngày trong 3 ngày liên tiếp, bỏ bữa nhiều ngày, hoặc nhắc đến nôn / nhịn để giảm cân → báo quản lý trong ngày, theo SOP 06.",
+            "tools": [
+              "Duyệt món (PT / Coach / Admin)",
+              "Student 360 · ghi chú dinh dưỡng"
+            ],
+            "cases": [
+              {
+                "group": "Bữa lệch",
+                "when": "Bữa thiếu đạm, nhiều tinh bột",
+                "then": "Khen phần có; chỉnh 1 điểm về đạm; gợi ý nguồn đạm sẵn có.",
+                "say": [
+                  "Dạ phần cơm và rau ổn rồi ạ. Bữa này còn thiếu đạm, chị thêm 1 miếng cá hoặc đậu hũ cỡ lòng bàn tay là đủ mục tiêu ngày nhé."
+                ]
+              },
+              {
+                "group": "Bữa lệch",
+                "when": "Ăn vặt nhiều buổi tối (trà sữa, bánh ngọt)",
+                "then": "Không cấm; đề xuất đổi tần suất và phiên bản nhẹ hơn.",
+                "say": [
+                  "Dạ ly trà sữa tối nay em ghi nhận rồi ạ. Mình không bỏ hẳn đâu, tuần này chị thử giữ 2 ly và chọn size nhỏ, ít đường nhé."
+                ]
+              },
+              {
+                "group": "Bữa lệch",
+                "when": "Bỏ bữa để bù cho bữa trước ăn nhiều",
+                "then": "Giải thích ngắn vì sao không bù bằng nhịn; đề xuất bữa nhẹ.",
+                "say": [
+                  "Dạ ăn nhiều một bữa là chuyện bình thường ạ, mình không cần nhịn bữa sau để bù đâu. Tối nay chị ăn nhẹ với rau và đạm là cơ thể tự cân bằng nhé."
+                ]
+              },
+              {
+                "group": "Ảnh & ghi nhận",
+                "when": "Khách ghi món bằng chữ, không có ảnh",
+                "then": "Vẫn duyệt theo mô tả; nhắc chụp ảnh lần sau để ước lượng khẩu phần đúng hơn.",
+                "say": [
+                  "Dạ em ghi nhận bữa chị mô tả rồi ạ. Lần sau chị chụp thêm ảnh giúp em nhé, nhìn khẩu phần em tư vấn sát hơn."
+                ]
+              },
+              {
+                "group": "Ảnh & ghi nhận",
+                "when": "App nhận diện sai món, khách không sửa",
+                "then": "Sửa giúp trong lần duyệt, nhắn 1 câu hướng dẫn nút sửa.",
+                "say": [
+                  "Dạ app đoán món này là phở nhưng em thấy là bún bò nên em sửa lại giúp chị rồi ạ. Lần sau chị bấm vào tên món để sửa nhanh nhé."
+                ]
+              },
+              {
+                "group": "Ảnh & ghi nhận",
+                "when": "Khách ghi dồn 3 ngày trong một lần",
+                "then": "Vẫn phản hồi; gợi ý ghi ngay sau bữa để nhớ khẩu phần.",
+                "say": [
+                  "Dạ em thấy chị vừa ghi cả 3 ngày, cảm ơn chị đã bổ sung ạ. Chị ghi ngay sau khi ăn thì khẩu phần sẽ đúng hơn và em phản hồi kịp trong ngày nhé."
+                ]
+              },
+              {
+                "group": "Nhịp duyệt",
+                "when": "PT nghỉ phép, bữa chờ quá 24 giờ",
+                "then": "Bàn giao danh sách hội viên cho Coach online hoặc Admin duyệt ăn trước khi nghỉ.",
+                "say": [
+                  "Dạ tuần này PT [tên PT] nghỉ phép nên em là [tên Coach] sẽ xem món của chị. Chị cứ ghi như bình thường nhé ạ."
+                ],
+                "crm": "Bàn giao duyệt món · Student 360"
+              },
+              {
+                "group": "Dấu hiệu rủi ro",
+                "when": "Khách ghi dưới 800 kcal/ngày 3 ngày liên tiếp",
+                "then": "Không khen “giỏi”; hỏi thăm sức khỏe, nâng về mức an toàn; báo quản lý trong ngày.",
+                "say": [
+                  "Dạ 3 ngày nay năng lượng của chị thấp hơn mức an toàn khá nhiều ạ. Chị có thấy mệt hay chóng mặt khi tập không? Em muốn mình nâng lại bữa ăn và em báo quản lý cùng theo dõi với chị."
+                ],
+                "crm": "Cờ An toàn · báo quản lý trong ngày"
+              }
+            ],
+            "example": {
+              "good": "Dạ bữa trưa đủ đạm và có rau rồi ạ. Bữa tối chị thêm một phần rau nữa là tròn ngày nhé.",
+              "bad": "Bữa này ăn sai rồi nha, quá nhiều cơm, tối nhịn đi.",
+              "why": "Khen thật, chỉnh một điểm, không ra lệnh nhịn ăn."
+            },
+            "quiz": [
+              {
+                "question": "Khách ghi 3 ngày liên tiếp dưới 800 kcal. PT nên làm gì?",
+                "options": [
+                  "Khen khách kỷ luật tốt",
+                  "Hỏi thăm sức khỏe, nâng về mức an toàn, báo quản lý trong ngày",
+                  "Bỏ qua vì khách đang giảm cân",
+                  "Đặt mục tiêu thấp hơn nữa"
+                ],
+                "answer": 1,
+                "why": "Dưới ngưỡng an toàn là cờ rủi ro, không phải thành tích."
+              },
+              {
+                "question": "Công thức phản hồi một bữa là gì?",
+                "options": [
+                  "Liệt kê mọi lỗi",
+                  "1 điểm tốt, 1 điều chỉnh, 1 gợi ý cho bữa sau",
+                  "Chỉ đánh trạng thái, không nhắn",
+                  "Gửi lại thực đơn chuẩn"
+                ],
+                "answer": 1,
+                "why": "Phản hồi 1-1-1 ngắn, dễ làm theo."
+              }
+            ]
+          },
+          {
+            "title": "Giữ nhịp ghi món và động lực",
+            "when": "Không ghi món 2 ngày: nhắn nhẹ; 5 ngày: gọi; 14 ngày: mở Retention Case (SOP 04)",
+            "owner": "CSKH được giao hoặc PT chính",
+            "skillId": 10,
+            "supportSkillIds": [
+              21,
+              2
+            ],
+            "handoffs": [
+              {
+                "sopId": "sop04",
+                "when": "Ngừng ghi món 14 ngày hoặc khách nói muốn bỏ cuộc"
+              }
+            ],
+            "goal": "Khách quay lại ghi món trong 48 giờ sau khi được nhắc, không cảm thấy bị kiểm soát.",
+            "actions": [
+              "Ngày 2 không ghi: 1 tin nhắn nhẹ, hỏi 1 câu mở, không nhắc mục tiêu.",
+              "Ngày 5: gọi 3 phút, hỏi điều gì đang cản trở (bận, chán, không thấy kết quả, ngại chụp), chọn 1 cách gỡ.",
+              "Trước cuối tuần, lễ, du lịch: nhắn trước 1 kịch bản “ăn vui mà không rời mục tiêu”.",
+              "Ghi lý do gián đoạn vào Student 360 để PT điều chỉnh mục tiêu.",
+              "Tối đa 2–3 lần liên hệ chủ động trong 14 ngày; không nhắn 21:00–07:00.",
+              "Ngày 14 không ghi và không phản hồi → mở Retention Case theo SOP 04."
+            ],
+            "say": [
+              "Dạ chị ơi, 2 hôm nay em chưa thấy món của chị trên app. Hôm nay chị ăn uống thế nào ạ? Chị kể em nghe một bữa thôi cũng được.",
+              "Dạ nếu chụp ảnh mỗi bữa hơi phiền, chị chỉ cần ghi 1 dòng “sáng phở, trưa cơm gà, tối bún” là em ghi giúp được ạ.",
+              "Dạ cuối tuần chị có tiệc thì cứ ăn vui nhé 🩷 Mẹo nhỏ: ăn rau và đạm trước, tinh bột sau, uống đủ nước. Thứ Hai mình quay lại nhịp cũ là được ạ.",
+              "Dạ em gọi 3 phút hỏi thăm chị thôi ạ. Tuần rồi việc ghi món bị gián đoạn, có điều gì làm chị thấy không tiện không ạ?",
+              "Dạ chị đi công tác thì ghi được bữa nào hay bữa đó, không cần đủ ạ. Em gợi ý vài món dễ gọi ở quán cho chị nhé.",
+              "Dạ không sao đâu ạ, nghỉ vài ngày là bình thường. Mình bắt đầu lại từ bữa kế tiếp, không cần bù gì cả."
+            ],
+            "avoid": [
+              "Nhắn kiểu kiểm tra (“sao chị không ghi?”, “chị bỏ cuộc rồi à?”).",
+              "Gửi cùng một tin nhắc lặp lại mỗi ngày; nhắn ngoài giờ 21:00–07:00.",
+              "Dọa kết quả (“không ghi thì không giảm được đâu”).",
+              "Nhắc quá 3 lần trong 14 ngày khi khách không phản hồi."
+            ],
+            "crm": "Student 360 · lý do gián đoạn, lần nhắc thứ mấy; Retention Case khi đủ 14 ngày",
+            "done": "Khách ghi món trở lại trong 48 giờ sau nhắc, hoặc lý do gián đoạn đã được ghi và PT biết.",
+            "escalate": "Khách nói muốn bỏ dinh dưỡng vì không thấy kết quả, hoặc im lặng 14 ngày → SOP 04 (Retention Case); nhắc đến nhịn ăn, nôn, thuốc giảm cân → SOP 06.",
+            "tools": [
+              "Zalo / inbox",
+              "Student 360",
+              "Action Center (bước nhắc)"
+            ],
+            "cases": [
+              {
+                "group": "Gián đoạn",
+                "when": "Khách bận, nói “không có thời gian chụp”",
+                "then": "Giảm yêu cầu: ghi chữ 1 dòng hoặc chụp 1 bữa/ngày.",
+                "say": [
+                  "Dạ chị bận thì mình ghi gọn thôi ạ: mỗi ngày chị chụp đúng 1 bữa chính, bữa khác nhắn 1 dòng là được. Em lo phần còn lại nhé."
+                ]
+              },
+              {
+                "group": "Gián đoạn",
+                "when": "Khách ngại vì ăn “xấu” nên không dám ghi",
+                "then": "Nói rõ ghi để hiểu, không để chấm; khen hành động ghi.",
+                "say": [
+                  "Dạ chị cứ ghi thật ạ, kể cả bữa ăn vặt. Em cần hiểu thói quen của chị để chỉnh cho hợp, không ai chấm điểm chị cả."
+                ]
+              },
+              {
+                "group": "Gián đoạn",
+                "when": "Khách chán vì chưa thấy cân giảm sau 10 ngày",
+                "then": "Chuyển sang chỉ số khác (ngủ, năng lượng, vòng eo); hẹn review 2 tuần với PT.",
+                "say": [
+                  "Dạ 10 ngày cân chưa đổi là chuyện hay gặp ạ, cơ thể đang điều chỉnh. Chị để ý giúp em giấc ngủ và năng lượng khi tập có khác không, tuần sau PT [tên PT] sẽ đo lại cùng chị."
+                ]
+              },
+              {
+                "group": "Sự kiện",
+                "when": "Khách báo đi du lịch 1 tuần",
+                "then": "Gửi 3 nguyên tắc ăn khi đi chơi; tạm dừng nhắc; hẹn ngày quay lại.",
+                "say": [
+                  "Dạ chị đi chơi vui nhé ạ. Em gửi 3 nguyên tắc nhỏ: mỗi bữa có rau và đạm, uống đủ nước, ăn chậm. Về chị nhắn em, mình nối lại nhịp ghi món."
+                ]
+              },
+              {
+                "group": "Sự kiện",
+                "when": "Khách báo tiệc cưới hoặc lễ cuối tuần",
+                "then": "Cho phép “bữa tự do” có kế hoạch; không bù bằng nhịn.",
+                "say": [
+                  "Dạ tiệc thì mình cứ ăn ạ, một bữa tự do nằm trong kế hoạch. Hôm sau chị quay lại bữa bình thường, không cần nhịn bù nhé."
+                ]
+              },
+              {
+                "group": "Động lực",
+                "when": "Khách nói “chắc em bỏ phần ăn uống, chỉ tập thôi”",
+                "then": "Lắng nghe, hỏi lý do, đề xuất giảm độ khó; nếu vẫn muốn dừng → ghi nhận, báo PT, mở SOP 04 nếu kèm nguy cơ rời bỏ.",
+                "say": [
+                  "Dạ em hiểu ạ, phần ăn uống dễ nản hơn tập. Chị cho em biết điều gì làm chị mệt nhất: chụp món, số liệu, hay cảm giác bị theo dõi? Mình bỏ bớt phần đó, giữ phần dễ nhất thôi."
+                ],
+                "crm": "Lý do muốn dừng · báo PT chính"
+              },
+              {
+                "group": "Động lực",
+                "when": "Khách ghi đều 4 tuần liên tục",
+                "then": "Ghi nhận trong tin cá nhân; đề xuất bước mới (nấu 1 món từ Vào Bếp cùng Aura).",
+                "say": [
+                  "Dạ 4 tuần ghi món đều, em phục chị thật ạ 🩷 Tuần tới mình thử một món trong mục Vào Bếp cùng Aura nhé, em chọn món 15 phút cho chị."
+                ]
+              }
+            ],
+            "example": {
+              "good": "Dạ 2 hôm nay em chưa thấy món của chị trên app. Hôm nay chị ăn uống thế nào ạ?",
+              "bad": "Chị không ghi món thì em không giúp được đâu, kết quả không có đừng trách.",
+              "why": "Hỏi mở và không dọa kết quả."
+            },
+            "quiz": [
+              {
+                "question": "Khách không ghi món 2 ngày. Bước đầu tiên là gì?",
+                "options": [
+                  "Gọi điện ngay",
+                  "1 tin nhắn nhẹ, hỏi 1 câu mở",
+                  "Báo quản lý",
+                  "Đặt lại mục tiêu thấp hơn"
+                ],
+                "answer": 1,
+                "why": "Nhắc theo bậc: ngày 2 nhắn, ngày 5 gọi, ngày 14 Retention Case."
+              },
+              {
+                "question": "Khách báo tiệc cưới cuối tuần. Lời khuyên đúng?",
+                "options": [
+                  "Nhịn trưa để dành bụng",
+                  "Ăn bình thường, rau và đạm trước, hôm sau quay lại nhịp cũ",
+                  "Bỏ tiệc",
+                  "Ăn rồi tập bù gấp đôi"
+                ],
+                "answer": 1,
+                "why": "Bữa tự do có kế hoạch, không bù bằng nhịn hay tập quá sức."
+              }
+            ]
+          },
+          {
+            "title": "Review tiến độ 2 tuần và 4 tuần",
+            "when": "Ngày 14 và ngày 28 sau khi đặt mục tiêu; sau đó mỗi 4 tuần",
+            "owner": "PT chính (có thể cùng Coach online)",
+            "skillId": 23,
+            "supportSkillIds": [
+              15,
+              20
+            ],
+            "handoffs": [
+              {
+                "sopId": "sop05",
+                "when": "Review tháng cuối trước hết gói: đưa kết quả dinh dưỡng vào Progress Review (T-30)"
+              },
+              {
+                "sopId": "sop08",
+                "when": "Đo chỉ số, chụp ảnh tiến độ theo phiếu đồng ý"
+              }
+            ],
+            "goal": "Khách thấy rõ mình đã thay đổi gì (thói quen, chỉ số, cảm giác) và biết mục tiêu 2 tuần tới; mục tiêu ngày được chỉnh có căn cứ.",
+            "actions": [
+              "Chuẩn bị trước 10 phút: số ngày ghi món, trung bình năng lượng / đạm, cân nặng và vòng eo lần trước, ghi chú duyệt món.",
+              "Mở đầu bằng điều khách làm được, rồi mới đến chỉ số.",
+              "Đo cân nặng, vòng eo cùng điều kiện (sáng, trước ăn) theo phiếu đồng ý (SOP 08); không đo khi khách không muốn.",
+              "Nếu cân không đổi: kiểm tra 4 yếu tố theo thứ tự tuân thủ ghi món, khẩu phần thật, giấc ngủ, chu kỳ / giữ nước; chỉnh mục tiêu tối đa 10% mỗi lần.",
+              "Chốt 1 mục tiêu thói quen cho 2 tuần tới, ghi vào app và Student 360.",
+              "Review tháng cuối trước hết gói → đưa kết quả vào Progress Review của SOP 05."
+            ],
+            "say": [
+              "Dạ 2 tuần qua chị ghi món 11/14 ngày và bữa tối đã có rau đều, đó là thay đổi lớn nhất ạ. Mình xem chỉ số nhé.",
+              "Dạ cân nặng giảm 0,8 kg, vòng eo giảm 2 cm. Tốc độ này là ổn và bền ạ, không cần đẩy nhanh hơn.",
+              "Dạ cân chưa đổi nhưng vòng eo giảm 1,5 cm và chị ngủ ngon hơn, nghĩa là cơ thể đang thay đổi đúng hướng ạ. Mình giữ mục tiêu và theo dõi thêm 2 tuần.",
+              "Dạ em đề xuất 2 tuần tới mình chỉnh nhẹ: thêm 1 phần đạm vào bữa sáng, các thứ khác giữ nguyên. Chị thấy làm được không ạ?",
+              "Dạ em không đo hôm nay nếu chị chưa sẵn sàng ạ. Mình nói chuyện về cảm giác ăn và ngủ cũng đủ để điều chỉnh rồi.",
+              "Dạ còn 1 tháng là hết gói, em sẽ gửi phần dinh dưỡng này vào buổi Progress Review để chị thấy cả chặng đường nhé."
+            ],
+            "avoid": [
+              "Mở đầu bằng con số cân nặng hoặc so sánh với hội viên khác.",
+              "Cắt mục tiêu năng lượng mạnh (quá 10%) vì “cân chưa xuống”.",
+              "Hứa mốc kết quả cho 2 tuần tới.",
+              "Ép đo hoặc chụp ảnh khi khách chưa đồng ý."
+            ],
+            "crm": "Student 360 · kết quả review (ngày ghi, chỉ số, điều chỉnh, mục tiêu 2 tuần tới); mục tiêu ngày cập nhật trên app",
+            "done": "Khách có 1 mục tiêu thói quen mới, mục tiêu ngày được cập nhật (nếu cần) và lịch review kế tiếp đã đặt.",
+            "escalate": "Sụt cân trên 1,5 kg/tuần, chóng mặt, mất kinh nguyệt, hoặc khách muốn giảm dưới ngưỡng an toàn → dừng điều chỉnh, báo quản lý, theo SOP 06.",
+            "tools": [
+              "Student 360 · Tiến độ",
+              "App Aura · mục tiêu ngày",
+              "Phiếu đồng ý đo & hình ảnh"
+            ],
+            "cases": [
+              {
+                "group": "Kết quả",
+                "when": "Cân không đổi sau 2 tuần, ghi món đủ",
+                "then": "Soát khẩu phần thật và giấc ngủ; chỉnh tối đa 10%; đổi chỉ số theo dõi sang vòng eo / ảnh.",
+                "say": [
+                  "Dạ chị ghi đủ nên mình xem kỹ khẩu phần một chút ạ. Em thấy bữa tối cơm khoảng 2 chén, mình thử 1,5 chén và thêm rau; còn giấc ngủ chị khoảng mấy tiếng một đêm ạ?"
+                ]
+              },
+              {
+                "group": "Kết quả",
+                "when": "Cân tăng dù khách nói ăn ít",
+                "then": "Không nghi ngờ khách; xem lại cách ước lượng, đồ uống, ăn vặt chưa ghi; đề xuất ghi đủ 7 ngày tới.",
+                "say": [
+                  "Dạ có thể vài phần nhỏ chưa vào nhật ký như đồ uống hay ăn vặt ạ. Tuần tới chị ghi giúp em cả nước ngọt, cà phê sữa, em xem lại rồi mình chỉnh nhé."
+                ]
+              },
+              {
+                "group": "Kết quả",
+                "when": "Khách giảm nhanh trên 1,5 kg/tuần",
+                "then": "Hỏi cách ăn, kiểm tra có nhịn / cắt bữa; nâng về mức an toàn; báo quản lý.",
+                "say": [
+                  "Dạ tốc độ giảm này nhanh hơn mức an toàn ạ. Chị có bỏ bữa hay cắt hẳn tinh bột không? Em muốn mình ăn lại đủ bữa để giữ cơ và sức tập, em cũng báo quản lý cùng theo dõi với chị."
+                ],
+                "crm": "Cờ An toàn · SOP 06"
+              },
+              {
+                "group": "Kết quả",
+                "when": "Khách đạt mục tiêu sớm",
+                "then": "Chuyển sang giai đoạn giữ cân: tăng nhẹ năng lượng, mục tiêu duy trì 4 tuần.",
+                "say": [
+                  "Dạ chị đạt mục tiêu sớm hơn dự kiến rồi ạ 🩷 Giai đoạn tới mình giữ cân bằng cách tăng nhẹ bữa ăn và theo dõi 4 tuần để cơ thể ổn định nhé."
+                ]
+              },
+              {
+                "group": "Buổi review",
+                "when": "Khách không muốn cân",
+                "then": "Tôn trọng; dùng vòng eo, quần áo, cảm giác; ghi “không đo theo mong muốn hội viên”.",
+                "say": [
+                  "Dạ mình không cân hôm nay cũng được ạ. Chị thấy quần áo mặc có rộng hơn không, và năng lượng lúc tập thế nào?"
+                ],
+                "crm": "Không đo theo mong muốn hội viên · SOP 08"
+              },
+              {
+                "group": "Buổi review",
+                "when": "Khách hỏi “vậy bao giờ em được 50 kg?”",
+                "then": "Không hứa mốc; nói về khoảng thời gian hợp lý và điều kiện.",
+                "say": [
+                  "Dạ em không hứa mốc ngày được ạ, vì mỗi cơ thể khác nhau. Với nhịp hiện tại, mỗi tháng chị có thể giảm 2–3 kg nếu giữ đều ăn và tập; mình xem lại sau mỗi 4 tuần nhé."
+                ]
+              }
+            ],
+            "example": {
+              "good": "Dạ 2 tuần qua chị ghi món 11/14 ngày và bữa tối đã có rau đều. Mình xem chỉ số nhé.",
+              "bad": "Cân chị tăng 0,5 kg, chắc chị ăn lén rồi, giờ giảm còn 1.000 kcal nhé.",
+              "why": "Bắt đầu từ hành vi tốt, không nghi ngờ khách, không cắt mạnh năng lượng."
+            },
+            "quiz": [
+              {
+                "question": "Cân không đổi sau 2 tuần ghi món đầy đủ. Việc đầu tiên?",
+                "options": [
+                  "Cắt 30% năng lượng",
+                  "Soát khẩu phần thật và giấc ngủ, chỉnh tối đa 10%",
+                  "Đổi PT",
+                  "Ngừng dinh dưỡng"
+                ],
+                "answer": 1,
+                "why": "Chỉnh có căn cứ, từng bước nhỏ."
+              },
+              {
+                "question": "Khách giảm 2 kg trong 1 tuần. PT nên làm gì?",
+                "options": [
+                  "Chúc mừng và giữ nguyên",
+                  "Hỏi cách ăn, nâng về mức an toàn, báo quản lý",
+                  "Giảm thêm mục tiêu",
+                  "Tăng buổi tập"
+                ],
+                "answer": 1,
+                "why": "Sụt cân nhanh là cờ an toàn."
+              }
+            ]
+          },
+          {
+            "title": "An toàn dinh dưỡng và chuyển đúng người",
+            "when": "Ngay khi xuất hiện dấu hiệu, trong cùng ngày",
+            "owner": "Người phát hiện (PT, Coach, CSKH) → Quản lý chi nhánh",
+            "skillId": 11,
+            "supportSkillIds": [
+              2
+            ],
+            "handoffs": [
+              {
+                "sopId": "sop06",
+                "when": "Mọi yếu tố sức khỏe: bệnh nền, thai kỳ / sau sinh, dị ứng, dấu hiệu rối loạn ăn uống, sụt cân nhanh"
+              }
+            ],
+            "goal": "Không nhân viên nào đưa lời khuyên vượt phạm vi; khách có yếu tố sức khỏe được chuyển đúng người trong ngày, với thái độ tôn trọng.",
+            "actions": [
+              "Nhận diện cờ đỏ: nhịn ăn kéo dài, nôn sau ăn, dùng thuốc / trà giảm cân, detox nhiều ngày, mất kinh nguyệt, chóng mặt khi tập, dị ứng, bệnh nền, thai kỳ, sau sinh dưới 6 tháng.",
+              "Dừng tư vấn chi tiết; nói đúng phạm vi: Aura hỗ trợ ăn cân bằng và ghi món, không thay bác sĩ.",
+              "Báo quản lý chi nhánh trong ngày qua kênh nội bộ; ghi cờ An toàn vào Student 360.",
+              "Đề nghị khách hỏi bác sĩ / chuyên gia dinh dưỡng lâm sàng; khi có hướng dẫn thì hỗ trợ theo hướng dẫn đó.",
+              "Không chia sẻ thông tin sức khỏe của khách ra ngoài nhóm phụ trách (SOP 08).",
+              "Hỏi thăm lại sau 48 giờ và ghi kết quả."
+            ],
+            "say": [
+              "Dạ em cảm ơn chị đã chia sẻ với em. Phần này vượt phạm vi của PT nên em không tư vấn thêm để tránh sai, em báo quản lý để sắp xếp hướng phù hợp cho chị ạ.",
+              "Dạ với việc dùng thuốc giảm cân, em không khuyến khích và cũng không tư vấn được ạ. Chị cho em xin ý kiến bác sĩ trước, phần ăn uống em hỗ trợ theo hướng dẫn đó.",
+              "Dạ nếu chị thấy chóng mặt khi tập sau mấy ngày ăn ít, mình dừng buổi hôm nay và ăn nhẹ trước ạ. Em báo quản lý để cùng theo dõi với chị.",
+              "Dạ detox nhiều ngày chỉ uống nước ép thì em không đồng hành được vì không an toàn ạ. Nếu chị muốn nhẹ bụng, mình làm 3 ngày ăn nhẹ có đủ đạm và rau thay thế nhé.",
+              "Dạ thông tin sức khỏe chị chia sẻ chỉ có em và quản lý biết để chăm sóc chị, em không ghi ra ngoài nhóm phụ trách ạ.",
+              "Dạ hôm nay chị thấy thế nào rồi ạ? Em hỏi thăm lại sau hai ngày như đã hẹn."
+            ],
+            "avoid": [
+              "Gợi ý liều lượng, thuốc, thực phẩm chức năng, hoặc thực đơn cho bệnh nền.",
+              "Khen hành vi nguy cơ (“nhịn giỏi”, “giảm nhanh ghê”).",
+              "Nói về rối loạn ăn uống trước mặt người khác hoặc qua nhóm chat chung.",
+              "Trì hoãn báo quản lý sang hôm sau."
+            ],
+            "crm": "Student 360 · cờ An toàn + nội dung ngắn; báo quản lý chi nhánh trong ngày",
+            "done": "Quản lý đã nhận thông tin trong ngày, Student 360 có cờ An toàn, khách được chuyển hướng dẫn phù hợp.",
+            "escalate": "Luôn chuyển quản lý chi nhánh trong ngày; dấu hiệu cấp tính (ngất, đau ngực, nôn kéo dài) → xử lý sự cố theo SOP 06 ngay.",
+            "tools": [
+              "Phiếu khai báo sức khỏe",
+              "Kênh nội bộ quản lý chi nhánh",
+              "Student 360 · cờ An toàn"
+            ],
+            "cases": [
+              {
+                "group": "Hành vi nguy cơ",
+                "when": "Khách khoe nhịn ăn cả ngày để giảm nhanh",
+                "then": "Không khen; hỏi cảm giác; giải thích ngắn tác hại; báo quản lý nếu lặp lại.",
+                "say": [
+                  "Dạ em lo cho chị hơn là mừng ạ. Nhịn cả ngày dễ mệt và mất cơ, kết quả lại khó giữ. Mình quay lại 3 bữa gọn nhẹ nhé, em gửi gợi ý bữa đơn giản cho chị."
+                ]
+              },
+              {
+                "group": "Hành vi nguy cơ",
+                "when": "Khách hỏi mua thuốc hoặc trà giảm cân",
+                "then": "Không tư vấn sản phẩm; nói rõ không khuyến khích; chuyển bác sĩ.",
+                "say": [
+                  "Dạ em không tư vấn thuốc hay trà giảm cân được ạ, bên em không khuyến khích vì rủi ro cho sức khỏe. Chị muốn dùng gì thì hỏi bác sĩ trước giúp em, phần ăn uống thường ngày em đồng hành với chị."
+                ]
+              },
+              {
+                "group": "Hành vi nguy cơ",
+                "when": "Khách nói nôn sau khi ăn nhiều",
+                "then": "Lắng nghe, không phán xét; báo quản lý trong ngày; đề nghị gặp chuyên gia.",
+                "say": [
+                  "Dạ em cảm ơn chị đã tin em để kể ạ. Em không đủ chuyên môn cho việc này nên em báo quản lý để tìm người phù hợp hỗ trợ chị, và em vẫn ở đây đồng hành với chị."
+                ],
+                "crm": "Cờ An toàn · báo quản lý ngay"
+              },
+              {
+                "group": "Sức khỏe",
+                "when": "Khách bị dị ứng hải sản hoặc gluten",
+                "then": "Ghi rõ vào Student 360; loại trừ khi gợi ý món; không tự đề xuất thay thế thuốc.",
+                "say": [
+                  "Dạ em ghi lại dị ứng [món] của chị rồi ạ, mọi gợi ý món em sẽ loại phần này ra. Chị có hướng dẫn gì từ bác sĩ thì gửi em thêm nhé."
+                ],
+                "crm": "Dị ứng · Student 360"
+              },
+              {
+                "group": "Sức khỏe",
+                "when": "Khách đang điều trị dạ dày, hay đau khi tập",
+                "then": "Không kết luận; đề nghị theo hướng dẫn bác sĩ; chỉnh giờ ăn trước tập; báo PT và quản lý.",
+                "say": [
+                  "Dạ với dạ dày thì phần ăn uống nên theo hướng dẫn của bác sĩ ạ. Em chỉ chỉnh giúp chị giờ ăn nhẹ trước tập khoảng 60–90 phút để đỡ khó chịu, và em báo PT cùng quản lý biết nhé."
+                ]
+              },
+              {
+                "group": "Sức khỏe",
+                "when": "Khách sau sinh muốn giảm mỡ, đang cho con bú",
+                "then": "Không đặt mục tiêu giảm năng lượng; chuyển SOP 06; chỉ hỗ trợ ăn đủ, đa dạng.",
+                "say": [
+                  "Dạ giai đoạn cho con bú, em không đặt mục tiêu giảm năng lượng cho chị ạ. Mình ăn đủ và đa dạng để có sữa, phần giảm mỡ mình tính sau khi bác sĩ đồng ý nhé."
+                ],
+                "crm": "Cờ An toàn · SOP 06"
+              }
+            ],
+            "example": {
+              "good": "Dạ em không tư vấn thuốc giảm cân được ạ, bên em không khuyến khích vì rủi ro cho sức khỏe. Chị hỏi bác sĩ trước giúp em nhé.",
+              "bad": "Chị uống loại này đi, em thấy nhiều người dùng giảm nhanh lắm.",
+              "why": "Không khuyến nghị sản phẩm ngoài phạm vi; chuyển đúng người."
+            },
+            "quiz": [
+              {
+                "question": "Khách kể nôn sau khi ăn nhiều. Nhân viên nên làm gì?",
+                "options": [
+                  "Khuyên ăn ít lại",
+                  "Lắng nghe, báo quản lý trong ngày, đề nghị gặp chuyên gia",
+                  "Kể cho nhóm PT để cùng góp ý",
+                  "Bỏ qua vì không phải việc mình"
+                ],
+                "answer": 1,
+                "why": "Dấu hiệu rối loạn ăn uống cần người phù hợp và bảo mật."
+              },
+              {
+                "question": "Khách hỏi mua trà giảm cân. Câu đúng?",
+                "options": [
+                  "Giới thiệu loại mình biết",
+                  "Không tư vấn sản phẩm, nói rõ không khuyến khích, chuyển bác sĩ",
+                  "Nói “tùy chị”",
+                  "Khen chị quyết tâm"
+                ],
+                "answer": 1,
+                "why": "Ngoài phạm vi và có rủi ro."
+              }
+            ]
+          },
+          {
+            "title": "Phối hợp Eat Clean và Vào Bếp cùng Aura",
+            "when": "Khi khách nói bận nấu, ăn ngoài nhiều hoặc hỏi gợi ý món; không chủ động chào bán",
+            "owner": "PT chính / CSKH",
+            "skillId": 4,
+            "supportSkillIds": [
+              5
+            ],
+            "handoffs": [
+              {
+                "sopId": "sop07",
+                "when": "Khiếu nại món Eat Clean (chất lượng, giao trễ) → tiếp nhận và phản hồi theo quy trình khiếu nại"
+              }
+            ],
+            "goal": "Khách có cách ăn đúng mục tiêu mà vừa với thời gian và túi tiền; gợi ý Eat Clean chỉ khi giúp khách, không phải để bán.",
+            "actions": [
+              "Nghe nhu cầu trước: bận nấu, ăn ngoài, không biết nấu, cần đổi món.",
+              "Ưu tiên gợi ý miễn phí: công thức 15 phút trong Vào Bếp cùng Aura, cách gọi món ở quán quen.",
+              "Chỉ gợi ý Eat Clean khi khách cần giao tận nơi hoặc không có thời gian; nêu giá đủ đơn vị và cách đặt trên app.",
+              "Không nói Eat Clean là bắt buộc hay “ăn ngoài thì không giảm được”.",
+              "Ghi món Eat Clean khách đặt vào nhật ký giúp khách nếu app chưa tự ghi.",
+              "Ghi nhận phản hồi món (ngon, mặn, ít) vào kênh Vận hành Eat Clean để bếp điều chỉnh."
+            ],
+            "say": [
+              "Dạ chị bận nấu thì em gợi ý 2 hướng ạ: công thức 15 phút trong mục Vào Bếp cùng Aura, hoặc đặt Eat Clean giao tận nơi. Chị muốn xem hướng nào trước?",
+              "Dạ trong app có mục Vào Bếp cùng Aura, em chọn sẵn 3 món dễ làm theo mục tiêu của chị, chị xem thử nhé.",
+              "Dạ nếu chị muốn thử Eat Clean, một phần là [giá Eat Clean], đặt trong app mục Eat Clean, giao trong ngày ạ. Không bắt buộc đâu, mình thử 1–2 bữa xem hợp không nhé.",
+              "Dạ phần Eat Clean chị đặt em đã ghi vào nhật ký hôm nay giúp chị rồi ạ, chị không cần chụp nữa.",
+              "Dạ chị thấy phần ăn hơi mặn thì em báo bếp điều chỉnh ngay ạ, cảm ơn chị đã góp ý.",
+              "Dạ ăn ngoài vẫn giảm được bình thường ạ, chỉ cần chọn món và khẩu phần. Em gửi chị danh sách món gọi ở quán cơm văn phòng nhé."
+            ],
+            "avoid": [
+              "Chào bán Eat Clean khi khách không hỏi hoặc không có nhu cầu.",
+              "Nói ăn ngoài hoặc tự nấu thì không hiệu quả.",
+              "Báo giá thiếu đơn vị hoặc hứa ưu đãi chưa có.",
+              "Gợi ý món có nguyên liệu khách đã báo dị ứng."
+            ],
+            "crm": "Student 360 · ghi chú gợi ý đã gửi; phản hồi món chuyển kênh Vận hành Eat Clean",
+            "done": "Khách có ít nhất 1 cách ăn phù hợp với thời gian của mình (công thức hoặc Eat Clean) và đã thử trong tuần.",
+            "escalate": "Khiếu nại về món Eat Clean (chất lượng, giao trễ) → Vận hành Eat Clean trong ngày và quy trình khiếu nại của SOP 07.",
+            "tools": [
+              "App Aura · Vào Bếp cùng Aura",
+              "App Aura · Eat Clean",
+              "Kênh Vận hành Eat Clean"
+            ],
+            "cases": [
+              {
+                "group": "Nhu cầu",
+                "when": "Khách không biết nấu, sống một mình",
+                "then": "Gợi ý 3 công thức một nồi 15 phút; sau 1 tuần hỏi lại.",
+                "say": [
+                  "Dạ em chọn 3 món một nồi, 15 phút, nguyên liệu mua ở siêu thị gần nhà ạ. Chị thử 1 món tuần này rồi kể em nghe nhé."
+                ]
+              },
+              {
+                "group": "Nhu cầu",
+                "when": "Khách hỏi “Eat Clean có bắt buộc không?”",
+                "then": "Trả lời rõ không bắt buộc; nêu khi nào hữu ích.",
+                "say": [
+                  "Dạ không bắt buộc ạ. Eat Clean hợp khi chị bận không nấu được hoặc muốn phần ăn cân sẵn; còn chị tự nấu hay ăn ngoài đúng cách vẫn đạt mục tiêu bình thường."
+                ]
+              },
+              {
+                "group": "Nhu cầu",
+                "when": "Khách thấy Eat Clean đắt",
+                "then": "Không ép; gợi ý dùng 2–3 bữa/tuần ở ngày bận nhất, còn lại tự nấu.",
+                "say": [
+                  "Dạ chị dùng Eat Clean cho 2–3 bữa bận nhất trong tuần thôi cũng được ạ, còn lại mình tự chuẩn bị theo công thức. Vậy vừa tiện vừa không tốn nhiều."
+                ]
+              },
+              {
+                "group": "Vận hành",
+                "when": "Khách khiếu nại món giao trễ hoặc không đúng",
+                "then": "Xin lỗi, ghi nhận, chuyển Vận hành Eat Clean trong ngày, phản hồi lại kết quả.",
+                "say": [
+                  "Dạ em xin lỗi chị vì phần ăn hôm nay giao trễ ạ. Em chuyển bên vận hành kiểm tra ngay và báo lại chị trong hôm nay."
+                ],
+                "crm": "Khiếu nại Eat Clean · chuyển vận hành"
+              },
+              {
+                "group": "Vận hành",
+                "when": "Khách dị ứng hải sản nhưng thực đơn tuần có cá",
+                "then": "Đổi món theo ghi chú dị ứng; xác nhận lại với bếp.",
+                "say": [
+                  "Dạ thực đơn thứ Tư có cá, em đổi sang món gà cho chị theo ghi chú dị ứng ạ. Em đã báo bếp xác nhận lại rồi nhé."
+                ]
+              }
+            ],
+            "example": {
+              "good": "Dạ chị bận nấu thì em gợi ý 2 hướng: công thức 15 phút trong Vào Bếp cùng Aura, hoặc đặt Eat Clean giao tận nơi. Chị muốn xem hướng nào trước?",
+              "bad": "Chị phải đặt Eat Clean mới giảm được, ăn ngoài là hỏng hết.",
+              "why": "Đưa lựa chọn thật, không ép mua, không phủ nhận cách ăn của khách."
+            },
+            "quiz": [
+              {
+                "question": "Khi nào nên gợi ý Eat Clean?",
+                "options": [
+                  "Mọi hội viên mới",
+                  "Khi khách bận không nấu được hoặc cần phần ăn cân sẵn",
+                  "Khi doanh số bếp thấp",
+                  "Khi khách ăn ngoài"
+                ],
+                "answer": 1,
+                "why": "Gợi ý theo nhu cầu, không chào bán."
+              },
+              {
+                "question": "Khách thấy Eat Clean đắt. Câu trả lời đúng?",
+                "options": [
+                  "Ưu đãi ngay 20%",
+                  "Gợi ý dùng 2–3 bữa bận nhất, còn lại tự nấu theo công thức",
+                  "Nói không đặt thì không giảm",
+                  "Im lặng"
+                ],
+                "answer": 1,
+                "why": "Giữ lựa chọn vừa túi tiền; không hứa ưu đãi chưa có."
+              }
+            ]
+          },
+          {
+            "title": "Ghi nhận và bàn giao chăm sóc dinh dưỡng",
+            "when": "Sau mỗi tương tác đáng kể; khi đổi PT / giao CSKH; T-30 trước hết gói",
+            "owner": "PT chính / CSKH / Coach online",
+            "skillId": 12,
+            "supportSkillIds": [
+              20,
+              11
+            ],
+            "handoffs": [
+              {
+                "sopId": "sop05",
+                "when": "T-30: kết quả dinh dưỡng vào Progress Review và kế hoạch gia hạn"
+              },
+              {
+                "sopId": "sop04",
+                "when": "Health Score giảm vì ngừng ghi món hoặc bỏ review"
+              },
+              {
+                "sopId": "sop08",
+                "when": "Khách yêu cầu xóa dữ liệu ăn uống, ảnh món hoặc chỉ số"
+              }
+            ],
+            "goal": "Người tiếp theo đọc Student 360 trong 2 phút hiểu được khách ăn thế nào, đã thử gì, cần tránh gì.",
+            "actions": [
+              "Sau review và sau mỗi điều chỉnh mục tiêu: ghi 3 dòng vào Student 360 (hiện trạng, đã làm, bước tới).",
+              "Ghi cờ dị ứng / sức khỏe ở đầu ghi chú, không lẫn trong văn bản dài.",
+              "Khi đổi PT hoặc giao CSKH: bàn giao trực tiếp 5 phút + ghi chú; người mới chào khách trong 24 giờ, nhắc lại 1 điều khách đã làm tốt.",
+              "T-30 trước hết gói: tổng hợp số ngày ghi, chỉ số đầu / cuối, thói quen đã đổi → gửi PT cho Progress Review (SOP 05).",
+              "Không ghi nhận xét cảm tính về cơ thể hay tính cách khách.",
+              "Khách yêu cầu xóa dữ liệu ăn uống → theo SOP 08."
+            ],
+            "say": [
+              "Dạ chào chị, em là [tên PT/CSKH mới], từ tuần này em đồng hành phần ăn uống với chị. Em đã đọc ghi chú: chị đang giữ bữa tối có rau rất đều, mình tiếp tục nhé.",
+              "Dạ em ghi lại hôm nay mình thống nhất: thêm đạm bữa sáng, giữ 1,5 chén cơm bữa tối, review ngày [ngày review]. Chị xem có đúng không ạ?",
+              "Dạ trước khi bàn giao cho [tên PT mới], em gửi chị tóm tắt 2 tuần qua để chị nắm, phần này em cũng để trong hồ sơ cho PT mới ạ.",
+              "Dạ gói của chị còn khoảng 1 tháng, em tổng hợp phần dinh dưỡng từ đầu đến giờ để buổi Progress Review mình xem cả chặng đường nhé.",
+              "Dạ chị muốn em xóa dữ liệu ăn uống thì em chuyển yêu cầu theo quy trình dữ liệu của Aura, em xác nhận lại với chị trong 3 ngày làm việc ạ."
+            ],
+            "avoid": [
+              "Ghi chú kiểu “khách lười”, “không hợp tác”, “mập”; chỉ ghi hành vi quan sát được.",
+              "Bàn giao chỉ bằng một tin nhắn nhóm, không có ghi chú trong Student 360.",
+              "Để khách phải kể lại từ đầu với người mới.",
+              "Lưu ảnh món hoặc chỉ số của khách trong điện thoại cá nhân (SOP 08)."
+            ],
+            "crm": "Student 360 · ghi chú dinh dưỡng 3 dòng, cờ dị ứng / sức khỏe; Action Center · bước bàn giao",
+            "done": "Ghi chú mới nhất không quá 14 ngày; người mới đã chào khách trong 24 giờ; T-30 có bản tổng hợp gửi PT.",
+            "escalate": "Bàn giao không có người nhận trong 24 giờ → quản lý chi nhánh chỉ định.",
+            "tools": [
+              "Student 360",
+              "Action Center",
+              "Progress Review (SOP 05)"
+            ],
+            "cases": [
+              {
+                "group": "Bàn giao",
+                "when": "Khách đổi PT giữa khóa",
+                "then": "PT cũ ghi tóm tắt 3 dòng + cờ; PT mới chào trong 24 giờ, nhắc 1 điều khách làm tốt.",
+                "say": [
+                  "Dạ em là [tên PT mới] ạ. Em đọc hồ sơ thấy chị đã bỏ được thói quen ăn khuya, điều này rất đáng kể. Mình giữ nhịp đó và em xem tiếp phần bữa sáng với chị nhé."
+                ]
+              },
+              {
+                "group": "Bàn giao",
+                "when": "Giao khách cho CSKH chăm sóc, PT vẫn duyệt món",
+                "then": "Phân vai rõ trong ghi chú: CSKH nhắc nhịp, PT duyệt và review.",
+                "say": [
+                  "Dạ từ nay [tên CSKH] sẽ nhắc nhịp và hỏi thăm chị hằng tuần, còn phần xem món và review vẫn là em ạ. Chị có gì cứ nhắn một trong hai bên nhé."
+                ],
+                "crm": "Phân vai CSKH / PT · Student 360"
+              },
+              {
+                "group": "Dữ liệu",
+                "when": "Khách muốn xóa ảnh món và chỉ số",
+                "then": "Tiếp nhận, không hứa thời gian ngoài quy trình; chuyển theo SOP 08.",
+                "say": [
+                  "Dạ em tiếp nhận yêu cầu xóa dữ liệu ăn uống của chị ạ. Em chuyển theo quy trình dữ liệu của Aura và xác nhận lại với chị trong 3 ngày làm việc."
+                ],
+                "crm": "Yêu cầu xóa dữ liệu · SOP 08"
+              },
+              {
+                "group": "Gia hạn",
+                "when": "Còn 30 ngày hết gói, khách tiến bộ tốt",
+                "then": "Tổng hợp dinh dưỡng vào Progress Review; không chào gói trong tin nhắn dinh dưỡng.",
+                "say": [
+                  "Dạ em gửi PT bản tổng hợp 3 tháng ăn uống của chị để buổi Progress Review mình xem đầy đủ ạ. Phần gói tập chị trao đổi với PT và CS trong buổi đó nhé."
+                ]
+              },
+              {
+                "group": "Gia hạn",
+                "when": "Khách không gia hạn nhưng muốn giữ thói quen ăn",
+                "then": "Gửi bản tóm tắt thói quen và 3 nguyên tắc; chúc khách; không gây áp lực.",
+                "say": [
+                  "Dạ dù chị tạm dừng tập, em gửi chị bản tóm tắt thói quen ăn 3 tháng qua và 3 nguyên tắc giữ cân ạ. Khi nào chị quay lại, hồ sơ vẫn còn nguyên để mình tiếp tục."
+                ]
+              }
+            ],
+            "example": {
+              "good": "Dạ em là [tên PT mới] ạ. Em đọc hồ sơ thấy chị đã bỏ được thói quen ăn khuya. Mình giữ nhịp đó nhé.",
+              "bad": "Chị kể lại cho em từ đầu đi, em mới nhận chị nên không biết gì.",
+              "why": "Bàn giao qua hồ sơ, khách không phải kể lại."
+            },
+            "quiz": [
+              {
+                "question": "Ghi chú dinh dưỡng trong Student 360 nên có gì?",
+                "options": [
+                  "Nhận xét tính cách khách",
+                  "Hiện trạng, đã làm, bước tới, cờ dị ứng / sức khỏe ở đầu",
+                  "Toàn bộ lịch sử chat",
+                  "Chỉ số cân nặng"
+                ],
+                "answer": 1,
+                "why": "3 dòng đọc trong 2 phút, cờ an toàn nổi bật."
+              },
+              {
+                "question": "Khi đổi PT giữa khóa, PT mới cần làm gì trong 24 giờ?",
+                "options": [
+                  "Chờ khách nhắn trước",
+                  "Chào khách, nhắc 1 điều khách đã làm tốt từ hồ sơ",
+                  "Gửi lại thực đơn mới",
+                  "Hỏi khách kể lại từ đầu"
+                ],
+                "answer": 1,
+                "why": "Liền mạch trải nghiệm, khách không kể lại."
+              }
+            ]
+          }
+        ],
+        "kpis": [
+          "Duyệt món trong 24 giờ",
+          "Ghi nhật ký ăn đủ 5 ngày/tuần",
+          "Review dinh dưỡng đúng mốc"
+        ],
+        "updatedAt": "2026-11-09T00:00:00.000Z",
+        "declaredSkillIds": [
+          "2",
+          "4",
+          "5",
+          "10",
+          "11",
+          "12",
+          "15",
+          "20",
+          "21",
+          "23"
         ]
       }
     },

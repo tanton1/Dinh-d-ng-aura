@@ -151,7 +151,7 @@ test('each SOP step names its skill, and a skill page opens the steps that use i
 
   // A skill no step applies as its own still shows where it works alongside others.
   await page.evaluate(() => { location.hash = '#/admin-sop?section=skills&resource=skill__5' })
-  await expect(page.locator('.sop-center-relations')).toContainText('Phối hợp ở 5 bước')
+  await expect(page.locator('.sop-center-relations')).toContainText('Phối hợp ở 6 bước')
   await page.locator('.sop-center-relations').getByRole('button', { name: /SOP 01 · B04/ }).click()
   await expect(page).toHaveURL(/resource=sop__sop01&step=3/)
 })
@@ -167,9 +167,9 @@ test('the centre opens on the tree, old overview links land there, and a library
   await page.locator('.sop-center-nav').getByRole('button', { name: /Mẫu câu/ }).click()
   await expect(page).toHaveURL(/section=scripts$/)
   const chips = page.locator('.sop-center-chips button')
-  await expect(chips).toHaveText(['Tất cả 146', 'Kịch bản 90', 'Hội thoại mẫu 37', 'Xử lý băn khoăn 19'])
+  await expect(chips).toHaveText(['Tất cả 166', 'Kịch bản 104', 'Hội thoại mẫu 41', 'Xử lý băn khoăn 21'])
   await chips.nth(3).click()
-  await expect(page.locator('.sop-center-resource-row')).toHaveCount(19)
+  await expect(page.locator('.sop-center-resource-row')).toHaveCount(21)
   await page.locator('.sop-center-sop-select select').selectOption('sop02')
   await expect(chips.nth(3)).toContainText('Xử lý băn khoăn')
   await expect(page.locator('.sop-center-library > header span').first()).toContainText('tài liệu')
