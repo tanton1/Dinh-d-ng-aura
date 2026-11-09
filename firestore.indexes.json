@@ -1119,6 +1119,12 @@
       "indexes": []
     },
     {
+      "collectionGroup": "notifications",
+      "fieldPath": "expiresAt",
+      "ttl": true,
+      "indexes": []
+    },
+    {
       "collectionGroup": "nutritionAiRequests",
       "fieldPath": "expiresAt",
       "ttl": true,

@@ -10,6 +10,9 @@ const DEFAULT_SETTINGS: NotificationSettings = {
   workoutReminders: true,
   learningUpdates: true,
   coachMessages: true,
+  sessionReminders: true,
+  paymentReminders: true,
+  availabilityReminders: true,
   quietHoursEnabled: true,
   quietHoursStart: '21:30',
   quietHoursEnd: '07:00',
@@ -200,6 +203,9 @@ export default function NotificationSettingsCard({
           {([
             ['mealReminders', 'Bữa ăn & nhật ký', 'Nhắc khi đến giờ ăn mà chưa có nhật ký.'],
             ['workoutReminders', 'Tập luyện & lịch PT', 'Lịch tập và lịch hẹn quan trọng.'],
+            ['sessionReminders', 'Nhắc buổi tập', 'Tối hôm trước và trước giờ tập PT.'],
+            ['paymentReminders', 'Nhắc thanh toán trước hạn', 'Trước kỳ trả góp 3 ngày. Quá hạn và biên nhận luôn được gửi.'],
+            ['availabilityReminders', 'Nhắc lịch rảnh', 'Trước giờ chốt lịch rảnh của tuần sau.'],
             ['learningUpdates', 'Academy & streak', 'Bài học mới và nhịp học tập.'],
             ['coachMessages', 'HLV & Aura AI', 'Phản hồi mới từ HLV hoặc Aura AI.'],
           ] as const).map(([key, title, description]) => (

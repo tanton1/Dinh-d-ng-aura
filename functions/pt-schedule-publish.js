@@ -839,7 +839,7 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
   return { desired, errorDetails, errors: [...new Set(errors)], warnings: [...new Set(warnings)], warningDetails }
 }
 
-function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () => {} }) {
+function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () => {}, onSchedulePublished = null }) {
   async function execute(request, validateOnly) {
     const week = weekId(request.data?.weekId)
     const branchId = documentId(request.data?.branchId, 'Mã chi nhánh')
@@ -1358,10 +1358,41 @@ function createPtSchedulePublishFunctions({ db, onCall, onScheduleMutation = () 
         })),
         createdAt: FieldValue.serverTimestamp(),
       })
-      return { unchanged: false, draftRevision, version: nextVersion, diff, warnings: [...new Set(prepared.warnings)] }
+      // Learners whose sessions this publish created, moved or cancelled get
+      // one notice listing their week; the caller writes it after commit.
+      const affectedStudentIds = new Set([
+        ...creates.map((item) => item.studentId),
+        ...updates.flatMap(({ existing, desired }) => [desired.studentId, existing.data().studentId]),
+        ...cancellations.map((item) => item.data().studentId),
+      ].filter((value) => typeof value === 'string' && value))
+      const hadSessions = new Set(existingScoped
+        .filter((item) => ACTIVE_SESSION_STATUSES.has(item.data().status))
+        .map((item) => item.data().studentId))
+      const studentNotices = [...affectedStudentIds].map((studentId) => {
+        const student = students.get(studentId) || {}
+        return {
+          studentId,
+          accountUid: typeof student.accountUid === 'string' ? student.accountUid : '',
+          status: student.status || '',
+          accountStatus: student.accountStatus || '',
+          hadSessions: hadSessions.has(studentId),
+          sessions: publishedEntries
+            .filter((entry) => entry.studentId === studentId)
+            .map((entry) => ({ id: entry.id, date: entry.date, hour: entry.hour, trainerName: trainers.get(entry.trainerId)?.name || 'PT Aura' })),
+        }
+      })
+      return { unchanged: false, draftRevision, version: nextVersion, diff, warnings: [...new Set(prepared.warnings)], studentNotices }
     })
     if (!validateOnly) onScheduleMutation(branchId, week)
-    return result
+    const { studentNotices, ...response } = result
+    if (!validateOnly && studentNotices?.length && typeof onSchedulePublished === 'function') {
+      try {
+        await onSchedulePublished({ branchId, weekId: week, version: result.version, notices: studentNotices })
+      } catch (error) {
+        console.warn('Schedule publish notices failed', { branchId, week, code: error?.code || 'unknown' })
+      }
+    }
+    return response
   }
 
   const listPtScheduleVersions = onCall(async (request) => {

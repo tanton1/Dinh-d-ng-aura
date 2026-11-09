@@ -17,6 +17,7 @@ const {
   normalizeRequestedSessions,
   studentAvailabilityProfilePatch,
 } = require('./student-availability')
+const { availabilityReceivedNotification } = require('./student-reminders')
 const { summarizeContractUsage } = require('./contract-usage')
 const { canonicalUsageSummary, contractUsageViewNeedsRebuild, loadContractUsageViews, MAX_SESSION_EVIDENCE, USAGE_VIEW_SOURCE_VERSION } = require('./contract-usage-view')
 const { normalizeMemberReferralCode } = require('./loyalty-core')
@@ -1872,6 +1873,21 @@ function createPtOperationsV2Functions({
     invalidateTrainerReadCaches(db, actor)
     studentScheduleQueryCache.clear(`${cacheScope(db)}|${profile.id}|`)
     invalidateStudentAvailabilityFallbacks(db, profile.id)
+    // A persistent receipt in the learner inbox: learners sometimes believe a
+    // draft was sent. A failure here never undoes the saved week.
+    try {
+      const receipt = availabilityReceivedNotification({ accountUid: actor.uid, studentId: profile.id, weekId, slotCount: slots.length, requiredSessions, revision: nextRevision.revision })
+      await db.doc(`users/${actor.uid}/notifications/${receipt.dedupeKey}`).set({
+        ...receipt,
+        id: receipt.dedupeKey,
+        expiresAt: Timestamp.fromDate(receipt.expiresAt),
+        read: false,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true })
+    } catch (error) {
+      console.warn('Availability receipt notification failed', { studentId: profile.id, weekId, code: error?.code || 'unknown' })
+    }
     return {
       schemaVersion: 3,
       availableSlots: slots,

@@ -7,6 +7,7 @@ const personalViews = new Set<ViewId>([
   'course-detail',
   'schedule',
   'student-availability',
+  'notifications',
   'pt-workout',
   'workout',
   'nutrition',

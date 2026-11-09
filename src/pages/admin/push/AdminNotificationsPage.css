@@ -164,6 +164,10 @@
 
 .push-overview-grid,
 .push-automation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.push-learner-toggles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; margin: 14px 0; }
+.push-learner-toggle { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 10px 12px; border: 1px solid var(--push-line); border-radius: 12px; color: var(--push-ink); background: var(--push-soft); font-size: 13px; font-weight: 750; cursor: pointer; }
+.push-learner-toggle input { width: 18px; height: 18px; flex: 0 0 auto; accent-color: var(--push-pink); }
+.push-learner-toggle input:focus-visible { outline: 3px solid rgba(247, 37, 133, .22); outline-offset: 2px; }
 .push-section-heading { min-width: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .push-section-heading > div { min-width: 0; }
 .push-section-heading__eyebrow { display: block; margin-bottom: 5px; color: var(--push-pink-dark); font-size: 10px; font-weight: 900; letter-spacing: .9px; text-transform: uppercase; }

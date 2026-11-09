@@ -11,6 +11,10 @@ interface NotificationCenterProps {
   align?: 'left' | 'right'
   iconSize?: number
   style?: React.CSSProperties
+  /** When set, the bell opens the full notification page instead of the dropdown. */
+  onOpenPage?: () => void
+  /** True while the notification page itself is open. */
+  active?: boolean
 }
 
 export default function NotificationCenter({
@@ -19,6 +23,8 @@ export default function NotificationCenter({
   align = 'right',
   iconSize = 20,
   style = {},
+  onOpenPage,
+  active = false,
 }: NotificationCenterProps) {
   const { user } = useAuth()
   const userId = user?.uid
@@ -162,10 +168,20 @@ export default function NotificationCenter({
 
   return (
     <div className={`notification-center ${className}`} ref={dropdownRef} style={{ position: 'relative', display: 'inline-block' }}>
-      <button 
-        className="icon-button notification-button" 
-        aria-label="Thông báo"
-        onClick={() => setIsOpen(!isOpen)}
+      <button
+        className={`icon-button notification-button${active ? ' is-active' : ''}`}
+        aria-label={unreadCount > 0 ? `Thông báo, ${unreadCount > 9 ? 'hơn 9' : unreadCount} chưa đọc` : 'Thông báo'}
+        aria-current={active ? 'page' : undefined}
+        aria-haspopup={onOpenPage ? undefined : 'dialog'}
+        aria-expanded={onOpenPage ? undefined : isOpen}
+        onClick={() => {
+          if (onOpenPage) {
+            setIsOpen(false)
+            onOpenPage()
+            return
+          }
+          setIsOpen(!isOpen)
+        }}
         style={{
           position: 'relative',
           display: 'inline-flex',
@@ -188,7 +204,7 @@ export default function NotificationCenter({
         <Bell size={iconSize} />
         {showLabel && <span>Thông báo</span>}
         {unreadCount > 0 && (
-          <span style={{
+          <span aria-hidden="true" style={{
             position: 'absolute',
             top: showLabel ? '2px' : '2px',
             right: showLabel ? '2px' : '2px',
@@ -211,7 +227,7 @@ export default function NotificationCenter({
         )}
       </button>
 
-      {isOpen && (
+      {isOpen && !onOpenPage && (
         <div style={{
           position: 'absolute',
           top: '100%',

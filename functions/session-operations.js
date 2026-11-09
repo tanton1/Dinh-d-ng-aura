@@ -2197,15 +2197,22 @@ async function remindUnconfirmedPtAttendance({ db, now = new Date(), logger = co
   for (const [trainerId, count] of pendingByTrainer) {
     pendingSessionCount += count
     const notificationReference = db.doc(`users/${trainerId}/notifications/pt-attendance-${today}`)
+    // Same field names as every other inbox item, so the bell and the
+    // notification page render the text and open the schedule.
     batch.set(notificationReference, {
       schemaVersion: 1,
+      id: notificationReference.id,
       userId: trainerId,
-      type: 'pt_attendance_confirmation',
+      type: 'REMINDER',
+      kind: 'pt_attendance_confirmation',
+      category: 'operations',
       title: 'Ca dạy đang chờ xác nhận',
-      body: `Bạn còn ${count} buổi cần xác nhận Có tập hoặc Không đến trước mốc tự động 48 giờ.`,
-      route: 'staff-schedule',
+      message: `Bạn còn ${count} buổi cần xác nhận Có tập hoặc Không đến trước mốc tự động 48 giờ.`,
+      actionUrl: '#/staff-schedule',
+      dedupeKey: notificationReference.id,
       read: false,
       date: today,
+      dateString: today,
       pendingSessionCount: count,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),

@@ -26,6 +26,7 @@ const {
   vietnamDateKey,
   vietQrPayload,
 } = require('./installment-payment-core')
+const { paymentClaimReceivedNotification } = require('./student-reminders')
 
 const CLAIM_PAGE_SIZE = 20
 const MAX_CLAIM_REVISIONS = 30
@@ -332,6 +333,17 @@ function createInstallmentPaymentFunctions({ db, onCall, storage = null, now = (
           reviewedBy: null,
         }
         transaction.set(claimReference, next)
+        // In-app receipt only (no push): the transfer is reported and waits
+        // for finance. A retried call reuses the id; a new revision gets one.
+        const receipt = paymentClaimReceivedNotification({ accountUid: actor.uid, claimId, revision, packageName: next.packageName, amount, sequence: target.sequence, now: now() })
+        transaction.set(db.doc(`users/${actor.uid}/notifications/${receipt.dedupeKey}`), {
+          ...receipt,
+          id: receipt.dedupeKey,
+          expiresAt: Timestamp.fromDate(receipt.expiresAt),
+          read: false,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        })
         return { state: 'submitted', unchanged: false, claim: next }
       })
     } catch (error) {

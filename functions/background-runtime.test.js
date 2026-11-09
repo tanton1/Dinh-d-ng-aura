@@ -125,7 +125,8 @@ test('target selection is exact and never narrows deployment discovery', () => {
 
 test('all background runtimes retain discovery metadata, named database and minimal module graph', () => {
   const discovery = probe()
-  assert.equal(discovery.exportNames.length, 598)
+  assert.equal(discovery.exportNames.length, 601)
+  for (const name of ['sendSessionRemindersScheduled', 'sendAvailabilityRemindersScheduled', 'sendContractLifecycleRemindersScheduled']) assert.ok(discovery.exportNames.includes(name), name)
   for (const name of ['crmQuery', 'crmCommand', 'crmIntegrationCommand', 'pancakeWebhook', 'processCrmInboundEvent', 'syncCrmCustomerFromContract', 'runCrmMaintenanceScheduled']) assert.ok(discovery.exportNames.includes(name), name)
   for (const name of ['manageStudentOff', 'manageStudentOffRegional']) assert.ok(discovery.exportNames.includes(name))
   for (const name of ['listFinanceReconciliationCases', 'getFinanceReconciliationCase', 'resolveFinanceReconciliationCase', 'listFinanceReconciliationCasesRegional', 'getFinanceReconciliationCaseRegional']) assert.ok(discovery.exportNames.includes(name))

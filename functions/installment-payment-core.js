@@ -20,7 +20,12 @@ const MEMO_LENGTH = 25
 // the following installments when it records the payment.
 const MIN_PARTIAL_AMOUNT = 100_000
 const MAX_INSTALLMENTS = 24
-const REMINDER_OFFSETS = Object.freeze({ before_3: 3, due: 0, after_3: -3 })
+// Before, on and after the due date; once overdue, weekly for eight weeks
+// until the learner pays or reports a transfer.
+const REMINDER_OFFSETS = Object.freeze({
+  before_3: 3, due: 0, after_3: -3, after_7: -7, after_14: -14, after_21: -21,
+  after_28: -28, after_35: -35, after_42: -42, after_49: -49, after_56: -56,
+})
 // Transfer receipts the student attaches to a claim. Storage Rules let only
 // the owner create them; finance reads them through short-lived signed URLs.
 const PROOF_PREFIX = 'installment-proofs'
@@ -315,7 +320,16 @@ function reminderCopy(milestone, { packageName, amount, dueDate }) {
   const detail = `${packageName || 'Gói tập Aura'} · ${formatVnd(amount)} · hạn ${formatDay(dueDate)}`
   if (milestone === 'before_3') return { title: 'Kỳ thanh toán còn 3 ngày', message: `${detail}. Bạn có thể quét mã QR trong app để thanh toán.` }
   if (milestone === 'due') return { title: 'Kỳ thanh toán đến hạn hôm nay', message: `${detail}. Quét mã QR trong app để thanh toán trong 1 phút.` }
-  return { title: 'Kỳ thanh toán đã quá hạn 3 ngày', message: `${detail}. Nếu bạn đã chuyển khoản, hãy bấm "Tôi đã chuyển khoản" để Aura xác nhận.` }
+  const overdueDays = Math.abs(REMINDER_OFFSETS[milestone] ?? -3)
+  return { title: `Kỳ thanh toán đã quá hạn ${overdueDays} ngày`, message: `${detail}. Nếu bạn đã chuyển khoản, hãy bấm "Tôi đã chuyển khoản" để Aura xác nhận.` }
+}
+
+// The notification page groups and highlights by kind; only the pre-due
+// reminder can be muted by the learner.
+function reminderKind(milestone) {
+  if (milestone === 'before_3') return 'installment_due_soon'
+  if (milestone === 'due') return 'installment_due'
+  return 'installment_overdue'
 }
 
 // Pure planning step of the daily reminder job: given contracts whose next
@@ -344,6 +358,11 @@ function planInstallmentReminders({ contracts, students, claims, today }) {
       type: 'PAYMENT',
       dedupeKey: `installment-due-${claimId.slice(4, 28)}-${milestone}`,
       actionUrl: paymentActionUrl(contract.id, target.installmentId),
+      kind: reminderKind(milestone),
+      priority: milestone.startsWith('after_') ? 'high' : 'normal',
+      ctaLabel: 'Thanh toán',
+      entity: { contractId: contract.id, installmentId: target.installmentId || '' },
+      expiresAt: new Date(`${addDays(today, 90)}T00:00:00+07:00`),
       ...copy,
     })
   }

@@ -34,6 +34,7 @@ const {
   resolveSchedulingContract,
 } = require('./contract-scheduling')
 const { ptOperationsPolicySnapshot } = require('./pt-policy')
+const { availabilityReopenedNotification } = require('./student-reminders')
 const { hiddenExpiredStudent, approvedContractOff, findScheduleContract, requireScheduleContract, confirmedStudentOff, entryOnApprovedOff, requireCrossBranchConfirmation } = require('./schedule-entitlement-policy')
 
 const MAX_STUDENTS = 500
@@ -4643,6 +4644,8 @@ function createPtScheduleV2Functions({
   actorForBranch = scheduleActor,
   branchData = loadBranchData,
   manualData = loadManualMutationData,
+  // Optional push for learner notices already written to the inbox.
+  pushStudentNotices = null,
 }) {
   const listPtScheduleBranches = branchCatalogOnCall(async (request) => {
     const actor = await trustedAccessContext(request, db)
@@ -5362,6 +5365,20 @@ function createPtScheduleV2Functions({
         updatedStudentId: studentId,
         updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true })
+      const accountUid = String(studentSnapshot.data().accountUid || '')
+      const notice = /^[A-Za-z0-9_-]{1,128}$/.test(accountUid)
+        ? availabilityReopenedNotification({ accountUid, studentId, weekId: week, reopenedUntil: new Date(reopenUntilMillis) })
+        : null
+      if (notice) {
+        transaction.set(db.doc(`users/${accountUid}/notifications/${notice.dedupeKey}`), {
+          ...notice,
+          id: notice.dedupeKey,
+          expiresAt: Timestamp.fromDate(notice.expiresAt),
+          read: false,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        })
+      }
       transaction.create(db.collection('ptOperationsAuditLogs').doc(), {
         schemaVersion: 2,
         action: 'student_availability.reopened',
@@ -5379,10 +5396,15 @@ function createPtScheduleV2Functions({
         availabilityRevision: currentRevision,
         reopenedUntil: new Date(reopenUntilMillis).toISOString(),
         availabilityStatus: Array.isArray(current.slots) && current.slots.length ? 'submitted' : 'missing',
+        notice,
       }
     })
     invalidateBranchDataCache(db, branchId, week)
-    return { schemaVersion: 1, ...result, availabilityLocked: false }
+    const { notice, ...response } = result
+    if (notice && typeof pushStudentNotices === 'function') {
+      try { await pushStudentNotices([notice]) } catch (error) { console.warn('Reopen push failed', { studentId, week, code: error?.code || 'unknown' }) }
+    }
+    return { schemaVersion: 1, ...response, availabilityLocked: false }
   })
 
   // A target edit is a weekly operational override. It must not create a

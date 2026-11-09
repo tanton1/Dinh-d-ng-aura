@@ -164,6 +164,7 @@ export type StudentView =
   | 'course-detail'
   | 'schedule'
   | 'student-availability'
+  | 'notifications'
   | 'pt-workout'
   | 'nutrition'
   | 'cooking'
@@ -228,7 +229,7 @@ export type ViewId = StudentView | AdminView
 
 export type FitnessGoalTarget = 'all' | 'lose-fat' | 'gain-muscle' | 'maintain' | 'health'
 
-export type NotificationCategory = 'workout' | 'nutrition' | 'learning' | 'coach' | 'loyalty' | 'general'
+export type NotificationCategory = 'workout' | 'nutrition' | 'learning' | 'coach' | 'loyalty' | 'payment' | 'availability' | 'system' | 'operations' | 'general'
 
 export interface NotificationSettings {
   /** Master switch for in-app and push reminders. */
@@ -239,6 +240,12 @@ export interface NotificationSettings {
   mealReminders?: boolean
   learningUpdates?: boolean
   coachMessages?: boolean
+  /** Push for the evening-before and pre-session PT reminders. */
+  sessionReminders?: boolean
+  /** Push for instalment reminders ahead of the due date. Overdue and receipts always deliver. */
+  paymentReminders?: boolean
+  /** Push for the weekly availability cutoff reminders. */
+  availabilityReminders?: boolean
   quietHoursEnabled?: boolean
   quietHoursStart?: string
   quietHoursEnd?: string
@@ -278,7 +285,15 @@ export interface SystemPushSettings {
     lunch: string
     dinner: string
   }
+  /** Evening-before PT session reminder time (HH:mm). */
   workoutReminderTime: string
+  /** Learner notice jobs; each defaults to on. */
+  autoSessionReminders: boolean
+  autoFeedbackInvites: boolean
+  autoAvailabilityReminders: boolean
+  autoContractReminders: boolean
+  /** Hours before a PT session for the second reminder (1–6). */
+  sessionReminderLeadHours: number
   weeklyProgressReviewDay: string
   timezone: string
   quietHoursStart: string
@@ -294,7 +309,7 @@ export interface PushBroadcastLog {
   id: string
   title: string
   message: string
-  type: 'REMINDER' | 'INFO' | 'ALERT' | 'ANNOUNCEMENT' | 'WORKOUT' | 'MOTIVATION' | 'PROMOTION'
+  type: AppNotificationType
   targetType: 'all' | 'category' | 'individual' | 'selected'
   targetValue?: string
   category?: NotificationCategory
@@ -877,19 +892,28 @@ export interface WorkoutLogInput {
   }>
 }
 
+export type AppNotificationType = 'REMINDER' | 'INFO' | 'ALERT' | 'WARNING' | 'ANNOUNCEMENT' | 'WORKOUT' | 'MOTIVATION' | 'PROMOTION' | 'PAYMENT'
+
 export interface AppNotification {
   id: string;
   userId: string;
   title: string;
   message: string;
-  type: 'REMINDER' | 'INFO' | 'ALERT' | 'ANNOUNCEMENT' | 'WORKOUT' | 'MOTIVATION' | 'PROMOTION';
+  type: AppNotificationType;
   category?: NotificationCategory;
   read: boolean;
   actionUrl?: string;
   dateString?: string;
   dedupeKey?: string;
+  /** Fine-grained event name, e.g. session_d1, availability_received. */
+  kind?: string;
+  entity?: Record<string, string | string[] | null>;
+  priority?: 'high' | 'normal';
+  ctaLabel?: string;
   expiresAt?: unknown;
   createdAt?: unknown;
+  readAt?: unknown;
+  updatedAt?: unknown;
 }
 
 export type {

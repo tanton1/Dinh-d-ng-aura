@@ -129,10 +129,12 @@ export function notificationTypeLabel(value: AppNotification['type']) {
     REMINDER: 'Nhắc nhở',
     INFO: 'Thông tin',
     ALERT: 'Quan trọng',
+    WARNING: 'Cảnh báo',
     ANNOUNCEMENT: 'Thông báo',
     WORKOUT: 'Buổi tập',
     MOTIVATION: 'Động lực',
     PROMOTION: 'Ưu đãi',
+    PAYMENT: 'Thanh toán',
   } as Record<AppNotification['type'], string>)[value]
 }
 

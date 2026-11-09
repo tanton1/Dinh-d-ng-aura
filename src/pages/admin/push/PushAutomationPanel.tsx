@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  CalendarClock,
   CheckCircle2,
   ChevronDown,
   Clock3,
@@ -22,6 +23,13 @@ interface PushAutomationPanelProps {
   onChange: (settings: SystemPushSettings) => void
   onSave: () => void
 }
+
+const LEARNER_NOTICE_TOGGLES = [
+  ['autoSessionReminders', 'Nhắc buổi tập'],
+  ['autoFeedbackInvites', 'Mời đánh giá buổi tập'],
+  ['autoAvailabilityReminders', 'Nhắc lịch rảnh'],
+  ['autoContractReminders', 'Nhắc gói sắp hết'],
+] as const
 
 function TimeField({
   label,
@@ -142,6 +150,40 @@ export function PushAutomationPanel({
           </div>
         </section>
       </div>
+
+      <section className="push-card" aria-labelledby="push-learner-notices-title">
+        <div className="push-section-heading">
+          <div>
+            <span className="push-section-heading__eyebrow">Học viên PT</span>
+            <h2 id="push-learner-notices-title">Nhắc lịch tập, lịch rảnh và gói tập</h2>
+          </div>
+          <CalendarClock size={21} aria-hidden="true" />
+        </div>
+        <div className="push-learner-toggles">
+          {LEARNER_NOTICE_TOGGLES.map(([key, label]) => (
+            <label key={key} className="push-learner-toggle">
+              <input type="checkbox" checked={settings[key] !== false} onChange={(event) => update(key, event.target.checked)} />
+              <span>{label}</span>
+            </label>
+          ))}
+        </div>
+        <div className="push-form-grid push-form-grid--two">
+          <TimeField label="Giờ nhắc buổi ngày mai" value={settings.workoutReminderTime} onChange={(value) => update('workoutReminderTime', value)} />
+          <label className="push-field">
+            <span>Nhắc lại trước giờ tập</span>
+            <span className="push-input-suffix">
+              <input
+                type="number"
+                min={1}
+                max={6}
+                value={settings.sessionReminderLeadHours}
+                onChange={(event) => update('sessionReminderLeadHours', Math.max(1, Math.min(6, Number(event.target.value) || 2)))}
+              />
+              <small>giờ</small>
+            </span>
+          </label>
+        </div>
+      </section>
 
       <section className="push-card">
         <div className="push-section-heading">

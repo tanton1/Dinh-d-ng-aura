@@ -661,10 +661,11 @@ body.shell-overlay-open { overflow: hidden; }
   .mobile-page-context strong { overflow: hidden; color: var(--aura-black); font-size: 15px; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
   .topbar-search,
   .backend-indicator,
-  .notification-button,
   .user-copy,
   .user-menu > svg { display: none; }
   .topbar-actions { flex: 0 0 auto; gap: 2px; margin-left: 0; }
+  /* Learners on phones reach the notification page from this bell. */
+  .notification-button { width: 44px; height: 44px; padding: 0 !important; }
   .user-menu { width: 44px; height: 44px; justify-content: center; }
   .avatar { width: 36px; height: 36px; }
 

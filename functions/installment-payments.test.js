@@ -158,12 +158,17 @@ test('transfer profile is stored as banks print it', () => {
   assert.throws(() => normalizeTransferProfile({ ...profile, accountNumber: '12' }), /Số tài khoản/)
 })
 
-test('reminders fire 3 days before, on and 3 days after the due date', () => {
-  assert.deepEqual(reminderDates('2026-11-07'), ['2026-11-10', '2026-11-07', '2026-11-04'])
+test('reminders fire 3 days before, on, 3 days after, then weekly while overdue', () => {
+  assert.deepEqual(reminderDates('2026-11-07'), ['2026-11-10', '2026-11-07', '2026-11-04', '2026-10-31', '2026-10-24', '2026-10-17', '2026-10-10', '2026-10-03', '2026-09-26', '2026-09-19', '2026-09-12'])
   assert.equal(reminderMilestone('2026-11-10', '2026-11-07'), 'before_3')
   assert.equal(reminderMilestone('2026-11-07', '2026-11-07'), 'due')
   assert.equal(reminderMilestone('2026-11-04', '2026-11-07'), 'after_3')
+  assert.equal(reminderMilestone('2026-10-31', '2026-11-07'), 'after_7')
+  assert.equal(reminderMilestone('2026-10-24', '2026-11-07'), 'after_14')
   assert.equal(reminderMilestone('2026-11-08', '2026-11-07'), null)
+  assert.equal(reminderMilestone('2026-10-30', '2026-11-07'), null)
+  // Firestore `in` accepts at most 30 values.
+  assert.ok(reminderDates('2026-11-07').length <= 30)
 })
 
 test('reminder plan skips reported, frozen, unlinked and settled contracts', () => {
@@ -184,6 +189,18 @@ test('reminder plan skips reported, frozen, unlinked and settled contracts', () 
   assert.equal(plan[0].actionUrl, paymentActionUrl('due', 'installment-2'))
   assert.match(plan[0].dedupeKey, /^installment-due-[0-9a-f]{24}-due$/)
   assert.ok(plan[0].message.includes('4.000.000đ'))
+  assert.equal(plan[0].kind, 'installment_due')
+  assert.equal(plan[0].ctaLabel, 'Thanh toán')
+  assert.equal(plan[0].expiresAt.toISOString(), '2027-02-04T17:00:00.000Z')
+
+  const overdue = planInstallmentReminders({ contracts: [{ id: 'due', data: contract() }], students, claims: new Map(), today: '2026-11-21' })
+  assert.equal(overdue.length, 1)
+  assert.equal(overdue[0].title, 'Kỳ thanh toán đã quá hạn 14 ngày')
+  assert.equal(overdue[0].kind, 'installment_overdue')
+  assert.equal(overdue[0].priority, 'high')
+  assert.match(overdue[0].dedupeKey, /-after_14$/)
+  const soon = planInstallmentReminders({ contracts: [{ id: 'due', data: contract() }], students, claims: new Map(), today: '2026-11-04' })
+  assert.equal(soon[0].kind, 'installment_due_soon')
 })
 
 test('a shortfall moves to the next installment or a new one; an excess settles later ones', () => {

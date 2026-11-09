@@ -347,6 +347,7 @@ const adminV4MobileNav: ShellAdminNavItem[] = [
 
 const viewTitles: Partial<Record<ViewId, string>> = {
   home: 'Hôm nay',
+  notifications: 'Thông báo',
   'aura-club': 'Aura Club',
   courses: 'Học',
   'course-detail': 'Không gian học',
@@ -752,7 +753,10 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
             {isRenewalWorkspace && <div className="page-topbar-action" ref={setHeaderActionHost} />}
             <button className="mobile-search-button" aria-label="Mở tìm kiếm" aria-expanded={mobileSearchOpen} onClick={() => setMobileSearchOpen(true)}><Search size={20} /></button>
             <span className={`backend-indicator ${backendMode}`} title={backendMode === 'firebase' ? 'Dữ liệu đã được đồng bộ' : 'Đang dùng dữ liệu xem trước'}><Cloud size={14} />{backendMode === 'firebase' ? 'Đã đồng bộ' : 'Xem trước'}</span>
-            <NotificationCenter />
+            <NotificationCenter
+              onOpenPage={mode === 'student' && !isStaffWorkspace ? () => onNavigate('notifications') : undefined}
+              active={view === 'notifications'}
+            />
             <div style={{ position: 'relative' }}>
               <button className="user-menu" aria-label={`Tài khoản ${userName}`} aria-expanded={userMenuOpen} onClick={() => setUserMenuOpen(!userMenuOpen)}>
                 {userPhoto ? <img className="avatar avatar-photo" src={userPhoto} alt="" referrerPolicy="no-referrer" /> : <span className="avatar">{userName.split(' ').map((part) => part[0]).slice(-2).join('').toUpperCase()}</span>}

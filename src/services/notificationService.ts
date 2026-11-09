@@ -1,4 +1,4 @@
-import { collection, doc, onSnapshot, orderBy, query, setDoc, updateDoc, deleteDoc, serverTimestamp, getDocs, getDocsFromServer, writeBatch, where, getDoc, getDocFromServer, limit } from 'firebase/firestore'
+import { collection, doc, onSnapshot, orderBy, query, setDoc, updateDoc, deleteDoc, serverTimestamp, getDocs, getDocsFromServer, writeBatch, where, getDoc, getDocFromServer, limit, startAfter } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions } from '../lib/firebaseFunctions'
 import { firestoreDb } from '../lib/firebaseFirestore'
@@ -39,7 +39,12 @@ export const DEFAULT_PUSH_SETTINGS: SystemPushSettings = {
     lunch: '12:00',
     dinner: '18:30',
   },
-  workoutReminderTime: '17:00',
+  workoutReminderTime: '19:00',
+  autoSessionReminders: true,
+  autoFeedbackInvites: true,
+  autoAvailabilityReminders: true,
+  autoContractReminders: true,
+  sessionReminderLeadHours: 2,
   weeklyProgressReviewDay: 'monday',
   timezone: 'Asia/Ho_Chi_Minh',
   quietHoursStart: '21:30',
@@ -68,6 +73,11 @@ export function normalizeSystemPushSettings(value?: Partial<SystemPushSettings> 
       dinner: normalizeClock(source.mealReminderTimes?.dinner, DEFAULT_PUSH_SETTINGS.mealReminderTimes.dinner),
     },
     workoutReminderTime: normalizeClock(source.workoutReminderTime, DEFAULT_PUSH_SETTINGS.workoutReminderTime),
+    autoSessionReminders: source.autoSessionReminders !== false,
+    autoFeedbackInvites: source.autoFeedbackInvites !== false,
+    autoAvailabilityReminders: source.autoAvailabilityReminders !== false,
+    autoContractReminders: source.autoContractReminders !== false,
+    sessionReminderLeadHours: normalizePositiveInt(source.sessionReminderLeadHours, DEFAULT_PUSH_SETTINGS.sessionReminderLeadHours, 1, 6),
     weeklyProgressReviewDay: ['monday', 'friday', 'sunday'].includes(source.weeklyProgressReviewDay ?? '')
       ? source.weeklyProgressReviewDay!
       : DEFAULT_PUSH_SETTINGS.weeklyProgressReviewDay,
@@ -234,14 +244,15 @@ const PUSH_TEMPLATES_KEY = 'aura:system:push_templates:v1'
 export function subscribeToUserNotifications(
   userId: string,
   onData: (notifications: AppNotification[]) => void,
-  onError?: (error: Error) => void
+  onError?: (error: Error) => void,
+  pageSize = 50,
 ) {
   if (!firestoreDb) return () => {}
 
   const q = query(
     collection(firestoreDb, 'users', userId, 'notifications'),
     orderBy('createdAt', 'desc'),
-    limit(50),
+    limit(Math.max(1, Math.min(200, pageSize))),
   )
 
   return onSnapshot(
@@ -256,10 +267,65 @@ export function subscribeToUserNotifications(
   )
 }
 
+/**
+ * Unread items regardless of age. The notification page derives its per-tab
+ * badges from this bounded set, so an old unread reminder still counts even
+ * when it fell out of the recent window.
+ */
+export function subscribeToUnreadNotifications(
+  userId: string,
+  onData: (notifications: AppNotification[]) => void,
+  onError?: (error: Error) => void,
+  maxItems = 200,
+) {
+  if (!firestoreDb) return () => {}
+  const q = query(
+    collection(firestoreDb, 'users', userId, 'notifications'),
+    where('read', '==', false),
+    limit(Math.max(1, Math.min(500, maxItems))),
+  )
+  return onSnapshot(
+    q,
+    (snapshot) => onData(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AppNotification))),
+    (error) => { if (onError) onError(error) },
+  )
+}
+
+/**
+ * One older page after the given createdAt cursor. The page filters by tab on
+ * the client, so this needs no composite index on the notification inbox.
+ */
+export async function loadOlderNotifications(userId: string, cursorCreatedAt: unknown, pageSize = 50): Promise<{ items: AppNotification[]; exhausted: boolean }> {
+  if (!firestoreDb || !cursorCreatedAt) return { items: [], exhausted: true }
+  const size = Math.max(1, Math.min(200, pageSize))
+  const q = query(
+    collection(firestoreDb, 'users', userId, 'notifications'),
+    orderBy('createdAt', 'desc'),
+    startAfter(cursorCreatedAt),
+    limit(size),
+  )
+  const snapshot = await getDocs(q)
+  const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AppNotification))
+  return { items, exhausted: items.length < size }
+}
+
 export async function markNotificationAsRead(userId: string, notificationId: string) {
   if (!firestoreDb) return
   const ref = doc(firestoreDb, 'users', userId, 'notifications', notificationId)
-  await updateDoc(ref, { read: true, updatedAt: serverTimestamp() })
+  await updateDoc(ref, { read: true, readAt: serverTimestamp(), updatedAt: serverTimestamp() })
+}
+
+/** Marks a chosen set of notifications read, in batches that stay under the Firestore write limit. */
+export async function markNotificationsAsRead(userId: string, notificationIds: string[]) {
+  if (!firestoreDb) return
+  const ids = [...new Set(notificationIds.filter((value) => typeof value === 'string' && value))]
+  for (let offset = 0; offset < ids.length; offset += 400) {
+    const batch = writeBatch(firestoreDb)
+    ids.slice(offset, offset + 400).forEach((id) => {
+      batch.update(doc(firestoreDb!, 'users', userId, 'notifications', id), { read: true, readAt: serverTimestamp(), updatedAt: serverTimestamp() })
+    })
+    await batch.commit()
+  }
 }
 
 export async function markAllNotificationsAsRead(userId: string) {

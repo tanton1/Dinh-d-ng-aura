@@ -63,6 +63,21 @@ function startOfWeek(date: Date) {
   return addDays(date, weekday === 0 ? -6 : 1 - weekday)
 }
 
+/**
+ * `#/student-availability?week=YYYY-MM-DD` opens the week a reminder points to.
+ * Only the three weeks the page can edit are accepted; anything else keeps
+ * the default "next week" focus.
+ */
+function weekOffsetFromRoute(today: Date): AvailabilityWeekOffset | null {
+  if (typeof window === 'undefined') return null
+  const value = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('week')
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null
+  const target = new Date(`${value}T00:00:00`)
+  if (Number.isNaN(target.getTime())) return null
+  const offset = Math.round((startOfWeek(target).getTime() - startOfWeek(today).getTime()) / (7 * 86_400_000))
+  return offset === 0 || offset === 1 || offset === 2 ? offset : null
+}
+
 function slotIdForSession(session: StudentPtSession) {
   return session.hour === null ? '' : `${vietnamBusinessDayCode(session.date)}-${session.hour}`
 }
@@ -188,7 +203,7 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
   const day = useVietnamDay()
   const [viewDay, setViewDay] = useState(day)
   const today = useMemo(() => new Date(`${viewDay}T00:00:00`), [viewDay])
-  const [weekOffset, setWeekOffset] = useState<AvailabilityWeekOffset>(1)
+  const [weekOffset, setWeekOffset] = useState<AvailabilityWeekOffset>(() => weekOffsetFromRoute(new Date(`${day}T00:00:00`)) ?? 1)
   const [data, setData] = useState<StudentPtScheduleData | null>(null)
   const [selectedSlots, setSelectedSlots] = useState<Set<string>>(new Set())
   const [requestedSessions, setRequestedSessions] = useState<number | null>(null)

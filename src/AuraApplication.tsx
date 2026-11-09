@@ -78,6 +78,7 @@ const ProgressPage = lazyWithRetry(() => import('./pages/student/ProgressPage'))
 const ProgressPhotoStudio = lazyWithRetry(() => import('./pages/student/ProgressPhotoStudio'))
 const SchedulePage = lazyWithRetry(() => import('./pages/student/SchedulePage'))
 const StudentAvailabilityPage = lazyWithRetry(() => import('./pages/student/StudentAvailabilityPage'))
+const NotificationsPage = lazyWithRetry(() => import('./pages/student/NotificationsPage'))
 const StudentPtWorkoutPage = lazyWithRetry(() => import('./pages/student/StudentPtWorkoutPage'))
 const WorkoutPage = lazyWithRetry(() => import('./pages/student/WorkoutPage'))
 const EatCleanPage = lazyWithRetry(() => import('./features/eat-clean/EatCleanPage'))
@@ -777,6 +778,7 @@ function AuraApplication() {
       }} onSelectLesson={(lessonId) => selectedCourseId && (isAdminCoursePreview ? goTo('course-detail', selectedCourseId, lessonId) : openCourse(selectedCourseId, lessonId))} onEnroll={enrollSelectedCourse} onComplete={completeLesson} onUpgrade={() => navigate('profile')} />
       case 'schedule': return <SchedulePage key={user?.uid ?? 'demo'} onNavigate={navigate} isDemo={backendMode === 'demo'} ownerId={user?.uid ?? 'demo'} />
       case 'student-availability': return <StudentAvailabilityPage key={user?.uid ?? 'demo'} onNavigate={navigate} isDemo={backendMode === 'demo'} />
+      case 'notifications': return <NotificationsPage key={user?.uid ?? 'demo'} userId={user?.uid} onNavigate={navigate} isDemo={backendMode === 'demo'} />
       case 'cooking': return <CookingPage ownerId={user?.uid ?? 'demo'} />
       case 'food-library':
       case 'nutrition': return <NutritionPage
