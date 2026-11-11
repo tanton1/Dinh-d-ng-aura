@@ -1,6 +1,7 @@
 import { httpsCallable } from 'firebase/functions'
 import type { WorkspaceSyncState } from '../utils/workspaceSync'
 import { firebaseAuth } from '../lib/firebase'
+import { memberScheduleReadAllowed, sessionAccessFor } from '../identity/sessionAccess'
 import { firebaseFunctions, firebaseScheduleOptimizerFunctions } from '../lib/firebaseFunctions'
 import { runReadOnlyWithFallback } from './readOnlyCallableService'
 
@@ -403,6 +404,10 @@ export function asStudentPtScheduleError(error: unknown): StudentPtScheduleServi
 export async function listMyStudentPtSchedule(from: string, to: string, availabilityWeekId: string, options: { surface?: 'availability' } = {}): Promise<StudentPtScheduleData> {
   const accountUid = firebaseAuth?.currentUser?.uid
   try {
+    // Same answer the callable gives these access roles, without the request.
+    if (!memberScheduleReadAllowed(sessionAccessFor(accountUid))) {
+      throw new StudentPtScheduleServiceError('Lịch cá nhân chỉ dành cho học viên hoặc Staff có hồ sơ học viên được liên kết.', 'STUDENT_ROLE_REQUIRED', false, { issueCode: 'STUDENT_ROLE_REQUIRED', action: 'contact_admin' })
+    }
     const input = { from, to, availabilityWeekId, ...options }
     const invoke = (client: typeof firebaseFunctions, name: string) => {
       const callable = httpsCallable<typeof input, StudentPtScheduleData>(client || functionsInstance(), name, { timeout: 18_000 })

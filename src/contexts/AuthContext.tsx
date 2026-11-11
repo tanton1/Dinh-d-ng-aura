@@ -29,6 +29,7 @@ import { shouldRecoverAuthenticatedSession } from '../auth/authSessionRecovery'
 import { reportClientIssue } from '../services/clientTelemetryService'
 import type { AppUser, UserProfile, UserRole } from '../types'
 import { emptyStudentAccessContext, type AccessContext } from '../identity/access'
+import { rememberSessionAccess } from '../identity/sessionAccess'
 import {
   initialProfileSyncState,
   readProfileCache,
@@ -306,6 +307,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .then((nextAccessContext) => {
         if (!isCurrent()) return
         setAccessContext(nextAccessContext)
+        rememberSessionAccess(nextAccessContext)
         setProfile((current) => current?.uid === firebaseUser.uid
           ? { ...current, role: compatibilityRoleFromAccess(nextAccessContext) }
           : current)
@@ -316,6 +318,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .catch((error) => {
         if (!isCurrent()) return
         setAccessContext(emptyStudentAccessContext(firebaseUser.uid))
+        rememberSessionAccess(null)
         setAuthorizationError(error instanceof Error && error.message.includes('Quyền tài khoản chưa đồng bộ')
           ? 'Quyền tài khoản chưa đồng bộ. Vui lòng đăng nhập lại hoặc liên hệ quản trị viên.'
           : 'Chưa thể xác minh phạm vi quyền. Các chức năng nhân viên đang được khóa an toàn.')
@@ -410,6 +413,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null)
         setProfile(null)
         setAccessContext(null)
+        rememberSessionAccess(null)
         setAuthorizationError(null)
         setAuthzReady(true)
         setProfileSyncState(initialProfileSyncState)

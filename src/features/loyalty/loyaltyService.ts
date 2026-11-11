@@ -1,6 +1,8 @@
 import { doc, onSnapshot, type Unsubscribe } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
+import { firebaseAuth } from '../../lib/firebase'
 import { firestoreDb } from '../../lib/firebaseFirestore'
+import { memberLoyaltyReadAllowed, sessionAccessFor } from '../../identity/sessionAccess'
 import { firebaseFunctions } from '../../lib/firebaseFunctions'
 import { callReadOnlyFunction } from '../../services/readOnlyCallableService'
 import { isRegionalReadName } from '../../services/regionalReadPolicy'
@@ -40,7 +42,11 @@ function read<Input, Output>(name: string, input: Input) {
   return callReadOnlyFunction<Input, Output>(name, input, { timeoutMs: 20_000, maximumAttempts: 3, baseDelayMs: 900 })
 }
 
-export function getMyLoyaltyDashboard(options: { compact?: boolean } = {}) {
+export function getMyLoyaltyDashboard(options: { compact?: boolean } = {}): Promise<LoyaltyDashboard> {
+  // Same answer the callable gives staff and admin accounts, without the request.
+  if (!memberLoyaltyReadAllowed(sessionAccessFor(firebaseAuth?.currentUser?.uid))) {
+    return Promise.reject(Object.assign(new Error('Aura Club học viên chỉ dành cho tài khoản học viên.'), { code: 'functions/permission-denied' }))
+  }
   return read<typeof options, LoyaltyDashboard>('getMyLoyaltyDashboard', options)
 }
 
