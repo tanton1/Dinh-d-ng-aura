@@ -28,6 +28,11 @@ async function effectiveView(db) {
 }
 const leasePath = `systemJobs/ptScheduleWeeklyViewRebuild/views/${BRANCH}_${WEEK}`
 const quiet = { info() {} }
+// The fixture weeks are fixed dates. A source change queues the weeks from
+// last week onward and only marks older weeks stale for their next reader, so
+// the source tests pin the clock inside the fixture week instead of drifting
+// with the calendar.
+const NOW = new Date('2026-10-21T03:00:00Z')
 
 after(async () => {
   await Promise.all(clients.map(db => db.terminate()))
@@ -246,17 +251,25 @@ for (const [source, collection] of [['student', 'students'], ['trainer', 'traine
     const touched = await ref.get()
     const params = { [`${source}Id`]: ref.id }
     const viewBefore = await db.doc(viewPath()).get()
-    const skipped = await syncPtScheduleWeeklyViewSource({ db, source, logger: quiet, event: { params, data: { before, after: touched } } })
+    const skipped = await syncPtScheduleWeeklyViewSource({ db, source, logger: quiet, now: NOW, event: { params, data: { before, after: touched } } })
     assert.equal(skipped.marked, 0)
     assert.equal(skipped.skipped, 'source_metadata_only')
     assert.equal((await db.collection('ptScheduleWeeklyViewStates').get()).size, 0)
     assert.ok(viewBefore.updateTime.isEqual((await db.doc(viewPath()).get()).updateTime))
     await ref.update({ branchId: 'branch-next', name: 'Changed', updatedAt: FieldValue.serverTimestamp() })
     const changed = await ref.get()
-    const propagated = await syncPtScheduleWeeklyViewSource({ db, source, logger: quiet, event: { params, data: { before: touched, after: changed } } })
+    const propagated = await syncPtScheduleWeeklyViewSource({ db, source, logger: quiet, now: NOW, event: { params, data: { before: touched, after: changed } } })
     assert.equal(propagated.marked, 2)
-    const states = await db.getAll(db.doc(statePath()), db.doc(statePath('branch-next', past)))
-    assert.ok(states.every(snapshot => snapshot.data()?.dirtyGeneration === 1 && snapshot.data()?.dirty === true))
+    assert.equal(propagated.deferred, 1)
+    const [current, history] = await db.getAll(db.doc(statePath()), db.doc(statePath('branch-next', past)))
+    assert.equal(current.data()?.dirtyGeneration, 1)
+    assert.equal(current.data()?.dirty, true)
+    assert.equal(current.data()?.validationDirty, true)
+    // The past week is invalidated too, but only by its generation: the next
+    // reader rebuilds it and neither worker queue lists it.
+    assert.equal(history.data()?.dirtyGeneration, 1)
+    assert.equal(history.data()?.dirty, undefined)
+    assert.equal(history.data()?.validationDirty, undefined)
   })
 }
 
@@ -270,17 +283,17 @@ test('real Firestore: source queries cover both sides of a move and paginate bey
   }
   batch.set(db.doc(viewPath('branch-next', '2026-10-26')), { ...base, branchId: 'branch-next', weekId: '2026-10-26' })
   await batch.commit()
-  const move = await syncPtScheduleWeeklyViewSource({ db, source: 'session', logger: quiet, event: sourceEvent(
+  const move = await syncPtScheduleWeeklyViewSource({ db, source: 'session', logger: quiet, now: NOW, event: sourceEvent(
     { branchId: BRANCH, studentId: 'student-a', date: '2026-10-20' },
     { branchId: 'branch-next', studentId: 'student-a', date: '2026-10-27' }, { sessionId: 'session-a' },
   ) })
   assert.equal(move.marked, 207)
-  const config = await syncPtScheduleWeeklyViewSource({ db, source: 'scheduleConfig', logger: quiet, event: sourceEvent({}, { target: 8 }, { documentId: 'scheduleConfig' }) })
+  const config = await syncPtScheduleWeeklyViewSource({ db, source: 'scheduleConfig', logger: quiet, now: NOW, event: sourceEvent({}, { target: 8 }, { documentId: 'scheduleConfig' }) })
   assert.equal(config.marked, 207)
   const views = await db.collection('ptScheduleWeeklyViewStates').get()
   assert.equal(views.size, 207)
   assert.ok(views.docs.every(snapshot => snapshot.data().dirty === true && snapshot.data().dirtyGeneration === 2))
-  const contract = await syncPtScheduleWeeklyViewSource({ db, source: 'contract', logger: quiet, event: sourceEvent(
+  const contract = await syncPtScheduleWeeklyViewSource({ db, source: 'contract', logger: quiet, now: NOW, event: sourceEvent(
     undefined, { branchId: BRANCH, studentId: 'student-a', startDate: '2026-01-01', endDate: '2026-12-31' }, { contractId: 'contract-a' },
   ) })
   assert.equal(contract.marked, 207)
