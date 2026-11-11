@@ -86,12 +86,8 @@
     "test:contract-amendment-ui": "playwright test --config tests/contract-amendment-ui/playwright.config.ts"
   },
   "dependencies": {
-    "@google/genai": "^2.15.0",
     "@googlemaps/js-api-loader": "^2.1.1",
-    "dotenv": "^17.4.2",
     "esbuild": "^0.28.1",
-    "express": "^5.2.1",
-    "express-rate-limit": "^8.6.2",
     "firebase": "^12.16.0",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
@@ -102,8 +98,7 @@
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-markdown": "^10.1.0",
-    "tsx": "^4.23.5",
-    "zod": "^4.4.3"
+    "tsx": "^4.23.5"
   },
   "overrides": {
     "@firebase/firestore": {
@@ -113,7 +108,6 @@
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.1",
     "@playwright/test": "^1.62.1",
-    "@types/express": "^5.0.6",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
     "@vitejs/plugin-react": "^5.0.0",

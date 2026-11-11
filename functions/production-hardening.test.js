@@ -1,10 +1,9 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const { readFileSync } = require('node:fs')
+const { existsSync, readFileSync } = require('node:fs')
 const { join } = require('node:path')
 
 const root = join(__dirname, '..')
-const server = readFileSync(join(root, 'server.ts'), 'utf8')
 const functionsIndex = readFileSync(join(__dirname, 'index.js'), 'utf8')
 const identity = readFileSync(join(__dirname, 'identity-access.js'), 'utf8')
 const pt = readFileSync(join(__dirname, 'pt-operations-v2.js'), 'utf8')
@@ -50,9 +49,10 @@ test('Functions package includes the same deployable identity contract as the we
   assert.ok(sharedIdentityContract.positionCapabilities.branch_manager.includes('performance.evidence.review'))
 })
 
-test('Express rejects unverifiable Firebase tokens without unsigned decode fallback', () => {
-  assert.match(server, /verifyIdToken\(token, true\)/)
-  assert.doesNotMatch(server, /payload\.(uid|user_id|sub)/)
+test('the retired Express server is not shipped, so its token handling cannot come back', () => {
+  // server.ts verified tokens with verifyIdToken(token, true). No script
+  // started it and nothing deployed it; every API is a Cloud Function.
+  assert.equal(existsSync(join(root, 'server.ts')), false)
 })
 
 test('invitation acceptance requires a verified contact match and rolls claims back', () => {

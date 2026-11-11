@@ -23,7 +23,6 @@ export default defineConfig({
           if (id.includes('/react/') || id.includes('/react-dom/') || id.includes('/scheduler/') || id.includes('node_modules\\react') || id.includes('node_modules\\scheduler')) return 'vendor-react'
           if (id.includes('lucide-react')) return 'vendor-icons'
           if (id.includes('/motion/') || id.includes('/motion-') || id.includes('node_modules\\motion')) return 'vendor-motion'
-          if (id.includes('@google/genai')) return 'vendor-ai'
           return undefined
         },
       },

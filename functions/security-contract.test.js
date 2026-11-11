@@ -13,7 +13,6 @@ const mealDetailSource = readFileSync(join(repositoryRoot, 'src', 'pages', 'stud
 const firebaseServiceSource = readFileSync(join(repositoryRoot, 'src', 'services', 'firebaseService.ts'), 'utf8')
 const notificationServiceSource = readFileSync(join(repositoryRoot, 'src', 'services', 'notificationService.ts'), 'utf8')
 const typesSource = readFileSync(join(repositoryRoot, 'src', 'types.ts'), 'utf8')
-const serverSource = readFileSync(join(repositoryRoot, 'server.ts'), 'utf8')
 const packageManifest = JSON.parse(readFileSync(join(repositoryRoot, 'package.json'), 'utf8'))
 const databaseContextSource = readFileSync(join(repositoryRoot, 'src', 'contexts', 'DatabaseContext.tsx'), 'utf8')
 const packageSettingsSource = readFileSync(join(repositoryRoot, 'src', 'components', 'admin', 'pt', 'PackageSettings.tsx'), 'utf8')
@@ -170,15 +169,14 @@ test('production auth has no email role bootstrap or unconditional demo OTP', ()
   assert.equal(existsSync(join(repositoryRoot, 'import-client.mjs')), false)
 })
 
-test('legacy Express authentication never accepts an unsigned JWT payload', () => {
-  const requireAuthSource = serverSource.match(/async function requireAuth[\s\S]*?\n  const aiRateLimiter/)?.[0] ?? ''
-
-  assert.match(requireAuthSource, /verifyIdToken\(token, true\)/)
-  assert.match(requireAuthSource, /return res\.status\(401\)\.json\(\{[\s\S]*?UNAUTHENTICATED/)
-  assert.doesNotMatch(requireAuthSource, /token\.split\(['"]\.['"]\)/)
-  assert.doesNotMatch(requireAuthSource, /Buffer\.from/)
-  assert.doesNotMatch(requireAuthSource, /atob\(/)
-  assert.doesNotMatch(requireAuthSource, /JSON\.parse\([^)]*(?:payload|token)/i)
+test('the legacy Express server and its server-only packages stay retired', () => {
+  // Its authentication cannot regress to an unsigned JWT decode if it does
+  // not exist. Every API runs as a Cloud Function with SDK-verified auth.
+  assert.equal(existsSync(join(repositoryRoot, 'server.ts')), false)
+  const declared = { ...packageManifest.dependencies, ...packageManifest.devDependencies }
+  for (const name of ['express', 'express-rate-limit', '@types/express', '@google/genai', 'dotenv', 'zod']) {
+    assert.equal(declared[name], undefined, `${name} was only used by server.ts`)
+  }
 })
 
 test('production scripts serve only the Vite static frontend', () => {

@@ -19,7 +19,6 @@ const storageRules = readFileSync(join(repositoryRoot, 'storage.rules'), 'utf8')
 const firestoreRules = readFileSync(join(repositoryRoot, 'firestore.rules'), 'utf8')
 const firebaseConfig = JSON.parse(readFileSync(join(repositoryRoot, 'firebase.json'), 'utf8'))
 const appletConfig = JSON.parse(readFileSync(join(repositoryRoot, 'firebase-applet-config.json'), 'utf8'))
-const serverSource = readFileSync(join(repositoryRoot, 'server.ts'), 'utf8')
 
 test('learner runtime uses fractional CPU with bounded concurrency and keeps server checks', () => {
   assert.match(functionsSource, /const academyLearnerRuntime = \{ cpu: 'gcf_gen1', memory: '256MiB', concurrency: 1, minInstances: 0, maxInstances: 2/)
@@ -57,8 +56,6 @@ test('web, Functions and Firestore Rules share the canonical named database', ()
   assert.equal(functionDefault, appletConfig.firestoreDatabaseId)
   assert.equal(rulesDatabase, appletConfig.firestoreDatabaseId)
   assert.match(functionsSource, /process\.env\.FIRESTORE_DATABASE_ID \|\| defaultFirestoreDatabaseId/)
-  assert.match(serverSource, /process\.env\.FIRESTORE_DATABASE_ID[\s\S]*process\.env\.VITE_FIREBASE_DATABASE_ID/)
-  assert.match(serverSource, /getFirestore\(admin\.app\(\), firestoreDatabaseId\)/)
 })
 
 test('course covers have a bounded public-read and staff-write Storage contract', () => {
