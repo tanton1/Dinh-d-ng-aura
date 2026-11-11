@@ -1282,6 +1282,7 @@ function createPtOperationsV2Functions({
   onCall,
   staffCallOptions = {},
   trainerWorkspaceCallOptions = {},
+  studentScheduleCallOptions = {},
   staffMutationCallOptions = {},
   availabilityAccessResolver = trustedAccessContext,
 }) {
@@ -1730,7 +1731,7 @@ function createPtOperationsV2Functions({
       sessionRequests,
       pauseRequests,
     }
-  })
+  }, studentScheduleCallOptions)
 
   const saveMyStudentAvailability = staffCall(async (request) => {
     const actor = await studentActor(request, db)

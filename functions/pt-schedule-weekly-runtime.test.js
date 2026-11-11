@@ -361,7 +361,10 @@ test('both lean readers retain real SDK metadata and transport security options'
       assert.equal(options.invoker, 'public')
       assert.equal(options.enforceAppCheck, enforced === 'true')
       assert.equal(options.region, 'asia-east1')
-      assert.equal(options.cpu, 'gcf_gen1')
+      // The read waits on a 0.5 MB decode and, when dirty, a rebuild: it gets
+      // a full vCPU and 512 MiB while staying at two single-request instances.
+      assert.equal(options.cpu, 1)
+      assert.equal(options.memory, '512MiB')
       assert.equal(options.maxInstances, 2)
       assert.equal(options.concurrency, 1)
       assert.equal(options.timeoutSeconds, 120)

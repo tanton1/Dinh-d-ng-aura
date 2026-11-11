@@ -1064,11 +1064,14 @@ function createPtScheduleWeeklyViewFunctions({
   db,
   onCall,
   workspaceOnCall = onCall,
+  // The read is the only one of the three callables a schedule page waits on,
+  // so its resource profile is set apart from rebuild and mark-dirty.
+  viewOnCall = workspaceOnCall,
   actorForBranch,
   branchData = loadBranchData,
 } = {}) {
   if (!db || !onCall || typeof actorForBranch !== 'function') throw new Error('weekly view functions require db, onCall and actorForBranch')
-  const getPtScheduleWeeklyView = workspaceOnCall(async (request) => {
+  const getPtScheduleWeeklyView = viewOnCall(async (request) => {
     const branchId = String(request.data?.branchId || '').trim()
     const weekId = String(request.data?.weekId || '').trim()
     if (!/^[A-Za-z0-9_-]+$/.test(branchId) || !/^\d{4}-\d{2}-\d{2}$/.test(weekId)) throw new HttpsError('invalid-argument', 'Chi nhánh hoặc tuần lịch không hợp lệ.')

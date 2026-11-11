@@ -877,8 +877,8 @@ function sanitizeGateAssessment(input, gateId) {
 }
 
 function createPerformanceScoreFunctions({ db, onCall, storage, logger = console }) {
-  const performanceCall = (handler, maxInstances = 1) => onCall({
-    cpu: 'gcf_gen1', memory: '256MiB', maxInstances, concurrency: 1, timeoutSeconds: 120,
+  const performanceCall = (handler, maxInstances = 1, resources = {}) => onCall({
+    cpu: 'gcf_gen1', memory: '256MiB', maxInstances, concurrency: 1, timeoutSeconds: 120, ...resources,
   }, handler)
 
   const getMyPerformanceScore = performanceCall(async (request) => {
@@ -903,7 +903,11 @@ function createPerformanceScoreFunctions({ db, onCall, storage, logger = console
       generatedAt: new Date().toISOString(),
       ...result.summary,
     }
-  }, 2)
+  // The score is computed live on every open of the PT dashboard. On 1/6 vCPU
+  // it took 2.1 s at the median and 7.2 s at p95 (280 requests, 04–11/11/2026).
+  // Only this read gets a full vCPU; the other performance callables are
+  // low-volume reviews and keep the fractional profile.
+  }, 2, { cpu: 1, memory: '512MiB' })
 
   const listMyPerformanceEvidence = performanceCall(async (request) => {
     const actor = await trustedAccessContext(request, db)

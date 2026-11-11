@@ -1501,7 +1501,7 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger, resolv
     return reconcileContractStatusesCore({ db, dryRun: request.data?.apply !== true, actorUid: actor.uid })
   })
 
-  const scheduled = onSchedule ? onSchedule({ schedule: '5 0 * * *', region: 'asia-southeast1', timeZone: 'Asia/Ho_Chi_Minh', retryCount: 1, cpu: 'gcf_gen1', maxInstances: 1, timeoutSeconds: 540 }, async () => {
+  const scheduled = onSchedule ? onSchedule({ schedule: '5 0 * * *', region: 'asia-southeast1', timeZone: 'Asia/Ho_Chi_Minh', retryCount: 1, cpu: 'gcf_gen1', maxInstances: 1, memory: '512MiB', timeoutSeconds: 540 }, async () => {
     const activations = await activateDueRenewalContractsCore({ db })
     const statuses = await reconcileContractStatusesCore({ db })
     const result = await refreshRenewalQueueCore({ db, dryRun: false, actorUid: 'scheduler:contract-renewals' })

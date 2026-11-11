@@ -654,7 +654,17 @@ const ptOperationsAvailabilityRegionalFunctions = createPtOperationsV2Functions(
   onCall: ptAvailabilityRegionalOnCall,
   logger,
   staffCallOptions: { cpu: 'gcf_gen1', maxInstances: 2, concurrency: 1, timeoutSeconds: 120 },
-  trainerWorkspaceCallOptions: { maxInstances: 3 },
+  // The PT portal waits on this read and issues its sections in parallel.
+  // On 1/6 vCPU with one request per instance it took 2.1 s at the median and
+  // 9.6 s at p95, and 16% of requests started a new instance (1,589 requests,
+  // 04–11/11/2026); the same handler on the full-vCPU southeast profile had a
+  // median of about 0.26 s. Three instances of one vCPU stay far below the
+  // regional quota of 20 vCPU, and a warm instance now serves a PT's parallel
+  // section reads instead of starting one instance per read.
+  trainerWorkspaceCallOptions: { cpu: 1, memory: '512MiB', concurrency: 8, maxInstances: 3 },
+  // The learner schedule used 88% of 256 MiB at p99. More memory also doubles
+  // the Gen-1 CPU share (1/6 to 1/3 vCPU) without leaving the fractional profile.
+  studentScheduleCallOptions: { memory: '512MiB' },
   staffMutationCallOptions: { cpu: 'gcf_gen1', maxInstances: 2, concurrency: 1, timeoutSeconds: 120 },
 })
 exports.getMyTrainerAvailabilityRegional = ptOperationsAvailabilityRegionalFunctions.getMyTrainerAvailability
@@ -916,6 +926,15 @@ const ptScheduleWorkspaceRegionalOnCall = (optionsOrHandler, maybeHandler) => {
     : onCall({ ...resourceOptions, ...optionsOrHandler }, maybeHandler)
 }
 
+// The weekly view read decodes and serialises a document of about 0.5 MB and,
+// when a source trigger has marked the week dirty, rebuilds it inside the
+// request. On 1/6 vCPU that took 2.3 s at the median and 18.6 s at p95 with
+// memory at 87% of 256 MiB (1,821 requests, 04–11/11/2026). A full vCPU is
+// billed for a shorter request; two such instances stay far below the
+// regional quota of 20 vCPU. Concurrency stays at one because a rebuild is
+// CPU-bound and holds several copies of the view.
+const ptScheduleWeeklyViewReadOnCall = (handler) => ptScheduleWorkspaceRegionalOnCall({ cpu: 1, memory: '512MiB' }, handler)
+
 const ptSchedulePublishFunctions = createPtSchedulePublishFunctions({
   db,
   onCall: ptScheduleOnCall,
@@ -989,6 +1008,7 @@ const ptScheduleWeeklyViewFunctions = createPtScheduleWeeklyViewFunctions({
   db,
   onCall: ptScheduleOnCall,
   workspaceOnCall: ptScheduleWorkspaceRegionalOnCall,
+  viewOnCall: ptScheduleWeeklyViewReadOnCall,
   actorForBranch: scheduleActor,
 })
 exports.getPtScheduleWeeklyView = ptScheduleWeeklyViewFunctions.getPtScheduleWeeklyView
@@ -1001,6 +1021,7 @@ const ptScheduleWeeklyViewRegionalFunctions = createPtScheduleWeeklyViewFunction
   db,
   onCall: ptSchedulePublishRegionalOnCall,
   workspaceOnCall: ptScheduleWorkspaceRegionalOnCall,
+  viewOnCall: ptScheduleWeeklyViewReadOnCall,
   actorForBranch: scheduleActor,
 })
 exports.getPtScheduleWeeklyViewRegional = ptScheduleWeeklyViewRegionalFunctions.getPtScheduleWeeklyView

@@ -904,11 +904,21 @@ test('coach workspace resolves tabs from primary, secondary and nutrition assign
     cpu: 1, concurrency: 24, maxInstances: 6, invoker: 'public',
   }, name)
   const staffCallOptions = { cpu: 'gcf_gen1', maxInstances: 2, concurrency: 1, timeoutSeconds: 120 }
-  const regional = createPtOperationsV2Functions({ db: {}, onCall, staffCallOptions, trainerWorkspaceCallOptions: { maxInstances: 3 } })
+  // The regional profile index.js deploys. Two measured hot reads leave the
+  // shared fractional profile: the PT workspace gets a full vCPU so one warm
+  // instance serves a PT's parallel section reads, and the learner schedule
+  // gets the memory it was running out of.
+  const trainerWorkspaceCallOptions = { cpu: 1, memory: '512MiB', concurrency: 8, maxInstances: 3 }
+  const studentScheduleCallOptions = { memory: '512MiB' }
+  const indexSource = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8')
+  assert.match(indexSource, /trainerWorkspaceCallOptions: \{ cpu: 1, memory: '512MiB', concurrency: 8, maxInstances: 3 \},/)
+  assert.match(indexSource, /studentScheduleCallOptions: \{ memory: '512MiB' \},/)
+  const regional = createPtOperationsV2Functions({ db: {}, onCall, staffCallOptions, trainerWorkspaceCallOptions, studentScheduleCallOptions })
   for (const name of staffNames) assert.deepEqual(regional[name].options, {
     invoker: 'public', ...staffCallOptions,
-    ...(name === 'getMyTrainerWorkspace' ? { maxInstances: 3 } : {}),
-  }, `Only trainer workspace receives its extra instance: ${name}`)
+    ...(name === 'getMyTrainerWorkspace' ? trainerWorkspaceCallOptions : {}),
+    ...(name === 'listMyStudentPtSchedule' ? studentScheduleCallOptions : {}),
+  }, `Only the PT workspace and the learner schedule leave the shared profile: ${name}`)
   assert.match(source, /const getMyCoachWorkspaceScope = staffCall/)
   assert.equal((source.match(/= staffCall\(/g) ?? []).length, 22)
   assert.match(source, /const getMyTrainerAvailability = staffCall/)

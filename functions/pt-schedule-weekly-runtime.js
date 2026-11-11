@@ -41,10 +41,23 @@ function loadWeeklyReadRuntime(environment = process.env) {
     timeoutSeconds: 120,
     enforceAppCheck,
   }, handler)
+  // Same profile as ptScheduleWeeklyViewReadOnCall in index.js: the read gets
+  // a full vCPU and 512 MiB; the reason and the numbers are recorded there.
+  const viewOnCall = (handler) => onCall({
+    invoker: 'public',
+    region: 'asia-east1',
+    cpu: 1,
+    memory: '512MiB',
+    maxInstances: 2,
+    concurrency: 1,
+    timeoutSeconds: 120,
+    enforceAppCheck,
+  }, handler)
   const handlers = createPtScheduleWeeklyViewFunctions({
     db,
     onCall: workspaceOnCall,
     workspaceOnCall,
+    viewOnCall,
     actorForBranch: scheduleActor,
   })
   logger.info('weekly_read_runtime_initialized', {
