@@ -1,6 +1,8 @@
 # Rà soát toàn hệ thống Aura Fitness OS: chi phí, hiệu năng, bảo mật
 
-Ngày rà soát: 11/11/2026 (giờ Việt Nam). Mốc source: `1231e57` trên `main`. Nhánh làm việc: `claude/cost-perf-audit-20261111`, chưa push, chưa deploy.
+Ngày rà soát: 11/11/2026 (giờ Việt Nam). Mốc source: `1231e57` trên `main`. Nhánh làm việc: `claude/cost-perf-audit-20261111`.
+
+**Cập nhật 16:10 ngày 11/11:** sau khi được duyệt, các commit của nhánh cùng ba đề xuất P1, P2, P6 đã lên `main` (`31a00c7`) và production. Chi tiết, số đo và phần chưa làm nằm ở [mục I](#i-áp-dụng-đề-xuất-và-deploy-ngày-1111). Các mục 0 đến H giữ nguyên nội dung lúc rà soát; cột trạng thái ở mục B đã được cập nhật.
 
 Tài liệu này nối tiếp [phân tích chi phí 11/11](COST_USAGE_ANALYSIS_2026-11-11.md), [kế hoạch luồng dữ liệu 25/10](../product/DATA_FLOW_COST_OPTIMIZATION_PLAN_2026-10-25.md) và [audit 29/10](../APP_AUDIT_2026-10-29.md). Phần mới: bảng chi phí 42 ngày cho mọi dịch vụ, cấu hình thật của 602 function, độ trễ và lỗi theo từng service, kích thước document, và năm thay đổi đã kiểm thử trên nhánh.
 
@@ -59,19 +61,19 @@ Mức độ: **C** cao, **T** trung bình, **N** nhỏ. Trạng thái: *đã s�
 | 1 | C | Bảy trigger bị tính 1,45 triệu giây instance trong 7 ngày cho 6.063 request (134–383 giây mỗi request, bình thường 0,5–2 giây). Nguyên nhân phía nền tảng chưa rõ. | `syncPtScheduleWeeklyViewFromContract*`, `syncStudent360Contract*`, `sync*OperationalActions`, `syncLoyaltyContractSpend` | Đã sửa bằng deploy lại 11/11. Nhánh thêm cảnh báo. |
 | 2 | C | Khoảng 14–20/10 Cloud Run cấp phát 45 triệu vCPU-giây và 24,5 triệu GiB-giây trong 6 ngày, gấp 200 lần mức nền. Khớp với việc vài trăm function có instance tối thiểu. | Cấu hình deploy thời điểm đó | Đã hết từ 24/10. Nhánh thêm cảnh báo cấu hình. |
 | 3 | C | Trigger tìm bảng lịch tuần bằng cách query tài liệu 430–650 KB; Firestore Enterprise tính đơn vị đọc theo cả tài liệu. Chiếm gần hết 10–11 triệu đơn vị đọc mỗi ngày. | `functions/pt-schedule-weekly-view.js` | Đã sửa (`35d39f4`, `eb5bb77`). |
-| 4 | C | `getPtScheduleWeeklyViewRegional`: 1.817 lượt/tuần, p50 khoảng 2,3 giây, p95 khoảng 18,6 giây, bộ nhớ p99 87% của 256 MiB. Chạy 1/6 vCPU ở Đài Loan trong khi database ở Singapore. | `functions/index.js` (`ptScheduleWorkspaceRegionalOnCall`), `pt-schedule-weekly-runtime.js` | Đề xuất P1. |
-| 5 | C | `getMyTrainerWorkspaceRegional`: 1.590 lượt/tuần, p50 khoảng 2,1 giây, p95 khoảng 9,6 giây, 17% lượt là cold start 3,1 giây. | `functions/pt-operations-v2.js:1931` | Đề xuất P1, P3. |
+| 4 | C | `getPtScheduleWeeklyViewRegional`: 1.817 lượt/tuần, p50 khoảng 2,3 giây, p95 khoảng 18,6 giây, bộ nhớ p99 87% của 256 MiB. Chạy 1/6 vCPU ở Đài Loan trong khi database ở Singapore. | `functions/index.js` (`ptScheduleWorkspaceRegionalOnCall`), `pt-schedule-weekly-runtime.js` | Đã deploy P1 ngày 11/11 (mục I). |
+| 5 | C | `getMyTrainerWorkspaceRegional`: 1.590 lượt/tuần, p50 khoảng 2,1 giây, p95 khoảng 9,6 giây, 17% lượt là cold start 3,1 giây. | `functions/pt-operations-v2.js:1931` | Đã deploy P1 ngày 11/11; P3 chưa làm. |
 | 6 | T | Mỗi lần dựng lại bảng lịch tuần đọc tài liệu 0,5 MB hai lần và ghi lại toàn bộ, kể cả khi chỉ cờ điều khiển đổi. `students` 260 KB, `contracts` 85 KB, `weeklySessionCoverage` 67 KB. | `rebuildPtScheduleWeeklyView` | Đề xuất P5. |
-| 7 | T | Trigger thiếu chỗ khi sự kiện đến dồn: `processStudent360SourceQueue` trả 429 hoặc 500 cho 23% request, `syncPtScheduleWeeklyViewFromSession` 43%. Sự kiện được gửi lại nên bản dựng sẵn trễ. | `student-360-background-functions.js`, `index.js:1017` | Đề xuất P2. |
+| 7 | T | Trigger thiếu chỗ khi sự kiện đến dồn: `processStudent360SourceQueue` trả 429 hoặc 500 cho 23% request, `syncPtScheduleWeeklyViewFromSession` 43%. Sự kiện được gửi lại nên bản dựng sẵn trễ. | `student-360-background-functions.js`, `index.js:1017` | Đã deploy P2 ngày 11/11. |
 | 8 | T | 9.422 cold start mỗi tuần (11% request), trung bình 2,5 giây. `index.js` nạp 952 module; runtime rút gọn nạp khoảng 690. Khoảng 565 function chưa có runtime rút gọn. | `functions/index.js`, `background-runtime.js` | Đề xuất P3. |
-| 9 | T | Job 15 phút đọc mọi bữa ăn chờ duyệt và action tương ứng dù không có gì đổi: khoảng 2.700 đơn vị đọc mỗi lượt, hơn 90% đơn vị đọc của một giờ không có người dùng. | `functions/nutrition-review-maintenance.js` | Nhánh (`a728389`). |
-| 10 | T | Tài khoản staff và admin mở trang chủ thành viên gọi hai callable chỉ dành cho học viên: 398/1.332 lượt `getMyLoyaltyDashboard` và 354/3.034 lượt `listMyStudentPtSchedule` trả 403 trong 7 ngày. | `LoyaltyHomeCard.tsx`, `HomePage.tsx`, `ProgressPage.tsx`, `NotificationsPage.tsx` | Nhánh (`f553e15`). |
-| 11 | T | Khoảng 25 function 256 MiB dùng 77–89% bộ nhớ ở p99 (ví dụ `refreshContractRenewalQueueScheduled` 89%, `listMyStudentPtScheduleRegional` 88%). Riêng việc nạp `index.js` đã chiếm khoảng 73%. | Cấu hình bộ nhớ trong `index.js` | Đề xuất P1. |
+| 9 | T | Job 15 phút đọc mọi bữa ăn chờ duyệt và action tương ứng dù không có gì đổi: khoảng 2.700 đơn vị đọc mỗi lượt, hơn 90% đơn vị đọc của một giờ không có người dùng. | `functions/nutrition-review-maintenance.js` | Đã deploy ngày 11/11 (`a728389`). |
+| 10 | T | Tài khoản staff và admin mở trang chủ thành viên gọi hai callable chỉ dành cho học viên: 398/1.332 lượt `getMyLoyaltyDashboard` và 354/3.034 lượt `listMyStudentPtSchedule` trả 403 trong 7 ngày. | `LoyaltyHomeCard.tsx`, `HomePage.tsx`, `ProgressPage.tsx`, `NotificationsPage.tsx` | Đã lên bản web ngày 11/11 (`f553e15`). |
+| 11 | T | Khoảng 25 function 256 MiB dùng 77–89% bộ nhớ ở p99 (ví dụ `refreshContractRenewalQueueScheduled` 89%, `listMyStudentPtScheduleRegional` 88%). Riêng việc nạp `index.js` đã chiếm khoảng 73%. | Cấu hình bộ nhớ trong `index.js` | Đã deploy cho 4 function trên 86%; phần còn lại theo dõi. |
 | 12 | T | App Check không bắt buộc với callable không phải AI. Người có tài khoản hợp lệ có thể gọi dồn dập; thiệt hại bị chặn bởi `maxInstances` 1–8 mỗi function. | `index.js:407`, biến `ENFORCE_APP_CHECK` | Đề xuất P8. |
 | 13 | T | SMS OTP là dòng chi phí đáng kể so với phần còn lại: 94 SMS × 0,13 USD ≈ 12 USD mỗi tháng, tăng tuyến tính theo số lần đăng nhập bằng số điện thoại. | `AuthContext.tsx` (`sendPhoneOtp`) | Đề xuất P12. |
-| 14 | T | Receipt chống lặp lưu nguyên kết quả và không có TTL: 1.840 `ptScheduleCommandReceipts` (khoảng 29 KB mỗi bản) và 547 `ptScheduleAdminEditReceipts` (khoảng 46 KB), tổng khoảng 78 MB, tức 20% dung lượng database, tăng khoảng 1.300 bản mỗi tuần. | `pt-schedule-v2.js:5007`, `index.js:1119` | Đề xuất P6. |
+| 14 | T | Receipt chống lặp lưu nguyên kết quả và không có TTL: 1.840 `ptScheduleCommandReceipts` (khoảng 29 KB mỗi bản) và 547 `ptScheduleAdminEditReceipts` (khoảng 46 KB), tổng khoảng 78 MB, tức 20% dung lượng database, tăng khoảng 1.300 bản mỗi tuần. | `pt-schedule-v2.js:5007`, `index.js:1119` | Đã deploy P6, TTL bật ngày 11/11. |
 | 15 | T | Khóa học lưu nguyên khối: tài liệu `courses` tới 674 KB. `listAcademyCourses` đọc mọi khóa đã xuất bản trong transaction chỉ để trả metadata (khoảng 170 đơn vị đọc mỗi khóa). Mỗi bản `courseRevisions` cũng nặng tương tự. | `index.js:4201`, `academy-course-storage.js` | Đề xuất P7. |
-| 16 | T | CI trên `main` đỏ vì ba test ghim 598 export trong khi có 605. Quy trình phát hành chính thức cần ref xanh nên các lần deploy gần đây phải làm tay. | 3 file test trong `functions/` | Nhánh (`308ceff`). |
+| 16 | T | CI trên `main` đỏ vì ba test ghim 598 export trong khi có 605. Quy trình phát hành chính thức cần ref xanh nên các lần deploy gần đây phải làm tay. | 3 file test trong `functions/` | Đã lên `main` (`308ceff`). |
 | 17 | N | 251 trong 602 function không có request nào trong 30 ngày (233 HTTPS). Không tốn tiền khi nghỉ nhưng làm chậm deploy, chiếm 410/1.000 service ở Singapore và mở rộng bề mặt tấn công. | `ops/function-lifecycle.json` | Đề xuất P9. |
 | 18 | N | Bucket Storage mặc định ở US-EAST1 trong khi người dùng, Functions và Firestore ở châu Á: mỗi lần tải ảnh đi vòng qua Mỹ. | Cấu hình project | Đề xuất P11. |
 | 19 | N | Functions có 5 cảnh báo phụ thuộc (1 thấp, 4 trung bình, đều gián tiếp qua `google-gax` và `@google-cloud/storage`). Root: `server.ts` và bốn gói của nó (`@google/genai`, `express`, `express-rate-limit`, `zod`) không thuộc ứng dụng đang chạy; `dotenv` không được import. | `functions/package-lock.json`, `server.ts`, `package.json` | Đề xuất P10. |
@@ -207,7 +209,149 @@ Rollback: mỗi commit độc lập, `git revert <sha>` là đủ. Không commit
 6. Sau khi deploy `a728389`: log `operational_actions_scheduled_maintenance` phải có `mealReviewSweepSkipped: true` ở phần lớn các lượt.
 7. Sau khi deploy web có `f553e15`: số response 403 của `getMyLoyaltyDashboardRegional` và `listMyStudentPtScheduleRegional` phải giảm về gần 0.
 
-## Phụ lục: các đề xuất cần duyệt trước khi làm
+## I. Áp dụng đề xuất và deploy ngày 11/11
+
+Chủ dự án duyệt việc sửa theo đề xuất, commit và deploy. Đã áp dụng **P1, P2, P6** cùng các thay đổi có sẵn của nhánh. Mười đề xuất còn lại không áp dụng; lý do ở mục I.8.
+
+### I.1 Cấu hình trước và sau (P1, P2)
+
+Cột "Sau" là giá trị đọc lại từ Cloud Run sau deploy. Cột lý do là số đo 04–11/11.
+
+| Function | Trước | Sau | Lý do |
+| --- | --- | --- | --- |
+| `getPtScheduleWeeklyViewRegional`, `getPtScheduleWeeklyView` | 1/6 vCPU, 256 MiB | 1 vCPU, 512 MiB | 1.821 lượt; p50 2,3 giây; p95 18,6 giây; bộ nhớ p99 87% |
+| `getMyTrainerWorkspaceRegional` | 1/6 vCPU, 256 MiB, 1 request mỗi instance | 1 vCPU, 512 MiB, 8 request mỗi instance | 1.589 lượt; p50 2,1 giây; p95 9,6 giây; 16% lượt phải khởi động instance |
+| `getMyPerformanceScoreV2` | 1/6 vCPU, 256 MiB | 1 vCPU, 512 MiB | 280 lượt; p50 2,1 giây; p95 7,2 giây |
+| `listMyStudentPtScheduleRegional` | 1/6 vCPU, 256 MiB | 1/3 vCPU, 512 MiB | bộ nhớ p99 88% |
+| `refreshContractRenewalQueueScheduled` | 1/6 vCPU, 256 MiB | 1/3 vCPU, 512 MiB | bộ nhớ p99 89% |
+| `processStudent360SourceQueue` | tối đa 3 instance | tối đa 6 instance | 3.191 trên 13.953 sự kiện bị từ chối (23%) |
+| `syncPtScheduleWeeklyViewFromSession` | tối đa 1 instance | tối đa 3 instance | 1.072 trên 2.480 sự kiện bị từ chối (43%) |
+
+- Số instance tối đa của các callable không đổi và không function nào có instance tối thiểu. Khi cả bốn callable 1 vCPU cùng chạm trần, chúng chiếm 9 trong 20 vCPU quota của asia-east1. Đỉnh 7 ngày của vùng này là 17 instance xử lý cùng lúc; trước hôm nay 151 trong 157 function của vùng dùng 1/6 hoặc 1/2 vCPU.
+- Căn cứ chọn tăng CPU: cùng handler `getMyTrainerWorkspace` trên cấu hình 1 vCPU ở asia-southeast1 có p50 khoảng 0,26 giây (5.844 lượt trong 30 ngày đến 11/11), so với 2,1 giây trên 1/6 vCPU. Hai cấu hình đó khác nhau cả về CPU lẫn vị trí (bản ở asia-southeast1 nằm cùng vùng với database), nên đây là căn cứ để thử chứ chưa phải mức cải thiện; mức thật phải chờ số đo ở mục I.6.
+- Hai function chỉ tăng bộ nhớ vẫn dùng kiểu CPU Gen 1, nên phần CPU tự tăng theo bộ nhớ từ 1/6 lên 1/3 vCPU.
+- P2: các lượt từ chối dồn vào hai kiểu đợt, không phải thiếu chỗ thường xuyên. `processStudent360SourceQueue` nhận 450–540 sự kiện mỗi phút lúc 00:06 hằng đêm, khi job tái ký chạm mọi hợp đồng. `syncPtScheduleWeeklyViewFromSession` nhận khoảng 1.400 lượt giao trong 4 phút sau lần xuất bản lịch tối 08/11 và từ chối 1.034 lượt. Sự kiện bị từ chối được gửi lại nên không mất dữ liệu, nhưng trang học viên và bảng lịch tuần bị trễ. Chỉ số instance tăng; CPU, bộ nhớ và cơ chế gửi lại giữ nguyên.
+- Không chuyển hai hàm đọc lịch về asia-southeast1 (phần "cân nhắc" của P1), vì việc đó đổi địa chỉ callable mà client đang gọi.
+
+### I.2 Receipt tự hết hạn (P6)
+
+- Bảy chỗ ghi `ptScheduleCommandReceipts` và `ptScheduleAdminEditReceipts` nay thêm `expiresAt` bằng thời điểm lệnh cộng 30 ngày (`functions/command-receipt-retention.js`), cùng thời hạn với receipt của trung tâm SOP.
+- Chính sách TTL trên `expiresAt` của hai collection ở trạng thái `ACTIVE` từ 16:08 ngày 11/11. Lệnh áp: `node scripts/schedule-receipt-firestore-config.cjs apply --confirm=<database>/schedule-receipts:configure-retention`. Chế độ `status` của script chỉ đọc.
+- 1.840 và 547 receipt hiện có không có `expiresAt`, nên chính sách không bao giờ xóa chúng. Receipt đầu tiên bị xóa sớm nhất vào 11/12/2026. Muốn dừng trước ngày đó chỉ cần tắt TTL (mục I.7).
+- Vì vậy 78 MB hiện có không giảm. Thay đổi này chỉ chặn phần tăng khoảng 1.300 receipt mỗi tuần. Xóa receipt cũ là thao tác xóa dữ liệu và cần duyệt riêng.
+
+### I.3 Commit mới trên `main`
+
+| Commit | Nội dung | Test đi kèm |
+| --- | --- | --- |
+| `7ba27e0` | P1: CPU và bộ nhớ cho các hàm đọc ở bảng I.1 | `functions/capacity-profile.test.js` đọc manifest deploy thật, ghim cả các function lân cận phải giữ nguyên; cập nhật `pt-schedule-weekly-runtime.test.js`, `nutrition-reviews.test.js` |
+| `a94b33f` | P2: số instance của hai trigger | cùng `capacity-profile.test.js` |
+| `31a00c7` | P6: `expiresAt` cho receipt, khai báo TTL trong `firestore.indexes.json`, script áp TTL | test trong `pt-schedule-workflows.test.js`, `pt-schedule-admin-edit.test.js`, `scripts/schedule-receipt-firestore-config.test.cjs` |
+
+So với `1231e57`, manifest deploy của đúng 8 trong 605 function thay đổi, đều nằm ở bảng I.1.
+
+### I.4 Kiểm thử trước khi đẩy lên `main`
+
+| Bước | Kết quả |
+| --- | ---: |
+| Repo hygiene, màu CSS, typecheck, build, performance budget | qua |
+| `test:profile-sync` | 401 / 401 |
+| `test:regional-reads` | 225 / 225 |
+| `test:function-lifecycle` | 52 / 52 |
+| `test:app-optimization` | 98 / 98 |
+| `test:data-cost` | 51 / 51 |
+| `test:production-smoke`, `test:callable-audit`, `test:eat-clean`, `test:cooking`, `test:payroll-pdf`, `test:installment-payments`, `test:notification-center` | 23, 7, 5, 5, 3, 22, 5 (tất cả qua) |
+| `functions check` | 1.868 / 1.868 |
+| `functions test` | 1.812 / 1.812 |
+| `functions check:weekly-view`, `check:apikey-fun` | 59 / 59, 6 / 6 |
+| Test tích hợp trên Firestore emulator (7 file về lệnh lịch, hàng đợi Student 360, bảng lịch tuần) | 41 / 45 |
+
+Bốn test emulator thất bại nằm trong `functions/weekly-projection-safety.integration.cjs` và thất bại y hệt trên `1231e57`. Chúng còn mong đợi cờ `dirty` cho tuần cũ, trong khi commit `eb5bb77` sáng 11/11 đã chủ động chỉ tăng `dirtyGeneration` cho tuần cũ. Đây là test chưa được cập nhật, không phải lỗi của các thay đổi ở mục này. Bộ Playwright không chạy lại vì ba commit mới không đổi mã client; kết quả cũ ở mục G.
+
+### I.5 Deploy
+
+- **Web:** Vercel build từ `main` tại `31a00c7`. `npm run production:smoke` với SHA mong đợi đã qua lúc 15:45.
+- **Functions:** 15 function, deploy lần lượt từ một bản sao sạch của `31a00c7`, theo đúng bước "Deploy backend Functions sequentially" của `release-production.yml` (deploy, chuyển traffic sang revision mới, cổng kiểm tra sức khỏe, tự rollback khi lỗi). Cả 15 đều qua cổng kiểm tra.
+
+| Function | Vùng | Xong (giờ VN) | Revision trước | Revision mới |
+| --- | --- | --- | --- | --- |
+| `getPtScheduleWeeklyView` | asia-east1 | 15:37 | `…-stg-df4b4b3fcec3` | `…-stg-7ddb05250b9b` |
+| `getPtScheduleWeeklyViewRegional` | asia-east1 | 15:40 | `…-stg-9f13a5ae7e40` | `…-stg-24c617e36b1d` |
+| `getMyPerformanceScoreV2` | asia-east1 | 15:42 | `…-stg-2bfb9864db6b` | `…-stg-5ac7ef8ad871` |
+| `getMyTrainerWorkspaceRegional` | asia-east1 | 15:44 | `…-stg-e8b1860a770c` | `…-stg-bf5015c9e33d` |
+| `listMyStudentPtScheduleRegional` | asia-east1 | 15:46 | `…-stg-83db3439fdbc` | `…-stg-24ff0be40e93` |
+| `syncPtScheduleWeeklyViewFromSession` | asia-southeast1 | 15:48 | `…-stg-3c959f7f5840` | `…-stg-a9ab4cbc8306` |
+| `processStudent360SourceQueue` | asia-southeast1 | 15:50 | `…-stg-764cc9fc4a11` | `…-stg-ca717a66ee94` |
+| `refreshContractRenewalQueueScheduled` | asia-southeast1 | 15:52 | `…-stg-82e4bff13580` | `…-stg-31fa6ac9809b` |
+| `reopenSnoozedOperationalActionsScheduled` | asia-southeast1 | 15:54 | `…-00015-luv` | `…-stg-45b0fc02094d` |
+| `createHistoricalPtSession` | asia-southeast1 | 15:56 | `…-stg-36f045b76b48` | `…-stg-e15bbf4d1d81` |
+| `createHistoricalPtSessionRegional` | asia-east1 | 15:58 | `…-stg-a20c7f0bf58b` | `…-stg-c0d7588d2f9f` |
+| `applyPtScheduleDraftCommand` | asia-southeast1 | 16:00 | `…-stg-5eb386bfcace` | `…-stg-d108667b6b40` |
+| `applyPtScheduleDraftCommandRegional` | asia-east1 | 16:02 | `…-stg-9e2ada8c76aa` | `…-stg-a8fca89bbc40` |
+| `adminEditPtSchedule` | asia-southeast1 | 16:04 | `…-stg-60c7eb3d4577` | `…-stg-da7c6e3413e0` |
+| `adminEditPtScheduleRegional` | asia-east1 | 16:06 | `…-stg-9472491f2028` | `…-stg-83c336c8dbba` |
+
+Tên revision đầy đủ là tên service viết thường nối với phần đuôi trong bảng.
+
+**Deploy lại một function đưa toàn bộ mã `main` hiện tại của function đó lên.** Một số function trong bảng được deploy lần trước từ 23/10 đến 01/11, nên lần này nhận thêm các thay đổi đã merge từ đó. Đã đọc diff của `pt-operations-v2.js`, `student-360-source-queue.js` và `student-360.js` kể từ lần deploy trước: phần thay đổi không nằm trong các handler được deploy (hàng đợi chỉ thêm đo đếm, không đổi cấu trúc tài liệu). Với sáu function lệnh lịch, các commit đi kèm là `aee283e`, `7c07cdc`, `8ab4620`, `b757019`; phần này chỉ được bảo đảm bằng bộ test, không được đọc lại từng dòng.
+
+### I.6 Số đo sau deploy
+
+**Đã đo được trong 40 phút đầu:**
+
+| Chỉ số | Trước | Sau | Nguồn |
+| --- | ---: | ---: | --- |
+| Đơn vị đọc Firestore của một lượt quét SLA bữa ăn (mỗi 15 phút) | 2.100–2.700 | 6 | Monitoring theo phút; lượt 16:14 ghi `mealReviewSweepSkipped: true`. Lượt 15:59 là lượt đầu của bản mới nên vẫn đọc đủ một vòng. |
+| Cấu hình của 8 function ở bảng I.1 | cột "Trước" | khớp cột "Sau" | Đọc lại từ Cloud Run sau deploy |
+| Log mức ERROR trên 15 service vừa deploy | | 0 | Cloud Logging, 15:37–16:20 |
+| `cost:guard`, 2 giờ quanh thời điểm deploy | | không cảnh báo | Cloud Run quy đổi 37.292 vCPU-giây mỗi ngày, trong mức nền 30–45 nghìn |
+| TTL của hai collection receipt | chưa có | `ACTIVE` | `schedule-receipt-firestore-config.cjs status` |
+| Bản web production | | `31a00c7` | `npm run production:smoke` với SHA mong đợi |
+
+**Chưa đo được, vì cần lưu lượng thật:**
+
+- **Độ trễ sau P1.** Trong 40 phút sau deploy chỉ có 4 lượt `getMyTrainerWorkspaceRegional`, 7 lượt `listMyStudentPtScheduleRegional`, 1 lượt `getMyPerformanceScoreV2` và chưa có lượt `getPtScheduleWeeklyViewRegional` nào. Chừng đó không đủ để kết luận. Cần đo lại sau ít nhất một ngày làm việc và so với cột "Trước" của bảng I.1.
+- **P2.** Phép thử đầu tiên là đợt 00:06 đêm 11/11 cho `processStudent360SourceQueue` và lần xuất bản lịch kế tiếp cho `syncPtScheduleWeeklyViewFromSession`. Với trigger thứ hai, ba instance làm nhanh gấp ba nhưng một đợt 400 buổi vẫn có thể bị từ chối một phần ở những giây đầu.
+- **Commit `f553e15`.** Số response 403 của hai callable học viên cần một đến hai ngày để thấy giảm, vì người dùng phải tải bản web mới.
+- **P6.** Receipt đầu tiên có `expiresAt` chỉ xuất hiện khi admin thao tác lịch lần tới; lần xóa đầu tiên là sau 11/12/2026.
+
+**Lưu ý khi đọc số lượt và độ trễ.** Số đo của Cloud Run gồm cả request kiểm tra CORS (OPTIONS) mà trình duyệt gửi trước lượt gọi thật; các request này xong trong vài mili giây. Với `getPtScheduleWeeklyViewRegional`, 758 trong 1.682 request của ba ngày 08–11/11 là OPTIONS. Nếu coi nhóm dưới 150 ms là OPTIONS, thì trong 7 ngày có khoảng 1.078 lượt đọc bảng lịch tuần thật, và 654 lượt trong đó (61%) mất hơn 6 giây. Tức là trước hôm nay admin thường chờ lâu hơn nhiều so với con số p50 2,3 giây. Khi so sánh trước sau, hãy dùng cùng một cách tính.
+
+**Ước tính chi phí của P1 (dự phóng, giá niêm yết).** Trường hợp xấu nhất là thời gian xử lý không giảm chút nào: năm function ở bảng I.1 khi đó thêm khoảng 14.700 vCPU-giây và 5.000 GiB-giây mỗi tuần, tức khoảng 1,6 USD mỗi tháng. Nếu thời gian xử lý giảm theo CPU thì chi phí gần như không đổi. P2 và P6 không làm tăng chi phí đáng kể; P6 chặn phần lưu trữ tăng thêm.
+
+**Cách đo lại.** Trong Cloud Run console: chọn service, tab Metrics, biểu đồ Request latencies và Request count theo mã trả về. Hoặc chạy `npm run cost:guard -- --project=gen-lang-client-0815966909 --inventory=live` (cảnh báo khi một trigger từ chối hơn 20% sự kiện). Các script chỉ-đọc dùng cho mục này (`focus.cjs`, `dist.cjs`, `burst.cjs`, `revisions.cjs`) và số đo "trước" nằm trong thư mục riêng không commit `.migration-private/cost-audit-20261111/apply-20261111/` của worktree rà soát.
+
+### I.7 Rollback
+
+- **Một function:** chuyển traffic về revision trước trong bảng I.5, ví dụ `gcloud run services update-traffic getmytrainerworkspaceregional --region=asia-east1 --to-revisions=getmytrainerworkspaceregional-stg-e8b1860a770c=100 --project=gen-lang-client-0815966909`. Revision cũ mang theo cấu hình CPU, bộ nhớ và số instance cũ. Lưu ý `scripts/cloud-run-functions-rollback.cjs` chỉ ghim revision đang phục vụ khi một lần deploy hỏng giữa chừng; nó không quay về revision trước của một lần deploy đã thành công.
+- **Mã nguồn:** `git revert 7ba27e0`, `a94b33f` hoặc `31a00c7` (ba commit độc lập), rồi deploy lại các function liên quan.
+- **TTL:** `gcloud firestore fields ttls update expiresAt --collection-group=ptScheduleCommandReceipts --disable-ttl --database=<database> --project=gen-lang-client-0815966909`, và tương tự cho `ptScheduleAdminEditReceipts`. Receipt đã bị xóa không khôi phục được ngoài cửa sổ PITR 7 ngày, nên nếu muốn dừng thì dừng trước 11/12/2026.
+- **Web:** `git revert f553e15` hoặc `799c1f7` rồi đẩy lên `main`.
+
+### I.8 Đề xuất không áp dụng và lý do
+
+| Đề xuất | Lý do chưa làm |
+| --- | --- |
+| P3 runtime rút gọn | Đổi cách nạp module của các callable nhiều lượt nhất. Không nên đi cùng đợt đổi tài nguyên, vì khi đó không tách được nguyên nhân nếu độ trễ đổi. Làm sau khi có số đo của P1. |
+| P4 gộp job theo lịch | Phải đổi tên function và xóa job Cloud Scheduler cũ. Xóa tài nguyên cloud nằm ngoài phạm vi được phép. |
+| P5 tách payload bảng lịch tuần | Thay đổi cấu trúc dữ liệu của lịch tập, rủi ro cao; cần thiết kế và migration riêng. |
+| P7 khóa học theo chương | Là migration dữ liệu production; cần backup và chạy thử được duyệt. |
+| P8 App Check | Client khởi tạo App Check kiểu lười; bật bắt buộc khi chưa theo dõi tỷ lệ token hợp lệ có thể khóa người dùng thật. |
+| P9 vòng đời function | Là xóa tài nguyên cloud. |
+| P10 `npm audit fix` | Đổi phiên bản thư viện gRPC và Storage của mọi function ở lần deploy kế tiếp. Nên là một đợt riêng, có theo dõi, không trộn với thay đổi hôm nay. |
+| P11 bucket Storage | Cần bucket mới và sao chép dữ liệu. |
+| P12 OTP | Là quyết định sản phẩm. |
+| P13 dọn frontend | 15 file không còn được tham chiếu không nằm trong bản build, nên xóa không đổi gì cho người dùng. Trong đó có các thẻ ảnh tiến độ và huy hiệu, trông như tính năng đang tạm cất; xóa hay giữ là quyết định sản phẩm. |
+| Bộ nhớ cho khoảng 20 function còn lại ở vấn đề 11 | Không có lỗi tràn bộ nhớ nào của chúng trong 14 ngày. Chỉ bốn function trên 86% được tăng. |
+
+### I.9 Phát hiện thêm trong lúc làm, chưa xử lý
+
+1. Bốn test emulator trong `functions/weekly-projection-safety.integration.cjs` cần cập nhật theo cách đánh dấu tuần cũ của `eb5bb77` (mục I.4).
+2. `listBusinessPerformanceRegional` bị tràn bộ nhớ 256 MiB một lần ngày 31/10. Không lặp lại trong 14 ngày; nên tăng lên 512 MiB khi deploy function này lần tới.
+3. `listMyStudentPtScheduleRegional` là callable của học viên có nhiều lượt nhất trong nhóm này (3.030 lượt mỗi tuần, p50 khoảng 0,6 giây). Cùng handler trên cấu hình 1 vCPU ở asia-southeast1 có p50 khoảng 0,03 giây (21.314 lượt trong 30 ngày đến 11/11). Hôm nay nó mới được tăng lên 1/3 vCPU; nếu số đo sau P1 tốt, đây là ứng viên kế tiếp cho 1 vCPU.
+4. Emulator Firestore không chạy được từ thư mục có dấu tiếng Việt trong đường dẫn (`Aura Dinh Dưỡng`); phải chạy từ một bản sao ở đường dẫn không dấu.
+
+## Phụ lục: các đề xuất (P1, P2, P6 đã áp dụng ngày 11/11, xem mục I)
 
 - **P1. Tài nguyên cho callable chậm.** Đặt 1 vCPU và 512 MiB cho `getPtScheduleWeeklyViewRegional`, `getMyTrainerWorkspaceRegional`, `getMyPerformanceScoreV2`; cân nhắc đưa hai hàm đọc lịch về asia-southeast1 cạnh database. Mỗi hàm thêm tối đa 2 vCPU vào quota 20 vCPU của vùng. Đo p50 và p95 trước sau trên một hàm rồi mới làm tiếp. Với các function ở vấn đề 11, tăng bộ nhớ lên 512 MiB.
 - **P2. Sức chứa trigger.** `processStudent360SourceQueue` và `syncPtScheduleWeeklyViewFromSession` đang `concurrency 1` với 3 và 1 instance. Thử tăng instance cho hàm thứ nhất; với hàm thứ hai, các sự kiện cùng tuần tranh nhau một tài liệu trạng thái nên cần gộp dấu theo tuần trước khi tăng song song.
