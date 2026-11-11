@@ -3,6 +3,7 @@
 const { createHash } = require('node:crypto')
 const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
+const { commandReceiptExpiresAt } = require('./command-receipt-retention')
 const { trainerProfileForWeek, loadTrainerAvailability, loadTrainerAvailabilityWeeks } = require('./trainer-availability')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const {
@@ -4602,7 +4603,7 @@ async function applyFastAdminDraftCommand({ db, actor, branchId, week, command, 
       createdAt: draft.createdAt || FieldValue.serverTimestamp(),
     }
     transaction.update(draftRef, draftWrite)
-    transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, command, idempotencyKey: receipt.id, result, createdAt: FieldValue.serverTimestamp() })
+    transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, command, idempotencyKey: receipt.id, result, createdAt: FieldValue.serverTimestamp(), expiresAt: commandReceiptExpiresAt() })
     transaction.create(db.collection('ptOperationsAuditLogs').doc(), {
       schemaVersion: 2,
       action: `pt_schedule.${command}`,
@@ -5191,7 +5192,7 @@ function createPtScheduleV2Functions({
         sourceDataChangeReason: reason,
         updatedAt: FieldValue.serverTimestamp(),
       })
-      transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, command: 'create_historical_session', idempotencyKey, result, createdAt: FieldValue.serverTimestamp() })
+      transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, command: 'create_historical_session', idempotencyKey, result, createdAt: FieldValue.serverTimestamp(), expiresAt: commandReceiptExpiresAt() })
       return result
     })
     invalidateBranchDataCache(db, branchId, week)
@@ -5745,7 +5746,7 @@ function createPtScheduleV2Functions({
       } else {
         transaction.set(reference, draftWrite)
       }
-      transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, command, idempotencyKey, result, createdAt: FieldValue.serverTimestamp() })
+      transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, command, idempotencyKey, result, createdAt: FieldValue.serverTimestamp(), expiresAt: commandReceiptExpiresAt() })
       transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: `pt_schedule.${command}`, actorUid: actor.uid, branchId, weekId: week, previousDraftRevision: revision, nextDraftRevision: nextRevision, affectedStudentCount: command === 'set_student_weekly_target' ? 1 : command === 'reset_draft' ? resetStudentIds.length : (command === 'add_student' || command === 'move_student') ? 1 : requeuedEntries.length, studentId: command.includes('student') ? studentId : null, weeklyTarget: command === 'set_student_weekly_target' ? (resetWeeklyTarget ? null : weeklyTarget) : null, availabilityOverride: Boolean(availabilityOverrideMetadata), availabilityOverrideReason: availabilityOverrideMetadata?.availabilityOverrideReason || null, adminOverride: Boolean(adminOverrideMetadataValue), adminOverrideWarnings: adminOverrideMetadataValue?.adminOverrideWarnings || [], trainerAssignmentWarning: Boolean(trainerAssignmentWarningMetadata), studentBranchWarning: Boolean(studentBranchWarningMetadata), studentHomeBranchId: studentBranchWarningMetadata?.studentHomeBranchId || null, reason: typeof request.data?.reason === 'string' ? request.data.reason.trim().slice(0, 300) : '', createdAt: FieldValue.serverTimestamp() })
       return result
     })

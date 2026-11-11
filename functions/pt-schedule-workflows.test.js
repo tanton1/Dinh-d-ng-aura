@@ -676,3 +676,51 @@ test('continuation never loses protected or already covered learners across seed
     }
   }
 })
+
+test('schedule command receipts expire thirty days after the command and still answer a retry', async () => {
+  const { COMMAND_RECEIPT_RETENTION_MS, commandReceiptExpiresAt } = require('./command-receipt-retention')
+  assert.equal(commandReceiptExpiresAt(1_000).toMillis(), 1_000 + 30 * 24 * 60 * 60 * 1000)
+  const receiptsOf = (h) => [...h.docs].filter(([path]) => path.startsWith('ptScheduleCommandReceipts/')).map(([, value]) => value)
+  const expiresOnTime = (receipt, before, after) => {
+    const expiresAt = receipt.expiresAt?.toMillis?.()
+    assert.ok(expiresAt >= before + COMMAND_RECEIPT_RETENTION_MS && expiresAt <= after + COMMAND_RECEIPT_RETENTION_MS, `${receipt.command}: ${expiresAt}`)
+  }
+  // The general draft path stores the client key, the direct Admin path the
+  // receipt id: both write sites must be reached.
+  const keyShapes = new Set()
+  for (const fast of [false, true]) {
+    const data = fixture()
+    data.contracts[0].pausePeriods = [{ startDate: '2090-01-03', endDate: '2090-01-04' }]
+    data.schedule = { 'T2-6': [{ ...entry('a'), source: 'manual_v2' }] }
+    const h = harness(data)
+    if (!fast) h.docs.get(`ptScheduleDrafts/${BRANCH}_${WEEK}`).status = 'published'
+    const input = command('move_student', { studentId: 'a', trainerId: 't', slotId: 'T3-6', fromSlotId: 'T2-6', fromTrainerId: 't', adminOverride: true, confirmStudentOff: true })
+    const before = Date.now()
+    const result = await h.api.applyPtScheduleDraftCommand(input)
+    const [receipt, ...others] = receiptsOf(h)
+    assert.equal(others.length, 0)
+    expiresOnTime(receipt, before, Date.now())
+    keyShapes.add(receipt.idempotencyKey === 'test-command-123' ? 'client key' : 'receipt id')
+    // A retry is answered from the stored receipt and applies nothing twice.
+    assert.deepEqual(await h.api.applyPtScheduleDraftCommand(input), result)
+    assert.equal(receiptsOf(h).length, 1)
+    assert.equal(h.docs.get(`ptScheduleDrafts/${BRANCH}_${WEEK}`).revision, 2)
+  }
+  assert.deepEqual([...keyShapes].sort(), ['client key', 'receipt id'])
+
+  const h = crossBranchHarness()
+  const found = await h.api.getPtScheduleSlotCandidates({ data: { ...h.input, search: 'Lan ngoai', historical: true } })
+  const before = Date.now()
+  await h.api.createHistoricalPtSession({ data: { ...h.input, acknowledgedWarnings: found.candidates[0].warningReasons } })
+  const [historical] = receiptsOf(h)
+  assert.equal(historical.command, 'create_historical_session')
+  expiresOnTime(historical, before, Date.now())
+
+  // The weekly target override keeps its own small receipts and has no TTL
+  // policy; every other schedule receipt carries the expiry.
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'pt-schedule-v2.js'), 'utf8')
+  const writes = source.split(/\r?\n/).filter((line) => line.trimStart().startsWith('transaction.create(receipt, {'))
+  assert.equal(writes.length, 4)
+  assert.equal(writes.filter((write) => write.endsWith('expiresAt: commandReceiptExpiresAt() })')).length, 3)
+  assert.ok(writes.find((write) => !write.includes('expiresAt')).includes('studentId, idempotencyKey, result'))
+})

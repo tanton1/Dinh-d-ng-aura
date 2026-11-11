@@ -5,6 +5,7 @@ const { loadTrainerAvailability } = require('./trainer-availability')
 const { createHash } = require('node:crypto')
 const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
+const { commandReceiptExpiresAt } = require('./command-receipt-retention')
 const { branchScheduleSnapshot, branchSlotCapacity, dateForSlot, nextWeek, normalizedCapacity, normalizedScheduleConfig, reintroducedSessionId, storedDate, trainerProfileForWeek, trainerIsAvailable } = require('./pt-schedule-publish')
 const { effectiveStudentAvailability } = require('./student-availability')
 const { sessionCountsTowardContract, summarizeContractUsage } = require('./contract-usage')
@@ -194,7 +195,7 @@ async function applyFastAdminRemoval({ db, actor, branchId, week, payload, reaso
         updatedBy: actor.uid,
       })
     }
-    transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, command: 'remove_student', result, createdAt: FieldValue.serverTimestamp() })
+    transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, command: 'remove_student', result, createdAt: FieldValue.serverTimestamp(), expiresAt: commandReceiptExpiresAt() })
     transaction.create(db.collection('ptOperationsAuditLogs').doc(), {
       schemaVersion: 2,
       action: 'pt_schedule.admin_remove_student',
@@ -401,7 +402,7 @@ async function applyFastAdminAdd({ db, actor, branchId, week, payload, reason, e
         updatedBy: actor.uid,
       })
     }
-    transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, command: 'add_student', result, createdAt: FieldValue.serverTimestamp() })
+    transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, command: 'add_student', result, createdAt: FieldValue.serverTimestamp(), expiresAt: commandReceiptExpiresAt() })
     transaction.create(db.collection('ptOperationsAuditLogs').doc(), {
       schemaVersion: 2,
       action: 'pt_schedule.admin_add_student',
@@ -592,7 +593,7 @@ async function applyFastAdminMove({ db, actor, branchId, week, payload, reason, 
       legacySchedule[slotId] = [...(legacySchedule[slotId] || []), nextEntry]
       transaction.update(legacyRef, { schedule: legacySchedule, draftRevision: Number(legacy.data()?.draftRevision || 0) + 1, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid })
     }
-    transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, command: 'move_student', result, createdAt: FieldValue.serverTimestamp() })
+    transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, command: 'move_student', result, createdAt: FieldValue.serverTimestamp(), expiresAt: commandReceiptExpiresAt() })
     transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: 'pt_schedule.admin_move_student', actorUid: actor.uid, branchId, weekId: week, studentId, sessionId, previousDraftRevision: revision, nextDraftRevision: nextRevision, from: before, to: after, reason, warnings, createdAt: FieldValue.serverTimestamp() })
     return result
   })
@@ -1076,7 +1077,7 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
       updatedBy: actor.uid,
     })
     if (legacy.exists) transaction.update(legacyRef, { schedule: reconcile(legacy.data().schedule || {}), draftRevision: Number(legacy.data().draftRevision || 0) + 1, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid })
-    transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, command, result, createdAt: FieldValue.serverTimestamp() })
+    transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, command, result, createdAt: FieldValue.serverTimestamp(), expiresAt: commandReceiptExpiresAt() })
     transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: `pt_schedule.admin_${command}`, actorUid: actor.uid, branchId, weekId: week, studentId, sessionId: source?.id || (['add_student', 'move_student'].includes(command) && !session ? targetSessionId : null), ...(reintroducedFromSessionId ? { reintroducedFromSessionId, reintroducedAtRevision } : {}), previousDraftRevision: revision, nextDraftRevision: revision + 1, from: before, to: after, reason, warnings, createdAt: FieldValue.serverTimestamp() })
     return result
   })

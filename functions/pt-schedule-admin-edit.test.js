@@ -5,6 +5,10 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const { applyAdminScheduleEdit } = require('./pt-schedule-admin-edit')
 const { draftExpiresAt, safeSchedule, scopedDraftData } = require('./pt-schedule-v2')
+const { COMMAND_RECEIPT_RETENTION_MS } = require('./command-receipt-retention')
+
+// Every receipt any case below writes, with the clock value of its write.
+const writtenReceipts = []
 
 const WEEK = '2090-01-02' // Monday
 const BRANCH = 'branch-a'
@@ -69,7 +73,10 @@ function makeHarness({ source = 'published_existing', status = 'scheduled', bill
       const transaction = {
         get: async (ref) => { assert.equal(writes.length, 0, 'All reads precede writes'); return ref.get() },
         set: (ref, value, options = {}) => writes.push({ kind: 'set', ref, value, options }),
-        create: (ref, value) => writes.push({ kind: 'create', ref, value }),
+        create: (ref, value) => {
+          if (ref.path.startsWith('ptScheduleAdminEditReceipts/')) writtenReceipts.push({ command: value.command, writtenAt: Date.now(), expiresAt: value.expiresAt?.toMillis?.() })
+          writes.push({ kind: 'create', ref, value })
+        },
         update: (ref, value) => writes.push({ kind: 'update', ref, value }),
       }
       const result = await callback(transaction)
@@ -372,4 +379,20 @@ test('Staff cannot call the Admin edit path', async () => {
     applyAdminScheduleEdit(baseInput(harness, 'remove_student', { studentId: STUDENT, trainerId: TRAINER, slotId: 'T2-6' }, { uid: 'staff-a', accessRole: 'staff' })),
     (error) => error.code === 'permission-denied',
   )
+})
+
+test('every Admin edit receipt written above expires thirty days after its command', () => {
+  // The cases above reach the direct add, move and remove paths and the
+  // general draft path; a receipt without an expiry would never be deleted.
+  assert.ok(writtenReceipts.length >= 12, `only ${writtenReceipts.length} receipts were written`)
+  assert.deepEqual([...new Set(writtenReceipts.map((receipt) => receipt.command))].sort(), ['add_student', 'move_student', 'remove_student'])
+  for (const receipt of writtenReceipts) {
+    assert.ok(Number.isFinite(receipt.expiresAt), `${receipt.command} receipt has no expiresAt`)
+    assert.ok(Math.abs(receipt.expiresAt - receipt.writtenAt - COMMAND_RECEIPT_RETENTION_MS) < 60_000, receipt.command)
+  }
+  assert.equal(COMMAND_RECEIPT_RETENTION_MS, 30 * 24 * 60 * 60 * 1000)
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'pt-schedule-admin-edit.js'), 'utf8')
+  const writes = source.split(/\r?\n/).filter((line) => line.trimStart().startsWith('transaction.create(receipt, {'))
+  assert.equal(writes.length, 4)
+  for (const write of writes) assert.ok(write.endsWith('expiresAt: commandReceiptExpiresAt() })'), write.trim())
 })
