@@ -4,7 +4,7 @@ Ngày rà soát: 11/11/2026 (giờ Việt Nam). Mốc source: `1231e57` trên `m
 
 **Cập nhật 16:10 ngày 11/11:** sau khi được duyệt, các commit của nhánh cùng ba đề xuất P1, P2, P6 đã lên `main` (`31a00c7`) và production. Chi tiết, số đo và phần chưa làm nằm ở [mục I](#i-áp-dụng-đề-xuất-và-deploy-ngày-1111). Các mục 0 đến H giữ nguyên nội dung lúc rà soát; cột trạng thái ở mục B đã được cập nhật.
 
-**Cập nhật 20:45 ngày 11/11:** đợt hai (mục J) sửa bốn test emulator lỗi thời, tăng bộ nhớ báo cáo kinh doanh, áp P10 và P13, đo và lập phương án cho P3, P4, P5, P7, P8, P9, P11, P12. `main` ở `3462cce`.
+**Cập nhật 20:45 ngày 11/11:** đợt hai (mục J) sửa bốn test emulator lỗi thời, tăng bộ nhớ báo cáo kinh doanh, áp P10 và P13, đo và lập phương án cho P3, P4, P5, P7, P8, P9, P11, P12. `main` ở `3462cce`. P8 App Check tạm dừng theo quyết định của chủ dự án (mục J.2).
 
 Tài liệu này nối tiếp [phân tích chi phí 11/11](COST_USAGE_ANALYSIS_2026-11-11.md), [kế hoạch luồng dữ liệu 25/10](../product/DATA_FLOW_COST_OPTIMIZATION_PLAN_2026-10-25.md) và [audit 29/10](../APP_AUDIT_2026-10-29.md). Phần mới: bảng chi phí 42 ngày cho mọi dịch vụ, cấu hình thật của 602 function, độ trễ và lỗi theo từng service, kích thước document, và năm thay đổi đã kiểm thử trên nhánh.
 
@@ -71,7 +71,7 @@ Mức độ: **C** cao, **T** trung bình, **N** nhỏ. Trạng thái: *đã s�
 | 9 | T | Job 15 phút đọc mọi bữa ăn chờ duyệt và action tương ứng dù không có gì đổi: khoảng 2.700 đơn vị đọc mỗi lượt, hơn 90% đơn vị đọc của một giờ không có người dùng. | `functions/nutrition-review-maintenance.js` | Đã deploy ngày 11/11 (`a728389`). |
 | 10 | T | Tài khoản staff và admin mở trang chủ thành viên gọi hai callable chỉ dành cho học viên: 398/1.332 lượt `getMyLoyaltyDashboard` và 354/3.034 lượt `listMyStudentPtSchedule` trả 403 trong 7 ngày. | `LoyaltyHomeCard.tsx`, `HomePage.tsx`, `ProgressPage.tsx`, `NotificationsPage.tsx` | Đã lên bản web ngày 11/11 (`f553e15`). |
 | 11 | T | Khoảng 25 function 256 MiB dùng 77–89% bộ nhớ ở p99 (ví dụ `refreshContractRenewalQueueScheduled` 89%, `listMyStudentPtScheduleRegional` 88%). Riêng việc nạp `index.js` đã chiếm khoảng 73%. | Cấu hình bộ nhớ trong `index.js` | Đã deploy cho 4 function trên 86%; phần còn lại theo dõi. |
-| 12 | T | App Check không bắt buộc với callable không phải AI. Người có tài khoản hợp lệ có thể gọi dồn dập; thiệt hại bị chặn bởi `maxInstances` 1–8 mỗi function. | `index.js:407`, biến `ENFORCE_APP_CHECK` | Đã đo: 98,5% lượt gọi không có token (mục J.2); chờ quyết định. |
+| 12 | T | App Check không bắt buộc với callable không phải AI. Người có tài khoản hợp lệ có thể gọi dồn dập; thiệt hại bị chặn bởi `maxInstances` 1–8 mỗi function. | `index.js:407`, biến `ENFORCE_APP_CHECK` | Đã đo: 98,5% lượt gọi không có token. Tạm dừng theo quyết định ngày 11/11 (mục J.2). |
 | 13 | T | SMS OTP là dòng chi phí đáng kể so với phần còn lại: 94 SMS × 0,13 USD ≈ 12 USD mỗi tháng, tăng tuyến tính theo số lần đăng nhập bằng số điện thoại. | `AuthContext.tsx` (`sendPhoneOtp`) | Đề xuất P12. |
 | 14 | T | Receipt chống lặp lưu nguyên kết quả và không có TTL: 1.840 `ptScheduleCommandReceipts` (khoảng 29 KB mỗi bản) và 547 `ptScheduleAdminEditReceipts` (khoảng 46 KB), tổng khoảng 78 MB, tức 20% dung lượng database, tăng khoảng 1.300 bản mỗi tuần. | `pt-schedule-v2.js:5007`, `index.js:1119` | Đã deploy P6, TTL bật ngày 11/11. |
 | 15 | T | Khóa học lưu nguyên khối: tài liệu `courses` tới 674 KB. `listAcademyCourses` đọc mọi khóa đã xuất bản trong transaction chỉ để trả metadata (khoảng 170 đơn vị đọc mỗi khóa). Mỗi bản `courseRevisions` cũng nặng tương tự. | `index.js:4201`, `academy-course-storage.js` | Đề xuất P7. |
@@ -384,6 +384,22 @@ Lịch đo lại: tác vụ `aura-do-lai-do-tre-sau-deploy-1111` chạy một l�
 1. Khởi tạo App Check sau khi đăng nhập, lúc trình duyệt rảnh, **chỉ cho tài khoản staff và admin**. Ít thiết bị, trình duyệt thông thường, và đó là nhóm gọi các lệnh ghi tiền và hợp đồng.
 2. Sau 7 ngày, nếu tỷ lệ token hợp lệ của nhóm đó gần 100%, bật `enforceAppCheck` cho từng callable ghi tiền và hợp đồng (cơ chế `callableAppCheckPolicy` đã cho phép bật riêng từng function).
 3. Học viên để sau: mỗi lần đổi token là một lượt đánh giá reCAPTCHA Enterprise, có thể phát sinh phí theo bảng giá hiện hành (chưa kiểm tra), và trình duyệt nhúng trong app nhắn tin có thể không qua được.
+
+**Quyết định ngày 11/11: tạm dừng P8, không làm cả bước 1.** Không có thay đổi mã nào cho P8; App Check vẫn chỉ bắt buộc với lệnh gọi AI như trước. Lý do:
+
+- Dữ liệu đã được bảo vệ ở lớp chính: mọi callable đều yêu cầu đăng nhập và server tự kiểm tra quyền theo vai trò. App Check không thay đổi ai được làm gì.
+- Phần tốn tiền theo lượt đã được che: lệnh AI bắt buộc App Check, đăng nhập SMS có reCAPTCHA riêng của Firebase Auth.
+- Thiệt hại khi bị gọi dồn dập có giới hạn nhờ trần instance của từng function và giới hạn lượt theo người dùng; `cost:guard` báo trong vòng một ngày nếu chi phí tăng bất thường.
+- App Check ít tác dụng khi phiên đăng nhập của nhân viên bị lộ, vì người đó vẫn thao tác được qua chính trang web thật.
+- Cái giá phải trả là có thật: tải thêm script reCAPTCHA, khả năng chặn nhầm người dùng ở trình duyệt nhúng hoặc có trình chặn quảng cáo, gửi tín hiệu trình duyệt cho Google, và phí theo lượt khi vượt hạn mức miễn phí.
+
+Nên xem xét lại khi có một trong các dấu hiệu:
+
+- `cost:guard` hoặc log cho thấy lượng gọi bất thường không đến từ người dùng thật.
+- Aura mở API cho đối tác hoặc số người dùng tăng mạnh.
+- Có lệnh mới tính phí theo lượt (SMS, dịch vụ trả phí). Khi đó bật `enforceAppCheck` cho riêng lệnh đó, như đang làm với AI.
+
+Nếu làm lại, phương án ba bước ở trên vẫn dùng được; cần sửa cả test `startup defers non-critical providers` trong `functions/security-contract.test.js`, vốn ghim việc chỉ tải App Check trước lệnh AI.
 
 **P3 runtime rút gọn.** Callable khởi động lạnh tốn thời gian người dùng nhất là `getMyAccessContextOverflow`: 147 lần mỗi tuần, trung bình 3,0 giây, chạy mỗi lần mở app. Đo cục bộ, nạp riêng factory danh tính so với nạp `index.js`: 548 so với 826 ms, 665 so với 953 module, 90 so với 123 MB. Phần lớn thời gian nằm trong chính thư viện Firebase, nên lợi ích dự kiến chỉ khoảng 0,3–0,6 giây trên 3 giây, trong khi thay đổi nằm trên đường đăng nhập. Chưa làm. Hai lựa chọn nếu muốn đăng nhập nhanh hơn:
 
