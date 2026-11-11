@@ -77,9 +77,16 @@ function createStudent360BackgroundFunction(target, dependencies) {
   if (target === 'processStudent360SourceQueue') {
     const { STUDENT360_SOURCE_QUEUE_DOCUMENT, processStudent360Source } = require('./student-360-source-queue')
     const { withPrivateEventTelemetry } = require('./observability')
+    // Every queued learner produces three events (enqueue, claim, settle) and
+    // each instance takes one at a time. With three instances the nightly
+    // renewal refresh and a schedule publish sent 450 to 540 events a minute
+    // and Cloud Run turned away 23% of the week's 13,953 events (04–11/11/2026);
+    // those were redelivered or left to the five-minute recovery sweep, so the
+    // learner pages lagged. Leases are per learner, so more instances only
+    // rebuild more learners at once.
     return onDocumentWritten({
       document: STUDENT360_SOURCE_QUEUE_DOCUMENT, database: databaseId, region: 'asia-southeast1',
-      cpu: 'gcf_gen1', maxInstances: 3, retry: true, timeoutSeconds: 540,
+      cpu: 'gcf_gen1', maxInstances: 6, retry: true, timeoutSeconds: 540,
     }, withPrivateEventTelemetry(target, event => processStudent360Source({
       db, event, logger,
       rebuild: input => require('./student-360').rebuildStudent360Source({ db, ...input }),

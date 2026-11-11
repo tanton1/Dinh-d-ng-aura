@@ -39,6 +39,9 @@ const EXPECTED = {
   // share follows the memory, 1/3 vCPU at 512 MiB.
   listMyStudentPtScheduleRegional: { region: EAST, cpu: 'gcf_gen1', memoryMb: 512, concurrency: 1, minInstances: null, maxInstances: 2, timeoutSeconds: 120 },
   refreshContractRenewalQueueScheduled: { region: SOUTHEAST, cpu: 'gcf_gen1', memoryMb: 512, concurrency: null, minInstances: null, maxInstances: 1, timeoutSeconds: 540 },
+  // Triggers that turned away 23% and 43% of their events during bursts.
+  processStudent360SourceQueue: { region: SOUTHEAST, cpu: 'gcf_gen1', memoryMb: null, concurrency: null, minInstances: null, maxInstances: 6, timeoutSeconds: 540, retry: true },
+  syncPtScheduleWeeklyViewFromSession: { region: SOUTHEAST, cpu: 0.25, memoryMb: null, concurrency: 1, minInstances: null, maxInstances: 3, timeoutSeconds: null, retry: true },
 }
 // Neighbours built by the same factories that must keep the fractional,
 // quota-safe profile: only the measured hot paths were changed.

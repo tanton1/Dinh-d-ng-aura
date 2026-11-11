@@ -1054,7 +1054,12 @@ const weeklyViewSourceTrigger = (document, source, maxInstances = 1) => onDocume
 
 exports.syncPtScheduleWeeklyViewFromDraft = weeklyViewSourceTrigger('ptScheduleDrafts/{documentId}', 'draft')
 exports.syncPtScheduleWeeklyViewFromTarget = weeklyViewSourceTrigger('ptScheduleTargetOverrides/{documentId}', 'target')
-exports.syncPtScheduleWeeklyViewFromSession = weeklyViewSourceTrigger('sessions/{sessionId}', 'session')
+// Publishing a week writes a few hundred sessions at once. One instance taking
+// one event at a time turned away 1,034 of about 1,400 deliveries in the four
+// minutes after the publish of 08/11/2026 (43% of that week's events), so the
+// view kept being marked stale for minutes afterwards. Marking is a blind
+// increment and the other sources already mark the same week in parallel.
+exports.syncPtScheduleWeeklyViewFromSession = weeklyViewSourceTrigger('sessions/{sessionId}', 'session', 3)
 exports.syncPtScheduleWeeklyViewFromStudent = weeklyViewSourceTrigger('students/{studentId}', 'student')
 exports.syncPtScheduleWeeklyViewFromTrainer = weeklyViewSourceTrigger('trainers/{trainerId}', 'trainer')
 exports.syncPtScheduleWeeklyViewFromContract = weeklyViewSourceTrigger('contracts/{contractId}', 'contract')
