@@ -521,7 +521,7 @@ async function studentContractUsage(db, access, studentId, requestedContractId =
 }
 
 function createBusinessReportingFunctions({ db, onCall }) {
-  const readCall = (handler) => onCall({ cpu: 'gcf_gen1', concurrency: 1, maxInstances: 2, invoker: 'public' }, handler)
+  const readCall = (handler, resources = {}) => onCall({ cpu: 'gcf_gen1', concurrency: 1, maxInstances: 2, invoker: 'public', ...resources }, handler)
   const listBusinessPerformance = readCall(async (request) => {
     const actor = await trustedAccessContext(request, db)
     const canManageAll = actor.capabilities.includes('finance.operations.manage')
@@ -645,7 +645,12 @@ function createBusinessReportingFunctions({ db, onCall }) {
           : 'Dữ liệu trong phạm vi đã đối chiếu giữa ledger, sổ quỹ, payroll và chấm công.',
       },
     }
-  })
+  // The report holds the ledger, cash book, payroll and attendance of the
+  // range in memory at once. The overflow alias ran out of 256 MiB on
+  // 31/10/2026 and used 93% of it at p99 over 28/10–11/11. More memory also
+  // raises the Gen-1 CPU share from 1/6 to 1/3 vCPU; the other report reads
+  // keep the smaller profile.
+  }, { memory: '512MiB' })
 
   async function listHistory(request, subjectType) {
     const subjectId = documentId(request.data?.[subjectType === 'student' ? 'studentId' : 'trainerId'], subjectType === 'student' ? 'Mã học viên' : 'Mã PT')

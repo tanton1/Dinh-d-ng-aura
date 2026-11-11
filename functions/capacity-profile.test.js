@@ -39,6 +39,9 @@ const EXPECTED = {
   // share follows the memory, 1/3 vCPU at 512 MiB.
   listMyStudentPtScheduleRegional: { region: EAST, cpu: 'gcf_gen1', memoryMb: 512, concurrency: 1, minInstances: null, maxInstances: 2, timeoutSeconds: 120 },
   refreshContractRenewalQueueScheduled: { region: SOUTHEAST, cpu: 'gcf_gen1', memoryMb: 512, concurrency: null, minInstances: null, maxInstances: 1, timeoutSeconds: 540 },
+  // Ran out of 256 MiB once and used 93% of it at p99 (28/10–11/11/2026).
+  listBusinessPerformanceRegional: { region: EAST, cpu: 'gcf_gen1', memoryMb: 512, concurrency: 1, minInstances: null, maxInstances: 2, timeoutSeconds: 120 },
+  listBusinessPerformance: { region: SOUTHEAST, cpu: 'gcf_gen1', memoryMb: 512, concurrency: 1, minInstances: null, maxInstances: 2, timeoutSeconds: null },
   // Triggers that turned away 23% and 43% of their events during bursts.
   processStudent360SourceQueue: { region: SOUTHEAST, cpu: 'gcf_gen1', memoryMb: null, concurrency: null, minInstances: null, maxInstances: 6, timeoutSeconds: 540, retry: true },
   syncPtScheduleWeeklyViewFromSession: { region: SOUTHEAST, cpu: 0.25, memoryMb: null, concurrency: 1, minInstances: null, maxInstances: 3, timeoutSeconds: null, retry: true },
@@ -53,6 +56,8 @@ const UNCHANGED = {
   listMyTrainerScheduleRegional: { region: EAST, cpu: 'gcf_gen1', memoryMb: null, concurrency: 1, minInstances: null, maxInstances: 2, timeoutSeconds: 120 },
   getMyTrainerWorkspace: { region: SOUTHEAST, cpu: 1, memoryMb: null, concurrency: 24, minInstances: null, maxInstances: 6, timeoutSeconds: null },
   listMyStudentPtSchedule: { region: SOUTHEAST, cpu: 1, memoryMb: null, concurrency: 24, minInstances: null, maxInstances: 6, timeoutSeconds: null },
+  listStudentTrainingHistoryRegional: { region: EAST, cpu: 'gcf_gen1', memoryMb: null, concurrency: 1, minInstances: null, maxInstances: 2, timeoutSeconds: 120 },
+  getStudentContractUsageRegional: { region: EAST, cpu: 'gcf_gen1', memoryMb: null, concurrency: 1, minInstances: null, maxInstances: 2, timeoutSeconds: 120 },
   listMyPerformanceEvidenceV2: { region: EAST, cpu: 'gcf_gen1', memoryMb: 256, concurrency: 1, minInstances: null, maxInstances: 1, timeoutSeconds: 120 },
   getPerformanceStaffScoreV2: { region: EAST, cpu: 'gcf_gen1', memoryMb: 256, concurrency: 1, minInstances: null, maxInstances: 1, timeoutSeconds: 120 },
   recoverStudent360SourceQueueScheduled: { region: SOUTHEAST, cpu: 'gcf_gen1', memoryMb: null, concurrency: null, minInstances: null, maxInstances: 1, timeoutSeconds: 540 },
