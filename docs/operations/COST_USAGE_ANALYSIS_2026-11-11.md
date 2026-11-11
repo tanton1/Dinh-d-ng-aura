@@ -9,7 +9,7 @@ Tài liệu này nối tiếp [kế hoạch tối ưu luồng dữ liệu 25/10]
 ## 1. Kết luận
 
 1. **Trang không phải nơi tốn tiền.** Client đọc trực tiếp Firestore (listener) chỉ chiếm 0,6% đơn vị đọc. Việc nền chiếm 72% số lượt gọi Functions và 93% thời gian tính tiền; toàn bộ callable của mọi trang cộng lại chỉ khoảng 3.300 lượt/ngày.
-2. **Khoảng một nửa lượt đọc Firestore đến từ một việc nền:** mỗi lần trừ buổi của hợp đồng làm mọi bảng lịch tuần của cơ sở bị dựng lại, kể cả 41/47 bảng là tuần đã qua. Đã sửa trong đợt này (mục 4), chưa deploy.
+2. **Khoảng một nửa lượt đọc Firestore đến từ một việc nền:** mỗi lần trừ buổi của hợp đồng làm mọi bảng lịch tuần của cơ sở bị dựng lại, kể cả 41/47 bảng là tuần đã qua. Đã sửa và deploy ngày 11/11 (mục 4). **Nhưng hóa đơn tính theo đơn vị đọc, không theo lượt đọc:** phép đo sau deploy (mục 9) cho thấy gần như toàn bộ đơn vị đọc đến từ việc trigger tìm bảng lịch tuần cần đánh dấu, và phần này chưa được sửa.
 3. **Khoản lớn nhất của Cloud Functions là một bất thường về thời gian tính tiền** bắt đầu 16:20 ngày 07/11: bảy trigger được ghi nhận thời gian tính tiền gấp hàng trăm lần thời gian xử lý thật, chiếm 94% tổng thời gian tính tiền. Chưa xác định được nguyên nhân phía nền tảng; cần thử deploy lại và đối chiếu Billing (mục 3).
 
 ## 2. Số đo 7 ngày
@@ -127,4 +127,27 @@ Chỉ liệt kê callable có từ 120 lượt trong 7 ngày; mọi callable kh�
 - `node --test functions/pt-schedule-weekly-view.test.js`: 47/47. `node --test functions/sop-center.test.js`: 7/7.
 - `npm --prefix functions run check:weekly-view`: 57/58. Test không qua là `pt-schedule-weekly-runtime.test.js:263`, ghim 598 export trong khi `functions/index.js` có 605 từ đợt trung tâm thông báo (`8ab4620`, `b757019`); lỗi có từ trước, không liên quan thay đổi này.
 - Chưa chạy bộ test tích hợp cần emulator (`npm run test:projection-transaction`).
-- Chưa deploy; số liệu kỳ vọng ở mục 4 chưa được đo trên production.
+- Số liệu kỳ vọng ở mục 4 được viết trước khi deploy; kết quả đo thật ở mục 9.
+
+## 9. Kết quả sau deploy và phát hiện mới (11/11, 10:00–10:50)
+
+**Deploy.** 11 trigger `syncPtScheduleWeeklyViewFrom*` và `listSopKnowledge` đã lên production từ commit `4a1a9e9`, tất cả qua kiểm tra sức khỏe. `syncPtScheduleWeeklyViewFromTrainerAvailability` có tên dịch vụ 47 ký tự nên phải đi đường `--platform-readiness-gate` (lần đầu bị từ chối ở bước chuyển lưu lượng và tự quay về bản cũ).
+
+**Bản sửa mục 4 chạy đúng.** Đợt trừ buổi 10:20: trigger hợp đồng đánh dấu 100 bảng, hoãn 88; trigger usage đánh dấu 182, hoãn 161. Sau lượt quét của việc nền: 41 bảng tuần cũ ở trạng thái hoãn, 0 bảng trong hàng đợi, 6 bảng tuần gần đã dựng lại.
+
+| | Đợt 09:20 (trước) | Đợt 10:20 (sau) |
+| --- | ---: | ---: |
+| Lượt đọc trong 15 phút quanh đợt | 73.208 | 17.664 |
+| Giây chạy của việc nền dựng lịch | 97 | 12 |
+| Đơn vị đọc tính tiền ở hai phút trừ buổi | 407.472 | 259.171 |
+
+Hai đợt có số buổi bị trừ khác nhau, nên dòng cuối không so trực tiếp được; tính theo từng sự kiện thì đơn vị đọc **không giảm**.
+
+**Phát hiện mới: việc tìm bảng cần đánh dấu mới là thứ bị tính tiền.**
+
+- Mỗi tài liệu `ptScheduleWeeklyViews` nặng 430–650 KB (47 tài liệu, 25 MB; riêng trường `students` trung bình 253 KB). Tài liệu trạng thái `ptScheduleWeeklyViewStates` chỉ 211 byte.
+- Firestore Enterprise tính đơn vị đọc theo kích thước cả tài liệu, kể cả khi query chỉ lấy hai trường. Phép thử có kiểm soát: 20 query chỉ lấy `branchId`, `weekId` trên 47 tài liệu bị tính khoảng 138 nghìn đơn vị, tức khoảng 6.800 đơn vị mỗi query, 144 đơn vị mỗi tài liệu.
+- `sourceEventTargets` chạy 4–5 query như vậy cho mỗi sự kiện hợp đồng hoặc usage (khoảng 27–34 nghìn đơn vị) và 1 query cho mỗi sự kiện buổi tập (khoảng 6.800). Mô hình này khớp số đo nếu mỗi query quét cả 47 tài liệu: 10:18–10:19 có 4 sự kiện buổi tập, 2 hợp đồng, 2 usage, dự tính 136–163 nghìn, đo được 162 nghìn; đợt 10:20 dự tính 224–272 nghìn, đo được 259 nghìn.
+- Với khoảng 274 sự kiện hợp đồng/usage và 364 sự kiện buổi tập mỗi ngày, phần này ước chừng 9–12 triệu đơn vị mỗi ngày, tức gần như toàn bộ 10,5 triệu đơn vị đọc qua query. Việc nền dựng lại lịch chỉ chiếm khoảng 12% đơn vị của một đợt.
+
+**Việc cần làm tiếp (chưa làm).** Cho trigger tìm bảng cần đánh dấu từ tài liệu trạng thái 211 byte thay vì từ tài liệu lịch 0,5 MB: ghi ba mảng phụ thuộc (`sourceStudentIds`, `sourceTrainerIds`, `sourceContractIds`) vào tài liệu trạng thái khi dựng bảng, đổi `sourceEventTargets` sang đọc tập trạng thái, và giữ đường cũ cho bảng chưa có mảng phụ thuộc cho tới khi được dựng lại. Kỳ vọng giảm trên 90% đơn vị đọc của phần này; cần đo lại sau khi làm.
