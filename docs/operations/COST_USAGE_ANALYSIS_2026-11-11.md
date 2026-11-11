@@ -170,4 +170,19 @@ Mới có một đợt sau deploy, nhưng chênh lệch với trigger đối ch�
 - Production lúc 12:05: chỉ mục được lập ở sự kiện đầu tiên, 47/47 bảng có tài liệu phụ thuộc đầy đủ.
 - Số đo đầu tiên (12:05, 2 sự kiện buổi tập và 2 sự kiện usage): khoảng 32 nghìn đơn vị đọc trong bốn phút, trong đó khoảng 14 nghìn là lần lập chỉ mục một lần. Theo đường cũ, cùng số sự kiện này tốn khoảng 68–82 nghìn. Đợt trừ buổi 12:20 không có buổi nào để trừ, nên **chưa có số đo cho một đợt trừ buổi đầy đủ**.
 
+## 11. Đo lại buổi tối 11/11 (21:00)
+
+So cùng khung giờ với hôm trước, 15:00–21:00 giờ Việt Nam, sáu đợt trừ buổi mỗi ngày:
+
+| | 10/11 | 11/11 | Thay đổi |
+| --- | ---: | ---: | ---: |
+| Đơn vị đọc tính tiền | 8.320.519 | 2.457.239 | −70% |
+| Lượt đọc | 481.636 | 194.494 | −60% |
+| Giây chạy của việc nền dựng lịch | 553 | 158 | −71% |
+| Lượt gọi Functions (mức hoạt động) | 3.140 | 3.420 | +9% |
+
+Diễn biến trong ngày 11/11 khớp với từng bản sửa: trước khi sửa mỗi giờ có đợt tốn 1,1–1,6 triệu đơn vị; sau bản hoãn dựng tuần cũ lượt đọc giảm nhưng đơn vị vẫn 1,1–1,2 triệu; sau bản chỉ mục phụ thuộc còn 0,2–0,5 triệu ở các giờ bận nhất. Tính theo sự kiện usage, mỗi lần trừ buổi giảm từ khoảng 54–84 nghìn xuống khoảng 13 nghìn đơn vị. Phần còn lại chưa được phân tích nguồn.
+
+**Bảy trigger từng bị tính thừa đều đã bình thường.** Trong 5 giờ (16:00–21:00, gồm các đợt đông nhất), tổng giây tính tiền của từng trigger là 23–125, cao nhất 18 giây trong một khoảng 5 phút; trước đó mỗi trigger bị tính khoảng 2.300–2.800 giây cho mỗi đợt. Hai trigger chưa xác nhận lúc trưa (`syncLoyaltyContractSpend`, `syncStudent360Contract`) còn 23 và 91 giây. Nguyên nhân gốc vẫn chưa rõ.
+
 **Chưa kiểm chứng.** Chưa chạy `weekly-projection-safety.integration.cjs` (cần emulator). Chưa xem hóa đơn. Trang lịch quản trị đang mở một tuần cũ có tự làm mới khi tuần đó chỉ được đánh dấu hoãn hay không thì chưa thử trên trình duyệt; mở lại tuần thì chắc chắn được dựng lại.
