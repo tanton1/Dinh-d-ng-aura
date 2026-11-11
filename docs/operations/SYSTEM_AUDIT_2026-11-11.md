@@ -2,7 +2,7 @@
 
 Ngày rà soát: 11/11/2026 (giờ Việt Nam). Mốc source: `1231e57` trên `main`. Nhánh làm việc: `claude/cost-perf-audit-20261111`, chưa push, chưa deploy.
 
-Tài liệu này nối tiếp [phân tích chi phí 11/11](COST_USAGE_ANALYSIS_2026-11-11.md), [kế hoạch luồng dữ liệu 25/10](../product/DATA_FLOW_COST_OPTIMIZATION_PLAN_2026-10-25.md) và [audit 29/10](../APP_AUDIT_2026-10-29.md). Phần mới: bảng chi phí 42 ngày cho mọi dịch vụ, cấu hình thật của 602 function, độ trễ và lỗi theo từng service, kích thước document, và bốn thay đổi đã kiểm thử trên nhánh.
+Tài liệu này nối tiếp [phân tích chi phí 11/11](COST_USAGE_ANALYSIS_2026-11-11.md), [kế hoạch luồng dữ liệu 25/10](../product/DATA_FLOW_COST_OPTIMIZATION_PLAN_2026-10-25.md) và [audit 29/10](../APP_AUDIT_2026-10-29.md). Phần mới: bảng chi phí 42 ngày cho mọi dịch vụ, cấu hình thật của 602 function, độ trễ và lỗi theo từng service, kích thước document, và năm thay đổi đã kiểm thử trên nhánh.
 
 ## 0. Kết luận
 
@@ -116,7 +116,7 @@ Ghi chú 14–20/10: nếu phần cấp phát đó là instance tối thiểu đ
 | Việc | Tác động | Công sức | Rủi ro | Thứ tự |
 | --- | --- | --- | --- | --- |
 | Chạy `cost:guard` hằng ngày, đặt budget alert trong Billing | Chặn sự cố 100–1.600 USD | Thấp | Không | 1 |
-| Merge bốn commit của nhánh này | CI xanh; bỏ khoảng 250 nghìn đơn vị đọc/ngày và 750 lượt gọi/tuần | Thấp | Thấp | 2 |
+| Merge các commit của nhánh này | CI xanh; bỏ khoảng 250 nghìn đơn vị đọc/ngày và 750 lượt gọi/tuần | Thấp | Thấp | 2 |
 | Đo lại 7 ngày sau các bản sửa 11/11; đối chiếu Billing | Biết con số thật | Thấp | Không | 3 |
 | P1: CPU và bộ nhớ cho ba callable chậm nhất | p95 từ 10–19 giây xuống vài giây (cần đo) | Thấp | Trung bình (quota) | 4 |
 | P2: sức chứa cho hai trigger bị từ chối | Hết 23–43% request bị gửi lại | Thấp | Trung bình | 5 |
@@ -149,6 +149,7 @@ Ghi chú 14–20/10: nếu phần cấp phát đó là instance tối thiểu đ
 | `npm run test:profile-sync` | 395 / 395 | 401 / 401 |
 | `npm run test:function-lifecycle` | 39 / 39 | 48 / 48 |
 | Typecheck, build, toàn bộ performance budget | qua | qua |
+| `node scripts/check-css-colors.mjs` (bước đầu của `npm run ci`) | 3 lỗi | qua |
 | JS khởi động | 41,0 KiB | 41,4 KiB |
 | Tổng tải khởi động gzip | 130,2 KiB | 130,3 KiB |
 | Shell sau đăng nhập gzip | 283,9 KiB | 283,9 KiB |
@@ -172,6 +173,7 @@ Ghi chú 14–20/10: nếu phần cấp phát đó là instance tối thiểu đ
 | `31e22a7` | Công cụ chốt chặn chi phí chỉ-đọc và 9 test | `scripts/cloud-cost-guard.cjs`, `scripts/cloud-cost-guard.test.cjs`, `package.json` | Không |
 | `f553e15` | Service trả sẵn lỗi 403 đã biết thay vì gọi backend; 6 test | `src/identity/sessionAccess.ts`, `src/contexts/AuthContext.tsx`, `src/features/loyalty/loyaltyService.ts`, `src/services/studentPtScheduleService.ts`, `tests/session-access.test.ts`, `package.json` | Web |
 | `a728389` | Job SLA duyệt bữa ăn bỏ qua lượt quét khi không gì có thể đổi; 2 test mới, 1 test sửa | `functions/nutrition-review-maintenance.js`, `functions/nutrition-reviews.test.js`, `functions/index.js` | Một function: `reopenSnoozedOperationalActionsScheduled` |
+| `799c1f7` | Ba màu của trang thông báo lấy từ design token thay cho mã hex | `src/pages/student/NotificationsPage.css` | Web |
 
 Kiểm thử đã chạy trên nhánh: typecheck, build, performance budget, repo hygiene, quét secret, `test:profile-sync`, `test:regional-reads`, `test:data-cost`, `test:app-optimization`, `test:function-lifecycle`, `test:callable-audit`, `functions check`, `functions test`, `check:weekly-view`. Tất cả qua.
 
