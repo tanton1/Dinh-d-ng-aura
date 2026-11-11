@@ -106,11 +106,15 @@ const EMPTY_LEGACY_OPERATIONS = {
   schedules: {} as Record<string, ScheduleDocumentState>,
 }
 
+// Only the sources some view below still enables. Payments, leave and session
+// requests, workout logs, staff, daily check-ins and schedules were whole
+// collection listeners that no view had enabled since the scoped APIs replaced
+// them; they are not listed so that adding one back fails the type check
+// instead of silently reading a whole collection.
 type LegacyOperationSource =
-  | 'students' | 'contracts' | 'sessions' | 'payments'
-  | 'leaveRequests' | 'workoutLogs' | 'sessionRequests'
+  | 'students' | 'contracts' | 'sessions'
   | 'scheduleConfig' | 'trainers' | 'branches' | 'packages'
-  | 'staff' | 'dailyCheckins' | 'schedules' | 'ptAvailability'
+  | 'ptAvailability'
 
 // Transitional legacy views must not all subscribe to the same 15 data
 // sources. Keep each surface on the smallest set its current components use;
@@ -569,30 +573,6 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
         else markReady('sessions')
       }, (err) => listenerError('sessions', err)))
 
-      if (activeSources.has('payments')) unsubs.push(onSnapshot(collection(db, 'payments'), (snapshot) => {
-        if (!isCurrent()) return
-        setPayments(snapshot.docs.map(document => withDocumentId<PaymentRecord>(document)))
-        markReady('payments')
-      }, (err) => listenerError('payments', err)))
-
-      if (activeSources.has('leaveRequests')) unsubs.push(onSnapshot(collection(db, 'leaveRequests'), (snapshot) => {
-        if (!isCurrent()) return
-        setLeaveRequests(snapshot.docs.map(document => withDocumentId<LeaveRequest>(document)))
-        markReady('leaveRequests')
-      }, (err) => listenerError('leaveRequests', err)))
-
-      if (activeSources.has('workoutLogs')) unsubs.push(onSnapshot(collection(db, 'workoutLogs'), (snapshot) => {
-        if (!isCurrent()) return
-        setWorkoutLogs(snapshot.docs.map(document => withDocumentId<WorkoutLog>(document)))
-        markReady('workoutLogs')
-      }, (err) => listenerError('workoutLogs', err)))
-
-      if (activeSources.has('sessionRequests')) unsubs.push(onSnapshot(collection(db, 'sessionRequests'), (snapshot) => {
-        if (!isCurrent()) return
-        setSessionRequests(snapshot.docs.map(document => withDocumentId<SessionRequest>(document)))
-        markReady('sessionRequests')
-      }, (err) => listenerError('sessionRequests', err)))
-
       if (activeSources.has('scheduleConfig')) unsubs.push(onSnapshot(doc(db, 'settings', 'scheduleConfig'), (docSnap) => {
         if (!isCurrent()) return
         if (docSnap.exists()) {
@@ -624,38 +604,6 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
           .filter((item) => item.status !== 'archived'))
         markReady('packages')
       }, (err) => listenerError('packages', err)))
-
-      if (activeSources.has('staff')) unsubs.push(onSnapshot(collection(db, 'staff'), (snapshot) => {
-        if (!isCurrent()) return
-        setStaff(snapshot.docs.map(document => withDocumentId<StaffMember>(document)))
-        markReady('staff')
-      }, (err) => listenerError('staff', err)))
-
-      if (activeSources.has('dailyCheckins')) unsubs.push(onSnapshot(collection(db, 'dailyCheckins'), (snapshot) => {
-        if (!isCurrent()) return
-        setDailyCheckins(snapshot.docs.map(document => withDocumentId<DailyCheckin>(document)))
-        markReady('dailyCheckins')
-      }, (err) => listenerError('dailyCheckins', err)))
-
-      if (activeSources.has('schedules')) unsubs.push(onSnapshot(collection(db, 'schedules'), (snapshot) => {
-        if (!isCurrent()) return
-        const newSchedules: { [weekId: string]: ScheduleDocumentState } = {}
-        snapshot.docs.forEach(docSnap => {
-          if (docSnap.id === 'global_schedule') return
-          const data = docSnap.data()
-          newSchedules[docSnap.id] = {
-            schedule: data.schedule || {},
-            warnings: data.warnings || [],
-            overriddenSessions: data.overriddenSessions || {},
-            draftRevision: Number(data.draftRevision || 0),
-            publishedVersions: data.publishedVersions || {},
-            publishedRevisions: data.publishedRevisions || {},
-            publishStatusByBranch: data.publishStatusByBranch || {},
-          }
-        })
-        setSchedules(newSchedules)
-        markReady('schedules')
-      }, (err) => listenerError('schedules', err)))
 
       if (activeSources.has('ptAvailability')) unsubs.push(onSnapshot(availabilityQuery, (snapshot) => {
         if (!isCurrent()) return

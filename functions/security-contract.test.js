@@ -608,16 +608,22 @@ test('legacy operations listeners are route scoped and never load the admin dash
   )
 
   for (const source of [
-    'students', 'contracts', 'sessions', 'payments', 'leaveRequests',
-    'workoutLogs', 'sessionRequests', 'scheduleConfig', 'trainers',
-    'branches', 'packages', 'staff', 'dailyCheckins', 'schedules',
-    'ptAvailability',
+    'students', 'contracts', 'sessions', 'scheduleConfig', 'trainers',
+    'branches', 'packages', 'ptAvailability',
   ]) {
     assert.match(
       databaseContextSource,
       new RegExp(`activeSources\\.has\\('${source}'\\)`),
       `${source} listener must be guarded by the active route scope`,
     )
+  }
+  // These whole-collection listeners were enabled by no view and are gone.
+  // They are not legacy sources any more, so no view can turn one back on.
+  const sourceType = databaseContextSource.match(/type LegacyOperationSource =[\s\S]*?\r?\n\r?\n/)?.[0] ?? ''
+  assert.ok(sourceType, 'LegacyOperationSource must stay a closed union')
+  for (const retired of ['payments', 'leaveRequests', 'workoutLogs', 'sessionRequests', 'staff', 'dailyCheckins', 'schedules']) {
+    assert.doesNotMatch(sourceType, new RegExp(`'${retired}'`), `${retired} must not return as a legacy listener source`)
+    assert.doesNotMatch(databaseContextSource, new RegExp(`activeSources\\.has\\('${retired}'\\)`), `${retired} listener was retired`)
   }
 
   assert.doesNotMatch(databaseContextSource, /markReady\(['"]globalSchedule['"]\)/)
