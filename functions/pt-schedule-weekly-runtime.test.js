@@ -260,7 +260,7 @@ test('normal, unknown-target and control-API discovery expose the unchanged comp
     // reporting readers and two revisioned contract-settlement commands,
     // plus five installment-payment callables and their daily reminder job,
     // plus three CRM callables, the Pancake webhook, two CRM triggers and the CRM maintenance job.
-  assert.equal(baseline.exportNames.length, 598)
+  assert.equal(baseline.exportNames.length, 605)
   for (const name of ['getMyInstallmentPayment', 'submitMyInstallmentPaymentClaim', 'listInstallmentPaymentClaims', 'reviewInstallmentPaymentClaim', 'configureCashAccountTransferProfile', 'sendInstallmentDueRemindersScheduled']) assert.ok(baseline.exportNames.includes(name), name)
   for (const name of ['getAcademyAnalyticsSummary', 'listAcademyEnrollmentsPage', 'listFinanceReceivables', 'listFinanceStudentLabels']) assert.ok(baseline.exportNames.includes(name))
   for (const name of ['getContractSettlement', 'manageContractSettlement']) assert.ok(baseline.exportNames.includes(name))
