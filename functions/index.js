@@ -305,9 +305,9 @@ exports.reopenSnoozedOperationalActionsScheduled = onSchedule({
     due.forEach((item) => batch.update(item.ref, { status: 'open', snoozedUntil: null, updatedAt: FieldValue.serverTimestamp() }))
     await batch.commit()
   }
-  const { refreshed: refreshedMealReviews } = await refreshMealReviewActions({ db, logger })
-  logger.info('operational_actions_scheduled_maintenance', { reopened: due.length, refreshedMealReviews })
-  return { reopened: due.length, refreshedMealReviews }
+  const { refreshed: refreshedMealReviews, skipped: mealReviewSweepSkipped } = await refreshMealReviewActions({ db, logger })
+  logger.info('operational_actions_scheduled_maintenance', { reopened: due.length, refreshedMealReviews, mealReviewSweepSkipped })
+  return { reopened: due.length, refreshedMealReviews, mealReviewSweepSkipped }
 })
 
 // Only regional consumers remain after the verified SG Eventarc retirement.

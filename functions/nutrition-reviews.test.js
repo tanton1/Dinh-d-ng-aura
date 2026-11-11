@@ -22,7 +22,7 @@ const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { resolveNutritionAssignment } = require('./nutrition-review-assignment')
 const { normalizeReviewSlaMinutes, reviewTimestampMillis, reviewSlaState } = require('./review-sla')
 const { mealReviewActionInput } = require('./action-center')
-const { refreshMealReviewActions } = require('./nutrition-review-maintenance')
+const { MAX_SKIP_MS, refreshMealReviewActions } = require('./nutrition-review-maintenance')
 
 test('review SLA normalization uses one bounded policy across dashboards and automation', () => {
   assert.equal(normalizeReviewSlaMinutes(undefined), 120)
@@ -540,11 +540,100 @@ test('SLA maintenance advances past 200 rows, is idempotent and applies a policy
   assert.equal((await refreshMealReviewActions({ db, syncSource })).refreshed, 200)
   assert.equal((await refreshMealReviewActions({ db, syncSource })).refreshed, 5)
   assert.equal(new Set(visited).size, 205)
-  assert.equal((await refreshMealReviewActions({ db, syncSource })).refreshed, 0)
+  // The pass is complete and every review is already overdue. Nothing can
+  // change, so the next run reads no review at all.
+  const queriesAfterPass = db.reads.length
+  const skipped = await refreshMealReviewActions({ db, syncSource })
+  assert.deepEqual([skipped.scanned, skipped.refreshed, skipped.skipped], [0, 0, true])
+  assert.equal(skipped.nextSweepAt, db.records.get('systemJobs/nutritionReviewSla').nextSweepAtMillis)
+  assert.equal(db.reads.length, queriesAfterPass)
+  // After the hourly cap the whole backlog is read again and found unchanged.
+  const later = Date.now() + MAX_SKIP_MS + 60_000
+  assert.deepEqual(await refreshMealReviewActions({ db, syncSource, now: later }).then((result) => [result.scanned, result.refreshed]), [200, 0])
+  assert.deepEqual(await refreshMealReviewActions({ db, syncSource, now: later }).then((result) => [result.scanned, result.refreshed]), [5, 0])
   assert.equal(db.records.get('operationalActions/meal_review:r-000:review').status, 'resolved')
+  // A policy change is never skipped and restarts from the first page.
   db.records.set('system/nutrition_review_settings', { slaMinutes: 240 })
+  assert.equal((await refreshMealReviewActions({ db, syncSource })).refreshed, 200)
   assert.equal((await refreshMealReviewActions({ db, syncSource })).refreshed, 5)
+  assert.equal(db.records.get('operationalActions/meal_review:r-000:review').severity, 'info')
   assert.equal(db.records.get('operationalActions/meal_review:r-204:review').severity, 'info')
+})
+
+test('SLA maintenance waits for the earliest review still inside its SLA', async () => {
+  const minute = 60_000
+  const start = Date.parse('2026-11-11T02:00:00Z')
+  const db = reviewDb([
+    queueRow('overdue', start - 180 * minute),
+    queueRow('due-soon', start - 100 * minute),
+    { id: 'undated', userId: 'learner', status: 'pending' },
+  ], { 'system/nutrition_review_settings': { slaMinutes: 120 } })
+  let clock = start
+  const syncSource = async ({ event, reviewSlaMinutes }) => {
+    const review = event.data.after
+    db.records.set(`operationalActions/meal_review:${review.id}:review`, mealReviewActionInput(review.id, review.data(), reviewSlaMinutes, clock))
+  }
+  const run = (at) => { clock = at; return refreshMealReviewActions({ db, syncSource, now: at }) }
+  const severity = (id) => db.records.get(`operationalActions/meal_review:${id}:review`).severity
+
+  const first = await run(start)
+  assert.deepEqual([first.scanned, first.refreshed, first.skipped], [3, 3, false])
+  assert.equal(first.nextSweepAt, start + 20 * minute)
+  assert.deepEqual([severity('overdue'), severity('due-soon'), severity('undated')], ['warning', 'info', 'info'])
+
+  const queries = db.reads.length
+  assert.equal((await run(start + 15 * minute)).skipped, true)
+  // A review submitted after the pass is synchronised by its own trigger
+  // and cannot be due before the pass is repeated.
+  db.records.set('mealReviews/new', { userId: 'learner', status: 'pending', createdAt: Timestamp.fromMillis(start + 16 * minute) })
+  assert.equal((await run(start + 19 * minute)).skipped, true)
+  assert.equal(db.reads.length, queries)
+
+  // The 15-minute run after the due time applies the one change.
+  const second = await run(start + 30 * minute)
+  assert.deepEqual([second.scanned, second.refreshed, second.skipped], [4, 2, false])
+  assert.equal(severity('due-soon'), 'warning')
+  assert.equal(severity('new'), 'info')
+  assert.equal(second.nextSweepAt, start + 90 * minute)
+
+  assert.equal((await run(start + 75 * minute)).skipped, true)
+  const third = await run(start + 90 * minute)
+  assert.deepEqual([third.scanned, third.refreshed], [4, 0])
+  assert.equal(third.nextSweepAt, start + 136 * minute)
+  assert.equal((await run(start + 135 * minute)).skipped, true)
+  // Exactly at the due time the review is not overdue yet; it is picked up
+  // by the next run instead of waiting for the hourly cap.
+  const atDue = await run(start + 136 * minute)
+  assert.deepEqual([atDue.refreshed, atDue.nextSweepAt], [0, start + 136 * minute])
+  const afterDue = await run(start + 150 * minute)
+  assert.deepEqual([afterDue.scanned, afterDue.refreshed], [4, 1])
+  assert.equal(severity('new'), 'warning')
+  assert.equal(afterDue.nextSweepAt, start + 210 * minute)
+})
+
+test('SLA maintenance does not trust a pass that crossed a policy change or an older state', async () => {
+  const start = Date.parse('2026-11-11T02:00:00Z')
+  const db = reviewDb(Array.from({ length: 205 }, (_, i) => queueRow(`r-${String(i).padStart(3, '0')}`, start - 180 * 60_000)), {
+    'system/nutrition_review_settings': { slaMinutes: 120 },
+    // State written before this change: a cursor only.
+    'systemJobs/nutritionReviewSla': { cursor: '' },
+  })
+  const syncSource = async ({ event, reviewSlaMinutes }) => {
+    const review = event.data.after
+    db.records.set(`operationalActions/meal_review:${review.id}:review`, mealReviewActionInput(review.id, review.data(), reviewSlaMinutes, start))
+  }
+  assert.deepEqual(await refreshMealReviewActions({ db, syncSource, now: start }).then((result) => [result.scanned, result.skipped, result.nextSweepAt]), [200, false, null])
+  db.records.set('system/nutrition_review_settings', { slaMinutes: 240 })
+  const crossed = await refreshMealReviewActions({ db, syncSource, now: start })
+  assert.deepEqual([crossed.scanned, crossed.refreshed, crossed.nextSweepAt], [5, 5, null])
+  assert.equal(db.records.get('systemJobs/nutritionReviewSla').sweptSlaMinutes, null)
+  // The next run starts a fresh pass under the new policy instead of skipping.
+  const fresh = await refreshMealReviewActions({ db, syncSource, now: start })
+  assert.deepEqual([fresh.scanned, fresh.refreshed, fresh.skipped], [200, 200, false])
+  const finished = await refreshMealReviewActions({ db, syncSource, now: start })
+  assert.deepEqual([finished.scanned, finished.refreshed], [5, 0])
+  assert.equal(finished.nextSweepAt, start + 60 * 60_000)
+  assert.equal(db.records.get('systemJobs/nutritionReviewSla').sweptSlaMinutes, 240)
 })
 
 test('identity contracts expose one staff workspace while student relationships scope each HLV tab', () => {
