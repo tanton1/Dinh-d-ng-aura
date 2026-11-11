@@ -23,6 +23,8 @@ const MAX_VIEW_TRAINERS = 120
 const MAX_VIEW_WARNINGS = 160
 const VIEW_PAGE_SIZE = 100
 const REBUILD_LEASE_MS = 180_000
+const VIETNAM_OFFSET_MS = 7 * 60 * 60 * 1000
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 
 function weeklyViewId(branchId, weekId) {
   return `${String(branchId || '').trim()}_${String(weekId || '').trim()}`
@@ -65,6 +67,16 @@ function weekIdFromDate(value) {
   const day = date.getUTCDay() || 7
   date.setUTCDate(date.getUTCDate() - day + 1)
   return date.toISOString().slice(0, 10)
+}
+
+// Weeks from the previous one onward are the ones an Admin keeps open, so the
+// background worker keeps them warm. Older weeks are history: a contract or
+// profile change still invalidates them, but they are rebuilt when someone
+// opens that week instead of on every hourly charge run.
+function eagerRebuildFloorWeek(now = new Date()) {
+  const time = now instanceof Date ? now.getTime() : Number(now)
+  if (!Number.isFinite(time)) return ''
+  return weekIdFromDate(new Date(time + VIETNAM_OFFSET_MS - WEEK_MS).toISOString())
 }
 
 function branchWeekFromDocumentId(value) {
@@ -874,7 +886,7 @@ async function sourceEventTargets({ db, event, source } = {}) {
   return [...targets.values()]
 }
 
-async function syncPtScheduleWeeklyViewSource({ db, event, source = 'source', logger = console } = {}) {
+async function syncPtScheduleWeeklyViewSource({ db, event, source = 'source', logger = console, now = new Date() } = {}) {
   if (source === 'contract' && !projectionSourceChanged(event, 'contracts')) {
     return { source, marked: 0, skipped: 'source_metadata_only' }
   }
@@ -893,14 +905,22 @@ async function syncPtScheduleWeeklyViewSource({ db, event, source = 'source', lo
     if (isDeepStrictEqual(before, after)) return { source, marked: 0, skipped: 'source_metadata_only' }
   }
   const targets = await sourceEventTargets({ db, event, source })
+  // Every dependent week is still invalidated. Only the weeks the worker
+  // rebuilds eagerly are queued; history is marked stale and waits for a reader.
+  const floorWeek = eagerRebuildFloorWeek(now)
   let marked = 0
+  let deferred = 0
   for (let offset = 0; offset < targets.length; offset += 20) {
     const chunk = targets.slice(offset, offset + 20)
-    await Promise.all(chunk.map((target) => markPtScheduleWeeklyViewDirty({ db, ...target, reason: source })))
+    await Promise.all(chunk.map((target) => {
+      const historical = Boolean(floorWeek) && target.weekId < floorWeek
+      if (historical) deferred += 1
+      return markPtScheduleWeeklyViewDirty({ db, ...target, reason: source, deferred: historical })
+    }))
     marked += chunk.length
   }
-  logger?.info?.('pt_schedule_weekly_view_marked_dirty', { source, marked })
-  return { source, marked }
+  logger?.info?.('pt_schedule_weekly_view_marked_dirty', { source, marked, deferred })
+  return { source, marked, deferred }
 }
 
 async function rebuildDirtyPtScheduleWeeklyViews({ db, limit = 8, branchData = loadBranchData, logger = console } = {}) {
@@ -964,20 +984,23 @@ async function rebuildDirtyPtScheduleWeeklyViews({ db, limit = 8, branchData = l
   return { scanned: selected.size, rebuilt, failed }
 }
 
-async function markPtScheduleWeeklyViewDirty({ db, branchId, weekId, reason = 'source_changed', sourceRevision = '' } = {}) {
+async function markPtScheduleWeeklyViewDirty({ db, branchId, weekId, reason = 'source_changed', sourceRevision = '', deferred = false } = {}) {
   const reference = weeklyViewStateReference(db, branchId, weekId)
   await reference.set({
     schemaVersion: 1,
     branchId,
     weekId,
-    dirty: true,
-    validationDirty: true,
+    // A deferred mark only advances the generation. mergeWeeklyViewState then
+    // reports the view as stale, so the reader rebuilds it on the next open,
+    // while neither worker queue (dirty / validationDirty) lists it. A flag
+    // that is already queued is left as it is.
+    ...(deferred ? {} : { dirty: true, validationDirty: true }),
     dirtyGeneration: FieldValue.increment(1),
     dirtyReason: stringValue(reason, 100) || 'source_changed',
     ...(sourceRevision ? { dirtySourceRevision: stringValue(sourceRevision, 80) } : {}),
     dirtyAt: FieldValue.serverTimestamp(),
   }, { merge: true })
-  return { branchId, weekId, dirty: true, validationDirty: true, freshness: 'stale' }
+  return { branchId, weekId, dirty: true, validationDirty: true, freshness: 'stale', ...(deferred ? { deferred: true } : {}) }
 }
 
 async function queueMissingWeeklyValidation(db, reference, stateReference) {
@@ -1076,6 +1099,7 @@ module.exports = {
   markPtScheduleWeeklyViewDirty,
   syncPtScheduleWeeklyViewSource,
   rebuildDirtyPtScheduleWeeklyViews,
+  eagerRebuildFloorWeek,
   weekIdFromDate,
   branchWeekFromDocumentId,
   createPtScheduleWeeklyViewFunctions,

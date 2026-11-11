@@ -140,6 +140,8 @@ Ngân sách đề xuất: trang danh sách lấy pageSize + một lookahead trê
 
 **D4.2 Weekly view.** `pt-schedule-weekly-view.js:808–855,939–950` profile/contract có thể invalidate mọi tuần của branch, retry còn tăng generation. Thêm fingerprint cho đúng dependency và receipt/source watermark; chỉ chọn tuần chịu ảnh hưởng sau khi thống nhất semantics lịch sử. Không giới hạn lịch sử tùy tiện nếu sửa lùi ngày còn ảnh hưởng validation. Test liên cơ sở và event tới trong lúc rebuild.
 
+*Cập nhật 11/11/2026:* đã hoãn dựng lại cho tuần cũ hơn tuần trước (vẫn đánh dấu cũ, dựng khi mở), xem [phân tích chi phí 11/11](../operations/COST_USAGE_ANALYSIS_2026-11-11.md). Fingerprint theo dependency và cập nhật ma trận trực tiếp khi sửa nháp vẫn còn mở.
+
 **D4.3 Aggregate dashboard ban đêm.** `index.js:614–622`, `operations-dashboard-aggregates.js:297–334` rebuild 366 ngày, đọc năm nguồn và viết lại baseline/buckets. Giữ incremental writer; bổ sung coverage/generation theo branch/day, dirty-day queue và đối soát gần đây có cursor. Full history chạy bootstrap/repair. Chuyển generation nguyên tử sau khi nguồn complete; không đổi đơn giản 366 thành 7 vì sẽ làm sai nghĩa coverage. Test >20.000 records, sửa lùi ngày, xóa/chuyển branch, cập nhật đồng thời và crash/resume.
 
 **D4.4 Renewal due queue.** `contract-renewals.js:238,282,1374` activation/status/queue vẫn đọc nhiều inventory. Sau D0.2, chuẩn hóa `nextTransitionAt` và truy vấn đến hạn; contract/usage event đưa đúng học viên vào dirty queue. Nightly xử lý mốc ngày và reconciliation có cursor. Test hết buổi trước hết ngày, hợp đồng nối tiếp, tạm dừng, đổi ngày, hết hạn và retry không chuyển buổi hai lần.

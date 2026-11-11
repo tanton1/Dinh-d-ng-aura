@@ -9,14 +9,19 @@ const {
   weeklyViewId,
   rebuildPtScheduleWeeklyView,
   markPtScheduleWeeklyViewDirty,
-  syncPtScheduleWeeklyViewSource,
+  syncPtScheduleWeeklyViewSource: syncWeeklyViewSource,
   rebuildDirtyPtScheduleWeeklyViews,
   createPtScheduleWeeklyViewFunctions,
   mergeWeeklyViewState,
+  eagerRebuildFloorWeek,
 } = require('./pt-schedule-weekly-view')
 
 const WEEK = '2026-10-19'
 const BRANCH = 'branch-a'
+// The fixtures use fixed weeks. Pin the clock inside the fixture week so the
+// split between eagerly rebuilt weeks and history does not move with the calendar.
+const NOW = new Date('2026-10-21T03:00:00Z')
+const syncPtScheduleWeeklyViewSource = (input) => syncWeeklyViewSource({ now: NOW, ...input })
 
 function workspace(overrides = {}) {
   return {
@@ -428,6 +433,64 @@ test('contracts invalidate every cached week, not only the contract start week',
   assert.equal(result.marked, 3)
   assert.equal(db.values.get(statePath(BRANCH, '2026-11-02')).dirty, true)
   assert.equal(db.values.get(statePath('branch-b', WEEK)).dirty, true, 'legacy cross-branch view is covered during schema migration')
+})
+
+test('a contract change queues the weeks the worker keeps warm and leaves history for the next open', async () => {
+  const history = '2026-08-03'
+  const previous = '2026-10-12'
+  const next = '2026-10-26'
+  assert.equal(eagerRebuildFloorWeek(NOW), previous)
+  // The week only turns over at Monday 00:00 in Vietnam, not at UTC midnight.
+  assert.equal(eagerRebuildFloorWeek(new Date('2026-10-25T16:59:59Z')), previous)
+  assert.equal(eagerRebuildFloorWeek(new Date('2026-10-25T17:00:00Z')), WEEK)
+  const db = fakeDb(Object.fromEntries([history, previous, WEEK, next]
+    .map((weekId) => [viewPath(BRANCH, weekId), { ...initialView(), weekId }])))
+  const result = await syncPtScheduleWeeklyViewSource({ db, source: 'contractUsage', logger: silentLogger, event: sourceEvent(
+    { branchId: BRANCH, studentId: 'student-a', usedSessions: 3 },
+    { branchId: BRANCH, studentId: 'student-a', usedSessions: 4 }, { contractId: 'contract-a' },
+  ) })
+  assert.deepEqual(result, { source: 'contractUsage', marked: 4, deferred: 1 })
+  for (const weekId of [previous, WEEK, next]) {
+    assert.equal(db.values.get(statePath(BRANCH, weekId)).dirty, true, weekId)
+    assert.equal(db.values.get(statePath(BRANCH, weekId)).validationDirty, true, weekId)
+  }
+  const state = db.values.get(statePath(BRANCH, history))
+  assert.equal(state.dirty, undefined, 'history is not put on the worker matrix queue')
+  assert.equal(state.validationDirty, undefined, 'history is not put on the worker validation queue')
+  assert.equal(state.dirtyGeneration, 1)
+  assert.equal(effectiveView(db, BRANCH, history).dirty, true, 'history is still reported stale to a reader')
+
+  const swept = []
+  const report = await rebuildDirtyPtScheduleWeeklyViews({ db, limit: 20, logger: { error() {} },
+    branchData: async (_db, _branchId, weekId) => { swept.push(weekId); return workspace({ weekId }) } })
+  assert.deepEqual(swept.sort(), [previous, WEEK, next])
+  assert.equal(report.rebuilt, 3)
+  assert.equal(effectiveView(db, BRANCH, history).dirty, true, 'the sweep leaves the historical week stale')
+
+  const opened = []
+  const functions = createPtScheduleWeeklyViewFunctions({ db, onCall: (handler) => handler, actorForBranch: async () => {},
+    branchData: async (_db, _branchId, weekId, options) => { opened.push([weekId, options.initialPaint]); return workspace({ weekId }) } })
+  const view = await functions.getPtScheduleWeeklyView({ data: { branchId: BRANCH, weekId: history, initialPaint: true } })
+  assert.deepEqual(opened, [[history, true]], 'opening the historical week rebuilds exactly that week')
+  assert.notEqual(view.rebuilding, true)
+  assert.equal(view.weekId, history)
+  assert.equal(db.values.get(statePath(BRANCH, history)).dirty, false)
+  assert.equal(Number(db.values.get(viewPath(BRANCH, history)).controlGeneration), 1, 'the rebuilt payload consumed the deferred generation')
+  // Once consumed, a second open is a plain document read again.
+  await functions.getPtScheduleWeeklyView({ data: { branchId: BRANCH, weekId: history, initialPaint: true } })
+  assert.equal(opened.length, 1)
+})
+
+test('a late edit to a session in a historical week is deferred too, never dropped', async () => {
+  const history = '2026-08-03'
+  const db = fakeDb({ [viewPath(BRANCH, history)]: { ...initialView(), weekId: history } })
+  const result = await syncPtScheduleWeeklyViewSource({ db, source: 'session', logger: silentLogger, event: sourceEvent(
+    { branchId: BRANCH, date: '2026-08-05', studentId: 'student-a', status: 'scheduled' },
+    { branchId: BRANCH, date: '2026-08-05', studentId: 'student-a', status: 'completed' }, { sessionId: 'session-a' },
+  ) })
+  assert.deepEqual(result, { source: 'session', marked: 1, deferred: 1 })
+  assert.equal(db.values.get(statePath(BRANCH, history)).dirty, undefined)
+  assert.equal(effectiveView(db, BRANCH, history).dirty, true)
 })
 
 test('leave ranges invalidate intersecting weeks for before and after intervals', async () => {
