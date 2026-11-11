@@ -233,7 +233,11 @@ function fakeDb(seed = {}) {
   })
   return {
     values, queries, reads, writes,
-    doc: (path) => ({ path, get: async () => snapshot(path), set: async (value, options) => write(path, value, options) }),
+    doc: (path) => ({ path, get: async () => snapshot(path), set: async (value, options) => write(path, value, options),
+      create: async (value) => {
+        if (values.has(path)) throw Object.assign(new Error("Document already exists"), { code: 6 })
+        write(path, value)
+      } }),
     collection: (name) => makeQuery(name),
     runTransaction: (callback) => {
       const run = queue.then(async () => {
@@ -419,7 +423,7 @@ test('session moves invalidate both old/new weeks and cross-branch coverage', as
     { branchId: 'branch-b', date: '2026-10-27', studentId: 'student-a' }, { sessionId: 'session-a' },
   ) })
   assert.equal(result.marked, 4)
-  assert.equal(db.queries.length, 2, 'only the two changed weeks are queried, never all weekly history')
+  assert.equal(db.queries.filter((query) => query.collection === 'ptScheduleWeeklyViews').length, 1, 'payloads are read once to build the dependency index, never per event')
   for (const path of [statePath(), statePath('branch-b', '2026-10-26'), statePath('branch-c', WEEK), statePath('branch-c', '2026-10-26')]) assert.equal(db.values.get(path).dirty, true, path)
 })
 
@@ -493,6 +497,61 @@ test('a late edit to a session in a historical week is deferred too, never dropp
   assert.equal(effectiveView(db, BRANCH, history).dirty, true)
 })
 
+test('target discovery reads the small dependency documents, never the half-megabyte payloads', async () => {
+  const dependencyPath = (branchId = BRANCH, weekId = WEEK) => `ptScheduleWeeklyViewDependencies/${weeklyViewId(branchId, weekId)}`
+  const other = { ...initialView(), branchId: 'branch-c', sourceStudentIds: ['student-z'], sourceTrainerIds: ['trainer-z'], sourceContractIds: ['contract-z'] }
+  const db = fakeDb({
+    [viewPath()]: initialView(),
+    [viewPath('branch-c')]: other,
+    [viewPath('branch-d')]: { branchId: 'branch-d', weekId: WEEK, schemaVersion: 1 },
+  })
+  const sessionEvent = () => sourceEvent(
+    { branchId: BRANCH, date: '2026-10-20', studentId: 'student-a', status: 'scheduled' },
+    { branchId: BRANCH, date: '2026-10-20', studentId: 'student-a', status: 'completed' }, { sessionId: 'session-a' })
+  const first = await syncPtScheduleWeeklyViewSource({ db, source: 'session', logger: silentLogger, event: sessionEvent() })
+  // Own branch, plus the view built before dependency arrays existed (matched
+  // conservatively); the unrelated branch is left alone.
+  assert.equal(first.marked, 2)
+  assert.equal(db.values.get(statePath('branch-c')), undefined)
+  assert.equal(db.values.get(statePath('branch-d')).dirty, true)
+  assert.deepEqual(db.values.get(dependencyPath()).sourceStudentIds, ['student-a'])
+  assert.equal(db.values.get(dependencyPath()).complete, true)
+  assert.equal(db.values.get(dependencyPath('branch-d')).complete, false)
+  assert.equal(db.values.get('systemJobs/ptScheduleWeeklyViewDependencyIndex').views, 3)
+  assert.equal(db.values.get(dependencyPath()).students, undefined, 'the index holds ids only, no profile rows')
+
+  db.queries.length = 0
+  db.reads.length = 0
+  for (const source of ['session', 'contractUsage', 'student']) {
+    const event = source === 'session' ? sessionEvent() : sourceEvent(
+      { branchId: BRANCH, studentId: 'student-a', usedSessions: 1 }, { branchId: BRANCH, studentId: 'student-a', usedSessions: 2 },
+      { [source === 'student' ? 'studentId' : 'contractId']: source === 'student' ? 'student-a' : 'contract-a' })
+    await syncPtScheduleWeeklyViewSource({ db, source, logger: silentLogger, event })
+  }
+  assert.deepEqual([...new Set(db.queries.map((query) => query.collection))].sort(), ['ptScheduleWeeklyViewDependencies', 'ptScheduleWeeklyViewStates'])
+  assert.equal(db.reads.filter((path) => path.startsWith('ptScheduleWeeklyViews/')).length, 0, 'no payload is read once the index exists')
+
+  // A rebuild publishes the dependency document with the payload, so a new
+  // learner in the roster is discoverable without another payload read.
+  await rebuildPtScheduleWeeklyView({ db, branchId: 'branch-c', weekId: WEEK, branchData: async () => workspace({
+    branch: { id: 'branch-c', name: 'Aura C' },
+    students: [{ ...workspace().students[0], id: 'student-new', branchId: 'branch-c' }],
+  }) })
+  assert.deepEqual(db.values.get(dependencyPath('branch-c')).sourceStudentIds, ['student-new'])
+  const moved = await syncPtScheduleWeeklyViewSource({ db, source: 'session', logger: silentLogger, event: sourceEvent(
+    { branchId: BRANCH, date: '2026-10-20', studentId: 'student-new', status: 'scheduled' },
+    { branchId: BRANCH, date: '2026-10-20', studentId: 'student-new', status: 'completed' }, { sessionId: 'session-b' }) })
+  assert.equal(moved.marked, 3)
+  assert.equal(db.values.get(statePath('branch-c')).dirty, true)
+
+  // A week invalidated before its first payload has only a state document: it
+  // is still found, and matched conservatively.
+  await markPtScheduleWeeklyViewDirty({ db, branchId: 'branch-e', weekId: WEEK })
+  const withMarker = await syncPtScheduleWeeklyViewSource({ db, source: 'session', logger: silentLogger, event: sessionEvent() })
+  assert.equal(withMarker.marked, 3)
+  assert.equal(db.values.get(statePath('branch-e')).dirtyGeneration, 2)
+})
+
 test('leave ranges invalidate intersecting weeks for before and after intervals', async () => {
   const weeks = ['2026-10-19', '2026-10-26', '2026-11-02', '2026-11-09', '2026-11-16']
   const db = fakeDb(Object.fromEntries(weeks.map((weekId) => [viewPath(BRANCH, weekId), { ...initialView(), weekId }])))
@@ -514,8 +573,9 @@ test('global configuration invalidation paginates past 200 views with no 16-view
   const result = await syncPtScheduleWeeklyViewSource({ db, source: 'scheduleConfig', logger: silentLogger, event: sourceEvent({}, { maxConsecutiveDays: 3 }, { documentId: 'scheduleConfig' }) })
   assert.equal(result.marked, 205)
   assert.equal([...db.values.values()].filter((value) => value.dirty === true).length, 205)
-  assert.equal(db.queries.length, 3)
-  assert.ok(db.queries[1].cursor)
+  const payloadQueries = db.queries.filter((query) => query.collection === 'ptScheduleWeeklyViews')
+  assert.equal(payloadQueries.length, 3)
+  assert.ok(payloadQueries[1].cursor)
 })
 
 test('student branch changes paginate both branches and keep dirty counters monotonic', async () => {

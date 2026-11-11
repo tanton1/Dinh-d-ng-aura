@@ -734,6 +734,10 @@ async function rebuildPtScheduleWeeklyView({ db, branchId, weekId, branchData = 
         dirtyGeneration: acquired.controlGeneration, sourceRevision: view.sourceRevision,
         updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true })
+      // Published with the payload so target discovery never reads the payload.
+      transaction.set(weeklyViewDependencyReference(db, branchId, weekId), {
+        ...weeklyViewDependencies({ ...view, branchId, weekId }), updatedAt: FieldValue.serverTimestamp(),
+      })
       return { ...result, unchanged: false }
     })
   } catch (error) {
@@ -768,12 +772,74 @@ function targetFromView(value) {
   return /^[A-Za-z0-9_-]+$/.test(target.branchId) && /^\d{4}-\d{2}-\d{2}$/.test(target.weekId) ? target : null
 }
 
+// A weekly view payload is about half a megabyte and Firestore bills a query
+// for every whole document it touches, even when only two fields are
+// projected. Source triggers therefore never query the payload collection to
+// find their targets: each view keeps a small dependency document (ids only)
+// that is written together with its payload.
+const DEPENDENCY_FIELDS = ['sourceStudentIds', 'sourceTrainerIds', 'sourceContractIds']
+
+function weeklyViewDependencyReference(db, branchId, weekId) {
+  return db.doc(`ptScheduleWeeklyViewDependencies/${weeklyViewId(branchId, weekId)}`)
+}
+
+function weeklyViewDependencies(view = {}) {
+  // Views built before the dependency arrays existed are kept as "incomplete":
+  // they match every subject until their next rebuild, never silently none.
+  const complete = DEPENDENCY_FIELDS.every((field) => Array.isArray(view[field]))
+  return {
+    schemaVersion: 1,
+    branchId: String(view.branchId || ''),
+    weekId: String(view.weekId || ''),
+    complete,
+    ...Object.fromEntries(DEPENDENCY_FIELDS.map((field) => [field, complete ? view[field].filter((id) => typeof id === 'string' && id) : []])),
+  }
+}
+
+async function loadWeeklyViewDependencies(db) {
+  const marker = db.doc('systemJobs/ptScheduleWeeklyViewDependencyIndex')
+  const [bootstrap, indexed, states] = await Promise.all([
+    marker.get(),
+    paginatedViews(db.collection('ptScheduleWeeklyViewDependencies').orderBy(FieldPath.documentId())),
+    paginatedViews(db.collection('ptScheduleWeeklyViewStates').orderBy(FieldPath.documentId()).select('branchId', 'weekId')),
+  ])
+  const rows = new Map()
+  const put = (value, known) => {
+    const target = targetFromView(value)
+    const id = target && weeklyViewId(target.branchId, target.weekId)
+    if (!id || rows.has(id)) return null
+    rows.set(id, { ...target, complete: known && value.complete === true,
+      ...Object.fromEntries(DEPENDENCY_FIELDS.map((field) => [field, new Set(known && Array.isArray(value[field]) ? value[field] : [])])) })
+    return target
+  }
+  indexed.forEach((row) => put(row, true))
+  if (!bootstrap.exists) {
+    // One pass over the existing payloads, once per database. After it, every
+    // payload write maintains its own dependency document.
+    const payloads = await paginatedViews(viewQuery(db).select('branchId', 'weekId', ...DEPENDENCY_FIELDS))
+    const missing = payloads.map((row) => [put(weeklyViewDependencies(row), true), row]).filter(([target]) => target)
+    for (let offset = 0; offset < missing.length; offset += 20) {
+      await Promise.all(missing.slice(offset, offset + 20).map(([target, row]) => weeklyViewDependencyReference(db, target.branchId, target.weekId)
+        .create({ ...weeklyViewDependencies(row), updatedAt: FieldValue.serverTimestamp() })
+        // A rebuild that published this view in the meantime wrote a newer one.
+        .catch((error) => { if (error?.code !== 6 && !/already exists/i.test(String(error?.message || ''))) throw error })))
+    }
+    await marker.set({ schemaVersion: 1, views: payloads.length, bootstrappedAt: FieldValue.serverTimestamp() })
+  }
+  // A week that was invalidated before its first payload has only a state
+  // document. It has no known dependencies yet, so it matches conservatively.
+  states.forEach((row) => put(row, false))
+  return [...rows.values()]
+}
+
 async function sourceEventTargets({ db, event, source } = {}) {
   const documentId = event?.params?.documentId || event?.params?.draftId || event?.params?.targetId || event?.params?.availabilityId || event?.params?.sessionId || event?.params?.studentId || event?.params?.trainerId || event?.params?.contractId || event?.params?.requestId || ''
   const states = [event?.data?.before, event?.data?.after].filter((snapshot) => snapshot?.exists).map((snapshot) => snapshot.data() || {})
+  let dependencies = null
+  const allViews = () => { dependencies = dependencies || loadWeeklyViewDependencies(db); return dependencies }
   if (source === 'scheduleConfig') {
     return documentId === 'scheduleConfig'
-      ? (await paginatedViews(viewQuery(db).select('branchId', 'weekId'))).map(targetFromView).filter(Boolean)
+      ? (await allViews()).map(targetFromView).filter(Boolean)
       : []
   }
   const direct = ['draft', 'target'].includes(source) ? branchWeekFromDocumentId(documentId) : null
@@ -791,11 +857,7 @@ async function sourceEventTargets({ db, event, source } = {}) {
     if (!branchCache.has(path)) branchCache.set(path, db.doc(path).get().then((snapshot) => String(snapshot.data()?.branchId || '').trim()))
     return branchCache.get(path)
   }
-  const branchViews = new Map()
-  const viewsForBranch = async (branchId) => {
-    if (!branchViews.has(branchId)) branchViews.set(branchId, paginatedViews(viewQuery(db).where('branchId', '==', branchId).select('branchId', 'weekId')))
-    return branchViews.get(branchId)
-  }
+  const viewsForBranch = async (branchId) => (await allViews()).filter((view) => view.branchId === branchId)
   const subjects = { sourceStudentIds: new Set(), sourceTrainerIds: new Set(), sourceContractIds: new Set() }
   const scopes = []
   const exactWeeks = new Set()
@@ -844,44 +906,20 @@ async function sourceEventTargets({ db, event, source } = {}) {
     }
   }
   // Cross-branch display and coverage depend on the student/trainer, not only
-  // their home branch. Version 2 stores small indexed dependency arrays.
-  // Existing v1 views are checked during migration so no stale cross-branch
-  // cards are silently left behind before their first v2 rebuild.
+  // their home branch. A view whose dependencies are not known yet (built
+  // before the arrays existed, or invalidated before its first payload) is
+  // treated as a match so no stale cross-branch card is silently left behind.
   const acceptsAnyWeek = (weekId) => scopes.some((accepts) => accepts(weekId))
-  const referencesSubject = (view) => (
-    (view.sourceStudentIds || []).some((id) => subjects.sourceStudentIds.has(id))
-    || (view.sourceTrainerIds || []).some((id) => subjects.sourceTrainerIds.has(id))
-    || (view.sourceContractIds || []).some((id) => subjects.sourceContractIds.has(id))
-    || (view.students || []).some((row) => subjects.sourceStudentIds.has(row.id))
-    || (view.trainers || []).some((row) => subjects.sourceTrainerIds.has(row.id))
-    || (view.contracts || []).some((row) => subjects.sourceContractIds.has(row.id))
-  )
+  const referencesSubject = (view) => view.complete !== true
+    || DEPENDENCY_FIELDS.some((field) => [...subjects[field]].some((id) => view[field].has(id)))
   if (exactWeeks.size && ['session', 'draft'].includes(source)) {
-    // Hot-path session/draft writes only inspect the affected week(s), not a
-    // student's entire view history or every legacy view. Single-field indexes
-    // support this without a new composite-index deployment prerequisite.
-    for (const weekId of exactWeeks) {
-      const views = await paginatedViews(viewQuery(db).where('weekId', '==', weekId)
-        .select('branchId', 'weekId', 'sourceStudentIds', 'sourceTrainerIds', 'sourceContractIds', 'students', 'trainers', 'contracts'))
-      for (const view of views) if (referencesSubject(view)) add(view)
-    }
+    // Session/draft writes only concern the affected week(s), not a student's
+    // entire view history.
+    for (const view of await allViews()) if (exactWeeks.has(view.weekId) && referencesSubject(view)) add(view)
     return [...targets.values()]
   }
-  let hasSubjects = false
-  for (const [field, ids] of Object.entries(subjects)) {
-    const values = [...ids]
-    for (let offset = 0; offset < values.length; offset += 30) {
-      hasSubjects = true
-      const views = await paginatedViews(viewQuery(db).where(field, 'array-contains-any', values.slice(offset, offset + 30)).select('branchId', 'weekId'))
-      for (const view of views) if (acceptsAnyWeek(view.weekId)) add(view)
-    }
-  }
-  if (hasSubjects) {
-    const legacy = await paginatedViews(viewQuery(db).where('schemaVersion', '==', 1).select('branchId', 'weekId', 'students', 'trainers', 'contracts'))
-    for (const view of legacy) {
-      if (!acceptsAnyWeek(view.weekId)) continue
-      if (referencesSubject(view)) add(view)
-    }
+  if (Object.values(subjects).some((ids) => ids.size)) {
+    for (const view of await allViews()) if (acceptsAnyWeek(view.weekId) && referencesSubject(view)) add(view)
   }
   return [...targets.values()]
 }
