@@ -147,6 +147,39 @@ function publicSummary(id, value) {
   return summary
 }
 
+// The list only returns summaries, so it never needs a document's payload
+// (the bulk of every resource). searchText is fetched only for a text search.
+const SUMMARY_FIELDS = ['kind', 'sourceId', 'code', 'title', 'summary', 'status', 'version', 'revision', 'publishedVersionId',
+  'ownerRole', 'audiences', 'branchScope', 'tags', 'relatedSopIds', 'relatedSkillIds', 'contentMetrics', 'sortKey',
+  'sourceSystem', 'sourceReviewRequired', 'updatedAt', 'updatedBy']
+
+async function listSopKnowledgePage({ db, pageSize, cursor = '', kinds = new Set(), statuses = new Set(), queryTokens = [] }) {
+  const filtered = Boolean(kinds.size || statuses.size || queryTokens.length)
+  // Without a filter every scanned row is returned, so one extra row is enough
+  // to know whether another page exists. Filters still need the wider scan.
+  const scanLimit = filtered ? MAX_SCAN : pageSize + 1
+  let query = db.collection(RESOURCE_COLLECTION).orderBy(FieldPath.documentId())
+    .select(...SUMMARY_FIELDS, ...(queryTokens.length ? ['searchText'] : [])).limit(scanLimit)
+  if (cursor) query = query.startAfter(cursor)
+  const snapshot = await query.get()
+  const rows = []
+  let lastProcessedId = ''
+  let processed = 0
+  for (const document of snapshot.docs) {
+    processed += 1
+    lastProcessedId = document.id
+    const value = document.data()
+    if (kinds.size && !kinds.has(value.kind)) continue
+    if (statuses.size && !statuses.has(value.status)) continue
+    const haystack = String(value.searchText || '')
+    if (queryTokens.length && !queryTokens.every((token) => haystack.includes(token))) continue
+    rows.push(publicSummary(document.id, value))
+    if (rows.length >= pageSize) break
+  }
+  const hasMore = processed < snapshot.size || snapshot.size === scanLimit
+  return { rows, hasMore, nextCursor: hasMore ? lastProcessedId : null, scanned: snapshot.size }
+}
+
 function publicVersion(id, value) {
   return {
     id,
@@ -251,26 +284,9 @@ function createSopCenterFunctions({ db, onCall, logger = console }) {
     const kinds = new Set((Array.isArray(request.data?.kinds) ? request.data.kinds : []).filter((item) => KINDS.has(item)))
     const statuses = new Set((Array.isArray(request.data?.statuses) ? request.data.statuses : []).filter((item) => STATUSES.has(item)))
     const queryTokens = normalizeSearch(clean(request.data?.query, 240)).split(' ').filter(Boolean)
-    let query = db.collection(RESOURCE_COLLECTION).orderBy(FieldPath.documentId()).limit(MAX_SCAN)
-    if (cursor) query = query.startAfter(cursor)
-    const snapshot = await query.get()
-    const rows = []
-    let lastProcessedId = ''
-    let processed = 0
-    for (const document of snapshot.docs) {
-      processed += 1
-      lastProcessedId = document.id
-      const value = document.data()
-      if (kinds.size && !kinds.has(value.kind)) continue
-      if (statuses.size && !statuses.has(value.status)) continue
-      const haystack = String(value.searchText || '')
-      if (queryTokens.length && !queryTokens.every((token) => haystack.includes(token))) continue
-      rows.push(publicSummary(document.id, value))
-      if (rows.length >= pageSize) break
-    }
-    const hasMore = processed < snapshot.size || snapshot.size === MAX_SCAN
-    logger.info?.('sop_knowledge_listed', { actorUid: actor.uid, rowCount: rows.length, pageSize })
-    return { schemaVersion: 1, rows, total: rows.length, hasMore, nextCursor: hasMore ? lastProcessedId : null }
+    const { rows, hasMore, nextCursor, scanned } = await listSopKnowledgePage({ db, pageSize, cursor, kinds, statuses, queryTokens })
+    logger.info?.('sop_knowledge_listed', { actorUid: actor.uid, rowCount: rows.length, pageSize, scanned })
+    return { schemaVersion: 1, rows, total: rows.length, hasMore, nextCursor }
   }))
 
   const getSopKnowledge = onCall(withFunctionTelemetry('getSopKnowledge', async (request) => {
@@ -455,4 +471,5 @@ module.exports = {
   contentHash,
   normalizeSearch,
   publicResource,
+  listSopKnowledgePage,
 }
