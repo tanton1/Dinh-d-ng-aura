@@ -4,6 +4,8 @@ Ngày rà soát: 11/11/2026 (giờ Việt Nam). Mốc source: `1231e57` trên `m
 
 **Cập nhật 16:10 ngày 11/11:** sau khi được duyệt, các commit của nhánh cùng ba đề xuất P1, P2, P6 đã lên `main` (`31a00c7`) và production. Chi tiết, số đo và phần chưa làm nằm ở [mục I](#i-áp-dụng-đề-xuất-và-deploy-ngày-1111). Các mục 0 đến H giữ nguyên nội dung lúc rà soát; cột trạng thái ở mục B đã được cập nhật.
 
+**Cập nhật 20:45 ngày 11/11:** đợt hai (mục J) sửa bốn test emulator lỗi thời, tăng bộ nhớ báo cáo kinh doanh, áp P10 và P13, đo và lập phương án cho P3, P4, P5, P7, P8, P9, P11, P12. `main` ở `3462cce`.
+
 Tài liệu này nối tiếp [phân tích chi phí 11/11](COST_USAGE_ANALYSIS_2026-11-11.md), [kế hoạch luồng dữ liệu 25/10](../product/DATA_FLOW_COST_OPTIMIZATION_PLAN_2026-10-25.md) và [audit 29/10](../APP_AUDIT_2026-10-29.md). Phần mới: bảng chi phí 42 ngày cho mọi dịch vụ, cấu hình thật của 602 function, độ trễ và lỗi theo từng service, kích thước document, và năm thay đổi đã kiểm thử trên nhánh.
 
 ## 0. Kết luận
@@ -65,19 +67,19 @@ Mức độ: **C** cao, **T** trung bình, **N** nhỏ. Trạng thái: *đã s�
 | 5 | C | `getMyTrainerWorkspaceRegional`: 1.590 lượt/tuần, p50 khoảng 2,1 giây, p95 khoảng 9,6 giây, 17% lượt là cold start 3,1 giây. | `functions/pt-operations-v2.js:1931` | Đã deploy P1 ngày 11/11; P3 chưa làm. |
 | 6 | T | Mỗi lần dựng lại bảng lịch tuần đọc tài liệu 0,5 MB hai lần và ghi lại toàn bộ, kể cả khi chỉ cờ điều khiển đổi. `students` 260 KB, `contracts` 85 KB, `weeklySessionCoverage` 67 KB. | `rebuildPtScheduleWeeklyView` | Đề xuất P5. |
 | 7 | T | Trigger thiếu chỗ khi sự kiện đến dồn: `processStudent360SourceQueue` trả 429 hoặc 500 cho 23% request, `syncPtScheduleWeeklyViewFromSession` 43%. Sự kiện được gửi lại nên bản dựng sẵn trễ. | `student-360-background-functions.js`, `index.js:1017` | Đã deploy P2 ngày 11/11. |
-| 8 | T | 9.422 cold start mỗi tuần (11% request), trung bình 2,5 giây. `index.js` nạp 952 module; runtime rút gọn nạp khoảng 690. Khoảng 565 function chưa có runtime rút gọn. | `functions/index.js`, `background-runtime.js` | Đề xuất P3. |
+| 8 | T | 9.422 cold start mỗi tuần (11% request), trung bình 2,5 giây. `index.js` nạp 952 module; runtime rút gọn nạp khoảng 690. Khoảng 565 function chưa có runtime rút gọn. | `functions/index.js`, `background-runtime.js` | Đã đo (mục J.2), chưa làm, chờ quyết định. |
 | 9 | T | Job 15 phút đọc mọi bữa ăn chờ duyệt và action tương ứng dù không có gì đổi: khoảng 2.700 đơn vị đọc mỗi lượt, hơn 90% đơn vị đọc của một giờ không có người dùng. | `functions/nutrition-review-maintenance.js` | Đã deploy ngày 11/11 (`a728389`). |
 | 10 | T | Tài khoản staff và admin mở trang chủ thành viên gọi hai callable chỉ dành cho học viên: 398/1.332 lượt `getMyLoyaltyDashboard` và 354/3.034 lượt `listMyStudentPtSchedule` trả 403 trong 7 ngày. | `LoyaltyHomeCard.tsx`, `HomePage.tsx`, `ProgressPage.tsx`, `NotificationsPage.tsx` | Đã lên bản web ngày 11/11 (`f553e15`). |
 | 11 | T | Khoảng 25 function 256 MiB dùng 77–89% bộ nhớ ở p99 (ví dụ `refreshContractRenewalQueueScheduled` 89%, `listMyStudentPtScheduleRegional` 88%). Riêng việc nạp `index.js` đã chiếm khoảng 73%. | Cấu hình bộ nhớ trong `index.js` | Đã deploy cho 4 function trên 86%; phần còn lại theo dõi. |
-| 12 | T | App Check không bắt buộc với callable không phải AI. Người có tài khoản hợp lệ có thể gọi dồn dập; thiệt hại bị chặn bởi `maxInstances` 1–8 mỗi function. | `index.js:407`, biến `ENFORCE_APP_CHECK` | Đề xuất P8. |
+| 12 | T | App Check không bắt buộc với callable không phải AI. Người có tài khoản hợp lệ có thể gọi dồn dập; thiệt hại bị chặn bởi `maxInstances` 1–8 mỗi function. | `index.js:407`, biến `ENFORCE_APP_CHECK` | Đã đo: 98,5% lượt gọi không có token (mục J.2); chờ quyết định. |
 | 13 | T | SMS OTP là dòng chi phí đáng kể so với phần còn lại: 94 SMS × 0,13 USD ≈ 12 USD mỗi tháng, tăng tuyến tính theo số lần đăng nhập bằng số điện thoại. | `AuthContext.tsx` (`sendPhoneOtp`) | Đề xuất P12. |
 | 14 | T | Receipt chống lặp lưu nguyên kết quả và không có TTL: 1.840 `ptScheduleCommandReceipts` (khoảng 29 KB mỗi bản) và 547 `ptScheduleAdminEditReceipts` (khoảng 46 KB), tổng khoảng 78 MB, tức 20% dung lượng database, tăng khoảng 1.300 bản mỗi tuần. | `pt-schedule-v2.js:5007`, `index.js:1119` | Đã deploy P6, TTL bật ngày 11/11. |
 | 15 | T | Khóa học lưu nguyên khối: tài liệu `courses` tới 674 KB. `listAcademyCourses` đọc mọi khóa đã xuất bản trong transaction chỉ để trả metadata (khoảng 170 đơn vị đọc mỗi khóa). Mỗi bản `courseRevisions` cũng nặng tương tự. | `index.js:4201`, `academy-course-storage.js` | Đề xuất P7. |
 | 16 | T | CI trên `main` đỏ vì ba test ghim 598 export trong khi có 605. Quy trình phát hành chính thức cần ref xanh nên các lần deploy gần đây phải làm tay. | 3 file test trong `functions/` | Đã lên `main` (`308ceff`). |
-| 17 | N | 251 trong 602 function không có request nào trong 30 ngày (233 HTTPS). Không tốn tiền khi nghỉ nhưng làm chậm deploy, chiếm 410/1.000 service ở Singapore và mở rộng bề mặt tấn công. | `ops/function-lifecycle.json` | Đề xuất P9. |
+| 17 | N | 251 trong 602 function không có request nào trong 30 ngày (233 HTTPS). Không tốn tiền khi nghỉ nhưng làm chậm deploy, chiếm 410/1.000 service ở Singapore và mở rộng bề mặt tấn công. | `ops/function-lifecycle.json` | Đã phân loại (mục J.2); chưa có function đủ điều kiện xóa. |
 | 18 | N | Bucket Storage mặc định ở US-EAST1 trong khi người dùng, Functions và Firestore ở châu Á: mỗi lần tải ảnh đi vòng qua Mỹ. | Cấu hình project | Đề xuất P11. |
-| 19 | N | Functions có 5 cảnh báo phụ thuộc (1 thấp, 4 trung bình, đều gián tiếp qua `google-gax` và `@google-cloud/storage`). Root: `server.ts` và bốn gói của nó (`@google/genai`, `express`, `express-rate-limit`, `zod`) không thuộc ứng dụng đang chạy; `dotenv` không được import. | `functions/package-lock.json`, `server.ts`, `package.json` | Đề xuất P10. |
-| 20 | N | Shell sau đăng nhập 284 KiB gzip cho mọi vai trò: SDK Firestore 145 KiB, CSS dùng chung 178 KiB thô. 15 file nguồn không còn được tham chiếu (101 KB). `DatabaseContext` còn bảy nhánh listener không route nào bật. | `AuraApplication.tsx`, `DatabaseContext.tsx:572–640` | Đề xuất P13. |
+| 19 | N | Functions có 5 cảnh báo phụ thuộc (1 thấp, 4 trung bình, đều gián tiếp qua `google-gax` và `@google-cloud/storage`). Root: `server.ts` và bốn gói của nó (`@google/genai`, `express`, `express-rate-limit`, `zod`) không thuộc ứng dụng đang chạy; `dotenv` không được import. | `functions/package-lock.json`, `server.ts`, `package.json` | Đã áp phần sửa được và gỡ `server.ts` (mục J.1). |
+| 20 | N | Shell sau đăng nhập 284 KiB gzip cho mọi vai trò: SDK Firestore 145 KiB, CSS dùng chung 178 KiB thô. 15 file nguồn không còn được tham chiếu (101 KB). `DatabaseContext` còn bảy nhánh listener không route nào bật. | `AuraApplication.tsx`, `DatabaseContext.tsx:572–640` | Đã dọn file chết và listener chết (mục J.1); phần tách CSS chưa làm. |
 
 Ghi chú thêm, không xếp hạng: 3 database Firestore không dùng (1 database staging từ 19/08 còn bật PITR), bucket migration 0,6 GiB, bucket `gcf-v2-sources` không có lifecycle (1,9 GiB). Tổng chi phí của nhóm này dưới 0,2 USD mỗi tháng; chỉ nên dọn khi tiện.
 
@@ -350,6 +352,89 @@ Tên revision đầy đủ là tên service viết thường nối với phần 
 2. `listBusinessPerformanceRegional` bị tràn bộ nhớ 256 MiB một lần ngày 31/10. Không lặp lại trong 14 ngày; nên tăng lên 512 MiB khi deploy function này lần tới.
 3. `listMyStudentPtScheduleRegional` là callable của học viên có nhiều lượt nhất trong nhóm này (3.030 lượt mỗi tuần, p50 khoảng 0,6 giây). Cùng handler trên cấu hình 1 vCPU ở asia-southeast1 có p50 khoảng 0,03 giây (21.314 lượt trong 30 ngày đến 11/11). Hôm nay nó mới được tăng lên 1/3 vCPU; nếu số đo sau P1 tốt, đây là ứng viên kế tiếp cho 1 vCPU.
 4. Emulator Firestore không chạy được từ thư mục có dấu tiếng Việt trong đường dẫn (`Aura Dinh Dưỡng`); phải chạy từ một bản sao ở đường dẫn không dấu.
+
+Mục 1 và 2 đã xử lý trong đợt hai (mục J).
+
+## J. Đợt hai ngày 11/11: lỗi tồn đọng và các đề xuất còn lại
+
+Chủ dự án yêu cầu đặt lịch đo lại và hoàn thiện các lỗi, đề xuất còn lại. Đợt này áp dụng những việc có thể đảo ngược và kiểm thử được; những việc xóa tài nguyên, migrate dữ liệu, có thể khóa người dùng hoặc tốn thêm tiền thường xuyên được chuẩn bị đến bước quyết định.
+
+### J.1 Đã làm
+
+| Commit | Việc | Kiểm thử |
+| --- | --- | --- |
+| `b2b3bd7` | Bốn test emulator lỗi thời (mục I.9 điểm 1): cố định đồng hồ trong tuần mẫu và kiểm tra đúng cách đánh dấu tuần cũ của `eb5bb77` | 8 file test tích hợp trên emulator: 47 / 47 |
+| `eb6eb28` | `listBusinessPerformance` và bản `Regional` lên 512 MiB (từng tràn bộ nhớ ngày 31/10, p99 93% trong 28/10–11/11) | `capacity-profile.test.js` ghim cả hai và các hàm cùng factory phải giữ nguyên |
+| `e417d9b` | P10 phần functions: `fast-xml-parser` 5.11.1 lên 5.12.0 cùng ba gói đi kèm, bằng `npm audit fix` không `--force` | `npm ci` sạch, functions check 1.868 / 1.868, test 1.812 / 1.812 |
+| `83c4448` | P10 phần root: gỡ `server.ts` (backend Express của bản mẫu ban đầu, không script nào chạy, không được deploy) và sáu gói chỉ nó dùng; lockfile root bớt 79 gói, không gói nào khác đổi phiên bản | Ba test bảo mật từng kiểm tra `server.ts` nay kiểm tra file và các gói đó không quay lại |
+| `3462cce` | P13: xóa 9 file không ai tham chiếu, gỡ 7 listener nghe cả collection mà không màn hình nào bật | `security-contract.test.js` chặn việc bật lại; typecheck, build, budget qua |
+
+Chi tiết P13:
+
+- Xóa: bốn thẻ tiến độ mà commit `e9fd755` (26/10) đã gỡ khỏi trang Tiến độ, hook `useForegroundRefresh` mất chỗ dùng cuối từ `b9835bd` (25/10), ba file `index.ts` gom export mà mã gọi thẳng đường dẫn sâu, và `src/constants.ts` chứa một link logo ngoài không dùng. Không file nào nằm trong bản build, nên người dùng không thấy khác biệt. Khôi phục bằng `git checkout 3462cce^ -- <đường dẫn>`.
+- Giữ lại, vì vẫn có test đọc: `ProgressPhotosCard.tsx`, `course-template.ts`, `journalMerge.ts`, `utils/foregroundRefresh.ts`. Giữ `features/academy/submissionPolicy.ts` vì Academy đang có nhánh khác phát triển.
+- `DatabaseContext`: `payments`, `leaveRequests`, `sessionRequests`, `workoutLogs`, `staff`, `dailyCheckins`, `schedules` là listener đọc cả collection không giới hạn. Không màn hình nào bật chúng từ khi các API theo phạm vi thay thế. Tên của chúng cũng bị gỡ khỏi kiểu `LegacyOperationSource`, nên thêm lại vào một màn hình sẽ lỗi typecheck thay vì âm thầm đọc cả collection.
+
+Lịch đo lại: tác vụ `aura-do-lai-do-tre-sau-deploy-1111` chạy một lần lúc 16:30 ngày 12/11, chỉ đọc số liệu, so với cột "Trước" của mục I.1 và ghi kết quả vào thư mục ghi chú chung của các phiên (`do-lai-sau-deploy-20261112.md`). Tác vụ chỉ chạy khi ứng dụng Claude đang mở.
+
+### J.2 Đã đo, cần quyết định
+
+**P8 App Check.** Trong 24 giờ đến 20:20 ngày 11/11, 1.183 trên 1.201 lượt gọi callable (98,5%) không gửi token App Check; 18 lượt có token hợp lệ, 0 lượt token sai. Lý do: client chỉ khởi tạo App Check ngay trước lệnh AI, để reCAPTCHA Enterprise không làm chậm lần mở đầu, và một test bảo mật ghim quyết định này. Bật bắt buộc lúc này sẽ chặn gần như mọi người dùng. Phương án theo thứ tự:
+
+1. Khởi tạo App Check sau khi đăng nhập, lúc trình duyệt rảnh, **chỉ cho tài khoản staff và admin**. Ít thiết bị, trình duyệt thông thường, và đó là nhóm gọi các lệnh ghi tiền và hợp đồng.
+2. Sau 7 ngày, nếu tỷ lệ token hợp lệ của nhóm đó gần 100%, bật `enforceAppCheck` cho từng callable ghi tiền và hợp đồng (cơ chế `callableAppCheckPolicy` đã cho phép bật riêng từng function).
+3. Học viên để sau: mỗi lần đổi token là một lượt đánh giá reCAPTCHA Enterprise, có thể phát sinh phí theo bảng giá hiện hành (chưa kiểm tra), và trình duyệt nhúng trong app nhắn tin có thể không qua được.
+
+**P3 runtime rút gọn.** Callable khởi động lạnh tốn thời gian người dùng nhất là `getMyAccessContextOverflow`: 147 lần mỗi tuần, trung bình 3,0 giây, chạy mỗi lần mở app. Đo cục bộ, nạp riêng factory danh tính so với nạp `index.js`: 548 so với 826 ms, 665 so với 953 module, 90 so với 123 MB. Phần lớn thời gian nằm trong chính thư viện Firebase, nên lợi ích dự kiến chỉ khoảng 0,3–0,6 giây trên 3 giây, trong khi thay đổi nằm trên đường đăng nhập. Chưa làm. Hai lựa chọn nếu muốn đăng nhập nhanh hơn:
+
+- Runtime rút gọn cho `getMyAccessContextOverflow`, có test đối chiếu metadata như bốn runtime hiện có, deploy sau khi có số đo P1.
+- Giữ một instance ấm cho riêng function này: bỏ gần hết 147 lần chờ 3 giây mỗi tuần, ước tính 2–4 USD mỗi tháng cho 1/6 vCPU và 256 MiB luôn bật (dự phóng; giá lúc nghỉ của asia-east1 chưa được đối chiếu với Billing Catalog). `cost:guard` sẽ báo function này ở mục `MIN_INSTANCES`, đúng như thiết kế.
+
+`trackProductEventOverflow` có nhiều lần khởi động lạnh hơn (308 mỗi tuần) nhưng client gọi theo kiểu không chờ, nên người dùng không thấy; không đáng thay đổi.
+
+**P10 còn lại.** Bốn cảnh báo mức trung bình nằm trong bản `google-gax` mà `@google-cloud/firestore-api` ghim ở `^5.0.0`. 5.0.8 là bản 5.x cuối, nên npm chỉ gỡ được bằng `overrides`. Chúng đi qua `rimraf`, `glob`, `minimatch`, là công cụ xử lý file proto của `google-gax`, không nằm trên đường xử lý request. Đề xuất chờ `firebase-admin` nâng phụ thuộc. Phụ thuộc production của web có 0 cảnh báo.
+
+**P9 vòng đời function.** Phân loại 250 function không có request trong 30 ngày:
+
+| Nhóm | Số | Kết luận |
+| --- | ---: | --- |
+| Client vẫn gọi theo tên (đường dự phòng, tính năng dùng hiếm như CRM, bảng lương, Eat Clean) | 142 | Giữ |
+| Bản cũ có bản thay thế đang chạy | 38 | 31 vẫn được client gọi khi dự phòng; 7 còn lại có thể bị gọi bằng tên ghép động, chưa chứng minh được là không dùng |
+| Đã nằm trong `ops/function-lifecycle.json` | 24 | Theo lịch của sổ: 6 đến hạn đánh giá 22/11, 17 đến hạn 22/12 |
+| Trigger không có sự kiện | 18 | Giữ: không có sự kiện thì không tốn tiền |
+
+Không function nào đủ bằng chứng để xóa hôm nay, và chính sách của sổ đang khóa xóa (`deletionAllowed: false`). Bước kế tiếp: ngày 22/11 chạy `scripts/evaluate-function-lifecycle.cjs` cho 6 function đến hạn rồi xin duyệt xóa từng function. Hai mục trong sổ có mốc 06/11 đã qua mà chưa được đánh giá.
+
+### J.3 Phương án, chưa áp dụng
+
+- **P4 gộp job theo lịch.** Ứng viên: ba job 30 phút ở asia-southeast1 (`autoConfirmOverduePtAttendanceScheduled`, `chargeDuePtSessionsScheduled`, `vestPendingLoyaltySourcesScheduled`) và các job hằng giờ (`sendSessionRemindersScheduled`, `sendAvailabilityRemindersScheduled`, `reconcileStaffManagedClientSummariesScheduled`, `cleanupEatCleanLiveLocations`, `rebuildContractUsageViewsScheduled`, `reconcileStudent360ProjectionsScheduled`). Cách làm: thêm một job điều phối mới gọi các lõi xử lý theo đúng chu kỳ cũ, chạy song song một tuần với job cũ ở chế độ chỉ ghi log, so kết quả, rồi tắt và xóa job cũ. Bước xóa cần duyệt. Lợi ích chính là bớt khoảng 2.300 lần khởi động lạnh mỗi tuần; chi phí tiết kiệm nhỏ vì các job này rẻ.
+- **P5 tách payload bảng lịch tuần.** Đưa các cờ điều khiển sang tài liệu trạng thái (một phần đã làm ở `ptScheduleWeeklyViewStates`), tách `students` khỏi ma trận, đổi `schemaVersion`. Cần ghi song song hai dạng trong một chu kỳ, client đọc được cả hai, và có đường quay lại. Rủi ro cao vì chạm dữ liệu lịch tập; chỉ nên làm khi số đo P1 cho thấy bảng lịch vẫn chậm.
+- **P7 khóa học theo chương.** Mỗi lần lưu, công cụ lưu khóa học đã tự chuyển khóa sang dạng `chapters-v1`. Cách làm: sao lưu các tài liệu `courses` còn nguyên khối, chạy thử trên emulator với bản sao dữ liệu, rồi lưu lại từng khóa qua đúng đường lưu hiện có, mỗi lần một khóa, kiểm tra bản xuất bản và lượt đọc sau mỗi khóa. Là ghi dữ liệu production nên cần duyệt.
+- **P11 bucket Storage.** Tạo bucket mới ở asia-southeast1, sao chép 0,46 GiB, đổi cấu hình client và rules, giữ bucket cũ chỉ đọc một thời gian. Chưa đáng làm với lượng ảnh hiện tại.
+- **P12 OTP.** Quyết định sản phẩm: ưu tiên đăng nhập Google hoặc email cho người dùng cũ, cân nhắc nhà cung cấp OTP trong nước. 94 SMS mỗi tháng, khoảng 12 USD.
+
+### J.4 Deploy của đợt hai
+
+Kiểm thử trên bản `npm ci` sạch của `3462cce` (lockfile root mới, đúng như Vercel cài):
+
+| Bước | Kết quả |
+| --- | ---: |
+| Hygiene, typecheck, build, performance budget | qua |
+| `test:profile-sync`, `test:regional-reads`, `test:function-lifecycle`, `test:production-smoke` | 401, 225, 52, 23 (tất cả qua) |
+| `test:app-optimization`, `test:data-cost`, `test:installment-payments` và các bộ nhỏ còn lại | 98, 51, 22 (tất cả qua) |
+| `functions check`, `functions test`, `check:weekly-view` | 1.868, 1.812, 59 (tất cả qua) |
+| Test tích hợp trên emulator (bảng lịch tuần, OFF, nguồn lịch, báo cáo chi nhánh, hàng đợi Student 360) | 33 / 33 |
+| Playwright `tests/e2e`, project `chromium` | 245 / 245 |
+
+Production:
+
+- **Web:** `main` lên `3462cce`; Vercel build với lockfile root mới; `npm run production:smoke` với SHA mong đợi qua lúc 20:39 giờ VN.
+- **Functions:** `listBusinessPerformanceRegional` (asia-east1, `…-stg-eba11c502eb8` sang `…-stg-209eb5525364`, xong 20:40) và `listBusinessPerformance` (asia-southeast1, `…-stg-6a819f5385ac` sang `…-stg-929e45bc3e9b`, xong 20:43), đều 1/3 vCPU và 512 MiB, qua cổng kiểm tra sức khỏe, không có log lỗi. Hai function này deploy lần trước ngày 01/11, nên cũng nhận thay đổi `focusSessionId` của hàm lịch sử buổi tập (`9fae5c5`), phần không nằm trong hàm báo cáo kinh doanh.
+- Bản sửa `fast-xml-parser` chỉ có trong hai function trên; các function khác nhận nó ở lần deploy kế tiếp của từng function.
+- Các commit `b2b3bd7` (test), `83c4448` và `3462cce` (web, test) không cần deploy function.
+- `cost:guard` 6 giờ đến 20:43: không cảnh báo. Quy đổi mỗi ngày: Cloud Run 46.751 vCPU-giây, Firestore 5,07 triệu đơn vị đọc và 0,19 triệu đơn vị ghi, ước tính 0,55–1,94 USD mỗi ngày theo giá niêm yết.
+
+Rollback đợt hai: `gcloud run services update-traffic <service> --region=<vùng> --to-revisions=<revision trước>=100` cho hai function báo cáo; `git revert` từng commit cho phần còn lại. Riêng `83c4448` khi revert sẽ khôi phục `server.ts` và sáu gói trong lockfile root.
 
 ## Phụ lục: các đề xuất (P1, P2, P6 đã áp dụng ngày 11/11, xem mục I)
 
