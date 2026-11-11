@@ -143,6 +143,16 @@ Chỉ liệt kê callable có từ 120 lượt trong 7 ngày; mọi callable kh�
 
 Hai đợt có số buổi bị trừ khác nhau, nên dòng cuối không so trực tiếp được; tính theo từng sự kiện thì đơn vị đọc **không giảm**.
 
+**Deploy lại làm hết bất thường ở mục 3.** Giây instance tính tiền của mỗi đợt trừ buổi:
+
+| Trigger | Đợt 09:20 | Đợt 10:20 |
+| --- | ---: | ---: |
+| syncPtScheduleWeeklyViewFromContractUsage (deploy lại 09:40) | 2.267 | 28 |
+| syncPtScheduleWeeklyViewFromContract (deploy lại 09:42) | 2.786 | 12 |
+| syncStudent360ContractUsage (không deploy lại) | 2.298 | 2.558 |
+
+Mới có một đợt sau deploy, nhưng chênh lệch với trigger đối chứng rất rõ. Năm trigger còn bất thường (`syncStudent360ContractUsage`, `syncContractUsageOperationalActions`, `syncContractOperationalActions`, `syncLoyaltyContractSpend`, `syncStudent360Contract`) chưa được deploy lại; deploy lại sẽ đưa code hiện tại của `main` lên các trigger đó, vốn đang chạy revision ngày 29/10 và 01/11.
+
 **Phát hiện mới: việc tìm bảng cần đánh dấu mới là thứ bị tính tiền.**
 
 - Mỗi tài liệu `ptScheduleWeeklyViews` nặng 430–650 KB (47 tài liệu, 25 MB; riêng trường `students` trung bình 253 KB). Tài liệu trạng thái `ptScheduleWeeklyViewStates` chỉ 211 byte.
