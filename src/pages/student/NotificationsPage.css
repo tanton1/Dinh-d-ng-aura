@@ -1,7 +1,7 @@
 .notifications-page {
-  --nf-pink: var(--aura-brand-pink, #ec2c76);
-  --nf-orange: var(--aura-brand-orange, #ff7a45);
-  --nf-ink: #19161a;
+  --nf-pink: var(--aura-brand-pink);
+  --nf-orange: var(--aura-brand-orange);
+  --nf-ink: var(--aura-ink);
   --nf-text: #4b4450;
   --nf-muted: #8a8190;
   --nf-line: #f1e7ec;
