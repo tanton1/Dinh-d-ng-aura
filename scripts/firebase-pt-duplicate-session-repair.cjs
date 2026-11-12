@@ -158,19 +158,19 @@ async function readCollection(token, collectionId, where, orderBy = '__name__') 
   return documents
 }
 
-async function readAttendanceDocuments(token, ids) {
+async function readAttendanceDocuments(token, ids, collection = 'attendanceEvents') {
   const safeIds = [...new Set(ids)].filter(safeId)
   if (!safeIds.length) return new Map()
   const result = new Map()
   for (let offset = 0; offset < safeIds.length; offset += 100) {
-    const documents = safeIds.slice(offset, offset + 100).map((id) => documentName('attendanceEvents', id))
+    const documents = safeIds.slice(offset, offset + 100).map((id) => documentName(collection, id))
     const rows = await requestJson(token, '/documents:batchGet', {
       method: 'POST',
       body: JSON.stringify({ documents }),
     })
     for (const row of Array.isArray(rows) ? rows : []) {
-      if (!row?.found?.name?.startsWith(`${databaseName()}/documents/attendanceEvents/`)) continue
-      const id = row.found.name.slice(`${databaseName()}/documents/attendanceEvents/`.length)
+      if (!row?.found?.name?.startsWith(`${databaseName()}/documents/${collection}/`)) continue
+      const id = row.found.name.slice(`${databaseName()}/documents/${collection}/`.length)
       result.set(id, {
         id,
         name: row.found.name,
@@ -193,7 +193,7 @@ function sessionGroupKey(value, id) {
   return [studentId, trainerId, contractId, date, hour, scheduleEntryId].join('|')
 }
 
-function buildPlan({ week, sessions, students, attendance }) {
+function buildPlan({ week, sessions, students, attendance, billing = new Map() }) {
   const studentNames = new Map(students.map((item) => [item.id, String(item.data.name || '').trim()]))
   const groups = new Map()
   const skipped = []
@@ -229,6 +229,16 @@ function buildPlan({ week, sessions, students, attendance }) {
     const attendanceLink = attendanceRow?.data?.sessionId === duplicate.id ? 'valid' : attendanceRow ? 'mismatch' : 'missing'
     if (attendanceLink === 'mismatch') {
       quarantined.push({ key, reason: 'attendance_link_mismatch', duplicateSessionId: duplicate.id, attendanceId })
+      continue
+    }
+    // This old schedule-only repair cannot unwind a financial debit. Cancelling
+    // the session alone leaves its receipt charged and double counts usage in
+    // contract amendments. Route any financial evidence to contract review.
+    const billingId = safeId(duplicate.data.billingEventId) || duplicate.id
+    if (billing.has(billingId) || duplicate.data.billingStatus === 'charged' || duplicate.data.chargedAt
+      || duplicate.data.billingEventId || duplicate.data.revenueRecognitionEntryId
+      || attendanceRow?.data?.billingStatus === 'charged' || attendanceRow?.data?.revenueRecognitionEntryId) {
+      quarantined.push({ key, reason: 'financial_evidence_requires_contract_reconciliation', duplicateSessionId: duplicate.id, canonicalSessionId: canonical.id })
       continue
     }
     if (!duplicate.updateTime || !canonical.updateTime || new Date(duplicate.updateTime) < new Date(canonical.updateTime)) {
@@ -406,8 +416,11 @@ async function loadState(token, week) {
     readCollection(token, 'students'),
   ])
   const preliminary = buildPlan({ week, sessions, students, attendance: new Map() })
-  const attendance = await readAttendanceDocuments(token, preliminary.candidates.map((item) => item.attendanceId))
-  return { sessions, students, attendance, plan: buildPlan({ week, sessions, students, attendance }) }
+  const [attendance, billing] = await Promise.all([
+    readAttendanceDocuments(token, preliminary.candidates.map((item) => item.attendanceId)),
+    readAttendanceDocuments(token, preliminary.candidates.map((item) => item.duplicateSessionId), 'sessionBillingEvents'),
+  ])
+  return { sessions, students, attendance, plan: buildPlan({ week, sessions, students, attendance, billing }) }
 }
 
 function makeReport({ mode, week, state, writesPerformed = false, approvedDryRunDigest = null, verified = null }) {
