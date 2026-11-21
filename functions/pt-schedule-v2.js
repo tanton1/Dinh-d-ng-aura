@@ -56,7 +56,7 @@ const { trainerDailyLoadTarget } = require('./schedule-load-policy')
 // Bump the generator version when the lexicographic quality objective changes.
 // Existing drafts remain valid, but the version lets audit logs and the UI
 // distinguish schedules generated with the coverage-first/full-target policy.
-const OPTIMIZER_VERSION = 'optimizer-v16'
+const OPTIMIZER_VERSION = 'optimizer-v17'
 const MAX_DEEP_OPTIMIZATION_PASSES = 3
 // A bounded repair search can relocate auto-generated sessions from earlier
 // rounds. This closes the remaining gap between fair one-seat rounds and the
@@ -68,6 +68,10 @@ const MAX_REPAIR_DIRECT_CANDIDATES = 80
 const MAX_REPAIR_DISPLACEMENT_CANDIDATES = 120
 const MAX_RESCUE_PLAN_CANDIDATES = 8
 const MAX_RESCUE_LOOKAHEAD_STUDENTS = 120
+// Seat exchanges that move a learner onto their PT chính/phụ. Each node checks
+// one occupant of an assigned PT's seat; mismatches are rare, so this bound
+// only matters on pathological drafts.
+const MAX_ASSIGNMENT_SWAP_NODES = 400
 // The 3-day audit is explanatory telemetry, not another solver pass. Keep it
 // bounded so a large branch cannot turn the final summary into an N×M×K scan.
 const MAX_THREE_DAY_AUDIT_STUDENTS = 120
@@ -2003,7 +2007,10 @@ function trainerAssignmentScore(data, schedule) {
   }
   // Learners without assigned PTs contribute no preference, retaining the
   // existing pairing/load objectives. Resolve each entry's own contract.
-  return [primary, assigned, -secondaryOrder]
+  // Every placement outside PT chính/phụ is a warning on the matrix, so the
+  // number of learners with one of their own PTs ranks first; a plan cannot
+  // buy one more primary placement with a support-PT placement elsewhere.
+  return [assigned, primary, -secondaryOrder]
 }
 
 function trainerSchedulingPolicy(trainer, config) {
@@ -3590,6 +3597,71 @@ function improveAssignedTrainerPlacements(data, schedule) {
     if (!schedule[slotId].length) delete schedule[slotId]
     schedule[candidate.slotId] = [...(temporary[candidate.slotId] || []), autoEntryForCandidate(data, student, candidate, entry)]
     moves += 1
+  }
+  return moves + swapIntoAssignedTrainerSeats(data, schedule, students)
+}
+
+// Contribution of one entry to trainerAssignmentScore: [assigned, primary,
+// -secondaryOrder]. Unassigned learners and support PTs contribute nothing.
+function assignmentScoreContribution(order) {
+  return order === null || order >= 1000 ? [0, 0, 0] : [1, order === 0 ? 1 : 0, -order]
+}
+
+// The direct pass above needs a free seat. When the learner's PT chính/phụ is
+// full, the occupant may still have another acceptable seat: typically a
+// learner with no assigned PT, one whose own PT also teaches another hour, or
+// one who can move from PT chính to PT phụ so that nobody needs a support PT.
+// An exchange keeps both learners scheduled and is kept only when the pair's
+// trainerAssignmentScore strictly rises, so the pass cannot cycle.
+function swapIntoAssignedTrainerSeats(data, schedule, students) {
+  const trainersById = new Map(data.trainers.map((trainer) => [trainer.id, trainer]))
+  const keepsSpacing = (beforeDays, days, slotId) => hasThreeConsecutiveTrainingDays(beforeDays)
+    || !hasThreeConsecutiveTrainingDays(new Set([...(days || []), slotId.split('-')[0]]))
+  const improves = (changes) => {
+    const gain = [0, 0, 0]
+    for (const [before, after] of changes) {
+      const was = assignmentScoreContribution(before), now = assignmentScoreContribution(after)
+      for (let index = 0; index < gain.length; index += 1) gain[index] += now[index] - was[index]
+    }
+    return compareScoreVectors([0, 0, 0], gain) > 0
+  }
+  const pending = Object.entries(schedule).flatMap(([slotId, values]) => values.map((entry) => ({ slotId, entry })))
+  let moves = 0, nodes = 0
+  mover: for (const { slotId, entry } of pending) {
+    if (nodes >= MAX_ASSIGNMENT_SWAP_NODES) break
+    if (!(schedule[slotId] || []).includes(entry) || protectedFromOptimizer(entry)) continue
+    const order = entryTrainerAssignmentOrder(data, entry)
+    const student = students.get(entry.studentId)
+    if (order === null || order === 0 || !student) continue
+    const preferredTrainers = assignedTrainerIds(scheduleIndexes(data).contractsById.get(entry.contractId))
+      .slice(0, order).map((id) => trainersById.get(id)).filter(Boolean)
+    const beforeState = buildSchedulingState(schedule, data)
+    const withoutMover = scheduleWithoutEntry(schedule, slotId, entry)
+    const slots = [...new Set(student.availableSlots || [])].sort(compareSlots)
+    for (const trainer of preferredTrainers) for (const targetSlotId of slots) {
+      for (const occupant of (withoutMover[targetSlotId] || []).filter((row) => row.trainerId === trainer.id)) {
+        const occupantStudent = students.get(occupant.studentId)
+        if (protectedFromOptimizer(occupant) || !occupantStudent || occupantStudent.id === student.id) continue
+        if (++nodes > MAX_ASSIGNMENT_SWAP_NODES) break mover
+        const occupantOrder = entryTrainerAssignmentOrder(data, occupant)
+        const vacated = scheduleWithoutEntry(withoutMover, targetSlotId, occupant)
+        const vacatedState = buildSchedulingState(vacated, data)
+        if (!keepsSpacing(beforeState.studentDays.get(student.id), vacatedState.studentDays.get(student.id), targetSlotId)) continue
+        const moverCandidate = candidateRecord(data, vacated, vacatedState, new Map(), student, trainer, targetSlotId)
+        if (!moverCandidate || moverCandidate.assignmentOrder >= order) continue
+        const withMover = scheduleWithEntry(vacated, targetSlotId, autoEntryForCandidate(data, student, moverCandidate, entry))
+        const withMoverState = buildSchedulingState(withMover, data)
+        const relocated = feasibleCandidatesForStudent(data, withMover, withMoverState, new Map(), occupantStudent)
+          .find((candidate) => improves([[order, moverCandidate.assignmentOrder], [occupantOrder, candidate.assignmentOrder]])
+            && keepsSpacing(beforeState.studentDays.get(occupantStudent.id), withMoverState.studentDays.get(occupantStudent.id), candidate.slotId))
+        if (!relocated) continue
+        const next = scheduleWithEntry(withMover, relocated.slotId, autoEntryForCandidate(data, occupantStudent, relocated, occupant))
+        Object.keys(schedule).forEach((key) => delete schedule[key])
+        Object.assign(schedule, next)
+        moves += 2
+        continue mover
+      }
+    }
   }
   return moves
 }

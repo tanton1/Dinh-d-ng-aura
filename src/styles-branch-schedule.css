@@ -145,6 +145,11 @@
 .schedule-opportunity-inline-legend span { display:inline-flex; align-items:center; gap:5px; padding:5px 7px; border-radius:999px; color:#665965; background:var(--aura-canvas); font-size:.55rem; font-weight:760; }
 .schedule-opportunity-inline-legend span.is-trainer-availability { border:1px solid rgba(73,164,207,.24); color:#23647e; background:#eaf7fc; }
 .schedule-opportunity-inline-legend span.is-trainer-availability i { display:inline-block; width:8px; height:8px; flex:0 0 auto; border-radius:3px; background:#c9edf8; box-shadow:inset 0 0 0 1px rgba(49,147,186,.32); }
+.schedule-opportunity-inline-legend span.is-assignment-warning { border:1px solid rgba(223,103,40,.28); color:#a9471e; background:#fff3e8; }
+.schedule-opportunity-inline-legend span.is-assignment-warning i { display:inline-block; width:8px; height:8px; flex:0 0 auto; border-radius:3px; background:#ffe1c9; box-shadow:inset 3px 0 0 #ef7c3a; }
+.schedule-assignment-alert { display:inline-flex; align-items:center; gap:5px; min-height:35px; padding:0 10px; border:1px solid rgba(223,103,40,.3); border-radius:999px; color:#a9471e; background:#fff3e8; font-size:.69rem; font-weight:800; }
+.schedule-assignment-alert svg { flex:0 0 auto; color:#df6728; }
+.trainer-workload__identity strong em { color:#c25a22; font-style:normal; }
 .branch-schedule__draft-meta { display: flex; gap: 6px; margin-left: auto; }
 .branch-schedule__draft-meta span { padding: 7px 9px; border: 1px solid var(--branch-line); border-radius: 8px; color: #76616f; background: #fff; font-size: .66rem; font-weight: 800; }
 .branch-schedule__mobile-days { display: none; }
@@ -230,10 +235,12 @@
 .schedule-cell.is-trainer-available.is-availability-hover { border-color:#219969; background:linear-gradient(145deg,#dff8eb,#f0fdf7); box-shadow:inset 0 0 0 2px rgba(33,153,105,.17),0 7px 16px rgba(30,137,91,.10); }
 .schedule-cell.is-student-highlight { border-style:solid; border-color:#d5235f; color:#fff; background:linear-gradient(135deg,#bd174f 0%,#e9376d 50%,#f7765d 100%); box-shadow:0 9px 22px rgba(210,30,91,.24); }
 .schedule-cell.has-important-warning:not(.is-student-highlight) { border-color:rgba(211,72,102,.52); box-shadow:inset 0 0 0 2px rgba(211,72,102,.12); }
+.schedule-cell.has-assignment-warning:not(.is-student-highlight) { border-style:solid; border-color:rgba(223,103,40,.55); box-shadow:inset 0 0 0 2px rgba(239,124,58,.13); }
 .schedule-cell.is-student-highlight,
 .schedule-cell.is-student-highlight.is-trainer-available,
 .schedule-cell.is-student-highlight.is-availability-hover,
 .schedule-cell.is-student-highlight.is-trainer-available.is-availability-hover { position:relative; z-index:3; border-color:#d5235f; color:#fff; background:linear-gradient(135deg,#bd174f 0%,#e9376d 50%,#f7765d 100%); box-shadow:0 10px 24px rgba(210,30,91,.3); transform:translateZ(0); }
+.schedule-cell.is-student-highlight .schedule-cell__student.has-assignment-warning,
 .schedule-cell.is-student-highlight .schedule-cell__student.has-branch-warning,
 .schedule-cell.is-student-highlight .schedule-cell__student.has-conflict-warning { color:#fff; background:rgba(102,0,38,.24); box-shadow:inset 3px 0 0 rgba(255,255,255,.72); }
 .schedule-cell small { align-self: center; justify-self: center; color: #b6a6af; font-size: .61rem; }

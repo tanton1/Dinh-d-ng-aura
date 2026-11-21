@@ -334,3 +334,93 @@ test('compaction evaluates each renewal entry against its own contract primary P
   assert.equal(result.moves, 0)
   assert.deepEqual(result.schedule, schedule)
 })
+
+function assignmentWarnings(result) {
+  return result.warnings.filter((warning) => warning.code === 'TRAINER_ASSIGNMENT_MISMATCH')
+}
+
+for (const mode of ['optimize', 'continue']) {
+  test(`${mode}: a learner without PT chính/phụ gives up the only primary seat`, () => {
+    const data = fixture(mode)
+    data.students = [student('learner-free'), student('learner-a')]
+    data.trainers = [trainer('primary', { slotCapacity: 1, schedulingPriority: 1 }), trainer('support', { slotCapacity: 1 })]
+    // The unassigned learner is more urgent, so the first round seats it first.
+    data.contracts = [{ ...contract('learner-free'), endDate: '2026-08-30' }, contract('learner-a', 'primary')]
+
+    const result = generateSchedule(data)
+
+    assert.deepEqual(learnerEntries(result, 'learner-a').map((row) => [row.trainerId, row.trainerAssignmentWarning === true]), [['primary', false]])
+    assert.deepEqual(learnerEntries(result, 'learner-free').map((row) => row.trainerId), ['support'])
+    assert.equal(result.optimizationSummary.studentCoverage.missingSessions, 0)
+    assert.deepEqual(assignmentWarnings(result), [])
+  })
+}
+
+test('continue: exchanges two retained auto entries that sit with each other\'s primary PT', () => {
+  const data = fixture('continue')
+  data.students = [student('learner-a'), student('learner-b')]
+  data.trainers = [trainer('primary-a', { slotCapacity: 1 }), trainer('primary-b', { slotCapacity: 1 })]
+  data.contracts = [contract('learner-a', 'primary-a'), contract('learner-b', 'primary-b')]
+  data.schedule = { 'T2-6': [
+    entry('learner-a', 'primary-b', { trainerAssignmentWarning: true }),
+    entry('learner-b', 'primary-a', { trainerAssignmentWarning: true }),
+  ] }
+
+  const result = generateSchedule(data)
+
+  assert.deepEqual(learnerEntries(result, 'learner-a').map((row) => row.trainerId), ['primary-a'])
+  assert.deepEqual(learnerEntries(result, 'learner-b').map((row) => row.trainerId), ['primary-b'])
+  assert.ok(Object.values(result.schedule).flat().every((row) => !row.trainerAssignmentWarning))
+  assert.deepEqual(assignmentWarnings(result), [])
+})
+
+test('continue: a primary learner moves to their secondary PT so nobody needs a support PT', () => {
+  const data = fixture('continue')
+  data.students = [student('learner-a'), student('learner-b')]
+  data.trainers = ['shared', 'secondary-a', 'support'].map((id) => trainer(id, { slotCapacity: 1 }))
+  // learner-b's primary PT cannot teach this week; the shared PT is their PT phụ.
+  data.contracts = [contract('learner-a', 'shared', ['secondary-a']), contract('learner-b', 'away', ['shared'])]
+  data.schedule = { 'T2-6': [
+    entry('learner-a', 'shared'),
+    entry('learner-b', 'support', { trainerAssignmentWarning: true }),
+  ] }
+
+  const result = generateSchedule(data)
+
+  assert.deepEqual(learnerEntries(result, 'learner-a').map((row) => row.trainerId), ['secondary-a'])
+  assert.deepEqual(learnerEntries(result, 'learner-b').map((row) => row.trainerId), ['shared'])
+  assert.equal(result.optimizationSummary.studentCoverage.missingSessions, 0)
+  assert.deepEqual(assignmentWarnings(result), [])
+})
+
+test('continue: never trades one support placement for another', () => {
+  const data = fixture('continue')
+  data.students = [student('learner-a'), student('learner-b')]
+  data.trainers = [trainer('primary', { slotCapacity: 1 }), trainer('support', { slotCapacity: 1 })]
+  // Both learners belong to the same single-seat PT; one of them must use support.
+  data.contracts = [contract('learner-a', 'primary'), contract('learner-b', 'primary')]
+  const kept = entry('learner-a', 'primary')
+  data.schedule = { 'T2-6': [kept, entry('learner-b', 'support', { trainerAssignmentWarning: true })] }
+
+  const result = generateSchedule(data)
+
+  assert.deepEqual(learnerEntries(result, 'learner-a').map((row) => row.trainerId), ['primary'])
+  assert.deepEqual(learnerEntries(result, 'learner-b').map((row) => row.trainerId), ['support'])
+  assert.deepEqual(assignmentWarnings(result).map((warning) => warning.studentId), ['learner-b'])
+})
+
+test('swap never relocates a locked or manual occupant of the primary seat', () => {
+  for (const protection of [{ isLocked: true }, { source: 'manual_v2' }]) {
+    const data = fixture('continue')
+    data.students = [student('learner-free'), student('learner-a')]
+    data.trainers = [trainer('primary', { slotCapacity: 1 }), trainer('support', { slotCapacity: 1 })]
+    data.contracts = [contract('learner-free'), contract('learner-a', 'primary')]
+    const occupant = entry('learner-free', 'primary', protection)
+    data.schedule = { 'T2-6': [occupant, entry('learner-a', 'support', { trainerAssignmentWarning: true })] }
+
+    const result = generateSchedule(data)
+
+    assert.deepEqual(result.schedule['T2-6'].find((row) => row.studentId === 'learner-free'), occupant)
+    assert.deepEqual(learnerEntries(result, 'learner-a').map((row) => row.trainerId), ['support'])
+  }
+})

@@ -45,6 +45,21 @@
         "--strictPort"
       ],
       "port": 4195
+    },
+    {
+      "name": "schedule-ui",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--config",
+        "tests/schedule-ui/vite.config.ts",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "4196",
+        "--strictPort"
+      ],
+      "port": 4196
     }
   ]
 }

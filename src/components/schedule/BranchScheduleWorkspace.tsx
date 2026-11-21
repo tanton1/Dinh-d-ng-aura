@@ -272,9 +272,9 @@ function normalizeWeeklyViewResult(
 }
 
 // Keep only conflicts that change the operational meaning of a matrix cell.
-// PT assignment exceptions and Admin overrides remain available in the slot
-// inspector/audit, but should not compete with cross-branch or schedule-risk
-// signals in the weekly grid.
+// Admin overrides remain available in the slot inspector/audit. A learner
+// placed outside their PT chính/phụ is shown on the grid in its own amber
+// tone (trainerAssignmentWarningByKey), below these red schedule-risk signals.
 const MATRIX_IMPORTANT_WARNING_CODES = new Set([
   'STUDENT_BRANCH_MISMATCH',
   'TRAINER_BRANCH_MISMATCH',
@@ -1137,7 +1137,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     const contractsById = new Map(workspace.contracts.map((contract) => [contract.id, contract]))
     const studentsById = new Map(workspace.students.map((student) => [student.id, student]))
     const trainersById = new Map(workspace.trainers.map((trainer) => [trainer.id, trainer]))
-    const rows: Array<{ key: string; slotId: string; studentId: string; trainerId: string; studentName: string; trainerName: string }> = []
+    const rows: Array<{ key: string; slotId: string; studentId: string; trainerId: string; studentName: string; trainerName: string; expected: string }> = []
     for (const [slotId, entries] of Object.entries(workspace.schedule)) {
       for (const entry of entries) {
         if (entry.type === 'off') continue
@@ -1145,7 +1145,9 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         const assigned = contract
           ? [...new Set([contract.trainerId, ...(contract.trainerIds || [])].filter((value): value is string => Boolean(value)))]
           : []
-        const warning = entry.trainerAssignmentWarning === true || (assigned.length > 0 && !assigned.includes(entry.trainerId))
+        // The current contract decides; the stored flag only covers rows whose
+        // contract is not loaded (a PT added to the contract later clears it).
+        const warning = contract ? assigned.length > 0 && !assigned.includes(entry.trainerId) : entry.trainerAssignmentWarning === true
         if (!warning) continue
         rows.push({
           key: `${slotId}|${entry.studentId}|${entry.trainerId}`,
@@ -1154,6 +1156,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           trainerId: entry.trainerId,
           studentName: studentsById.get(entry.studentId)?.name || 'Học viên chưa cập nhật',
           trainerName: trainersById.get(entry.trainerId)?.name || 'PT chưa cập nhật',
+          expected: assigned.map((id, index) => `PT ${index ? 'phụ' : 'chính'} ${trainersById.get(id)?.name || 'chưa cập nhật'}`).join(', '),
         })
       }
     }
@@ -1274,10 +1277,11 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     [scheduleConflictWarnings],
   )
 
-  const trainerAssignmentWarningKeys = useMemo(
-    () => new Set(trainerAssignmentWarnings.map((row) => row.key)),
+  const trainerAssignmentWarningByKey = useMemo(
+    () => new Map(trainerAssignmentWarnings.map((row) => [row.key, row])),
     [trainerAssignmentWarnings],
   )
+  const assignmentWarningCount = (trainerId: string) => trainerAssignmentWarnings.filter((row) => row.trainerId === trainerId).length
 
   const scheduledEntriesByStudent = useMemo(() => {
     const result = new Map<string, Array<{ slotId: string; trainerId: string; contractId: string; label: string; trainerAssignmentWarning: boolean; studentOffConfirmed: boolean }>>()
@@ -1292,14 +1296,14 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           contractId: entry.contractId || '',
           studentOffConfirmed: entry.studentOffConfirmedDate === scheduleDate(workspace.weekId, slotId.split('-')[0]),
           label: scheduleSlotLabel(slotId, weekDates),
-          trainerAssignmentWarning: trainerAssignmentWarningKeys.has(`${slotId}|${entry.studentId}|${entry.trainerId}`),
+          trainerAssignmentWarning: trainerAssignmentWarningByKey.has(`${slotId}|${entry.studentId}|${entry.trainerId}`),
         })
         result.set(entry.studentId, values)
       }
     }
     for (const values of result.values()) values.sort((left, right) => compareScheduleSlots(left.slotId, right.slotId))
     return result
-  }, [trainerAssignmentWarningKeys, weekDates, workspace])
+  }, [trainerAssignmentWarningByKey, weekDates, workspace])
 
   const operationalStudentRows = useMemo(() => {
     if (!workspace) return []
@@ -2457,9 +2461,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         <main id="schedule-panel-matrix" role="tabpanel" aria-labelledby="schedule-tab-matrix" className="branch-schedule__workspace">
           <p className="branch-schedule__draft-state" aria-label="Phiên bản lịch đang hiển thị"><strong>{workspace.draftStatus === 'published' ? 'Lịch đã publish' : 'Draft'} r{workspace.draftRevision}</strong><span>{workspace.draftStatus === 'published' ? `Bản công bố v${workspace.publishedVersion}` : 'Đã lưu · chưa Publish'}</span></p>
           <section className="branch-schedule__matrix-toolbar">
-            <label><span>Huấn luyện viên</span><select value={selectedTrainerId} disabled={workspaceHydrating} onChange={(event) => setSelectedTrainerId(event.target.value)}>{visibleTrainers.map((trainer) => <option key={trainer.id} value={trainer.id}>{trainer.name}</option>)}</select></label>
+            <label><span>Huấn luyện viên</span><select value={selectedTrainerId} disabled={workspaceHydrating} onChange={(event) => setSelectedTrainerId(event.target.value)}>{visibleTrainers.map((trainer) => { const mismatches = assignmentWarningCount(trainer.id); return <option key={trainer.id} value={trainer.id}>{trainer.name}{mismatches ? ` · ⚠ ${mismatches} buổi sai PT` : ''}</option> })}</select></label>
+            {selectedTrainer && assignmentWarningCount(selectedTrainer.id) > 0 && <div className="schedule-assignment-alert" role="status"><AlertTriangle size={14} />{assignmentWarningCount(selectedTrainer.id)} buổi không đúng PT chính/phụ</div>}
             {selectedTrainer && <div className={`trainer-availability-chip is-${selectedTrainer.availabilityMode}`}><Clock3 size={14} />{selectedTrainer.availabilityMode === 'configured' ? `${selectedTrainer.availableSlots?.length || 0} khung giờ rảnh · ${selectedTrainer.availabilitySource === 'weekly' ? 'Lịch tuần' : selectedTrainer.availabilitySource === 'inherited_weekly' ? `Kế thừa tuần ${selectedTrainer.availabilitySourceWeekId || ''}` : 'Lịch lặp lại'}` : selectedTrainer.availabilityMode === 'unrestricted' ? 'Không giới hạn' : 'Chưa khai lịch rảnh'}</div>}
-            <div className="schedule-opportunity-inline-legend" aria-label="Chú giải ma trận"><span className="is-trainer-availability"><i aria-hidden="true" />PT đăng ký rảnh</span><span>Thứ tự: ghép 1/2 → PT chính thức dưới mốc → PT còn slot</span></div>
+            <div className="schedule-opportunity-inline-legend" aria-label="Chú giải ma trận"><span className="is-trainer-availability"><i aria-hidden="true" />PT đăng ký rảnh</span><span className="is-assignment-warning"><i aria-hidden="true" />Không đúng PT chính/phụ</span><span>Thứ tự: PT chính → PT phụ → ghép 1/2 → PT còn slot</span></div>
           </section>
 
           <details className="branch-schedule__trainer-details">
@@ -2472,7 +2477,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                   const priority = finiteCount(trainer.schedulingPriority, trainer.priority)
                   const target = loads[0]?.target || trainerDailyLoadTarget(trainer, workspace.scheduleConfig.scheduleLoadPolicy)
                   return <button type="button" key={trainer.id} className={`trainer-workload__card${trainer.id === selectedTrainerId ? ' is-active' : ''}`} onClick={() => setSelectedTrainerId(trainer.id)}>
-                    <span className="trainer-workload__identity"><strong>{trainer.name} · {total} ca</strong><small>{trainerEmploymentLabel(trainer.employmentType)} · {priority > 0 ? `hạng #${priority}` : 'tự cân tải'} · mốc cân tải {target}</small></span>
+                    <span className="trainer-workload__identity"><strong>{trainer.name} · {total} ca{assignmentWarningCount(trainer.id) > 0 && <em> · ⚠ {assignmentWarningCount(trainer.id)} sai PT</em>}</strong><small>{trainerEmploymentLabel(trainer.employmentType)} · {priority > 0 ? `hạng #${priority}` : 'tự cân tải'} · mốc cân tải {target}</small></span>
                     <span className="trainer-workload__days">{loads.map((load) => <i key={load.day} className={`is-${load.status}`} title={`${DAY_LABELS[load.day] || load.day}: ${load.count} ca · mốc ${load.target} · ${TRAINER_LOAD_LABELS[load.status]}`}><small>{load.day}</small><b>{load.count}{load.status === 'over_target' ? ` · mốc ${load.target}` : `/${load.target}`}</b></i>)}</span>
                   </button>
                 })}
@@ -2522,23 +2527,26 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                 const trainingEntries = entries.filter((entry) => entry.type !== 'off')
                 const hasImportantWarning = trainingEntries.some((entry) => entry.studentBranchWarning === true
                   || matrixConflictWarningKeys.has(`${slotId}|${entry.studentId}|${entry.trainerId}`))
-                const availabilityDescription = isTrainerAvailable ? ' · PT đăng ký rảnh' : ''
+                const assignmentMismatches = trainingEntries.filter((entry) => trainerAssignmentWarningByKey.has(`${slotId}|${entry.studentId}|${entry.trainerId}`)).length
+                const availabilityDescription = `${isTrainerAvailable ? ' · PT đăng ký rảnh' : ''}${assignmentMismatches ? ` · ${assignmentMismatches} không đúng PT chính/phụ` : ''}`
                 const cellDescription = holiday
                   ? `${scheduleSlotLabel(slotId, weekDates)} · Ngày nghỉ`
                   : isOff
                     ? `${scheduleSlotLabel(slotId, weekDates)} · ${selectedTrainer?.name || 'PT'} nghỉ`
                     : `${scheduleSlotLabel(slotId, weekDates)} · ${selectedTrainer?.name || 'PT'} · ${trainingEntries.length} học viên${availabilityDescription}`
-                return <td key={slotId} className={`${selectedDays.includes(day) ? 'is-mobile-visible' : ''}${holiday ? ' is-holiday' : ''}`}><div role={trainingEntries.length ? undefined : 'button'} tabIndex={!selectedTrainerId || holiday || trainingEntries.length ? -1 : 0} aria-label={cellDescription} aria-disabled={!selectedTrainerId || holiday} className={`schedule-cell${holiday ? ' is-holiday' : ''}${past ? ' is-past' : ''}${isOff ? ' is-off' : ''}${entries.length ? ' has-entry' : ''}${hasImportantWarning ? ' has-important-warning' : ''}${isTrainerAvailable ? ' is-trainer-available' : ''}${showsAvailability ? ' is-availability-hover' : ''}${showsStudentSchedule ? ' is-student-highlight' : ''}`} onClick={openInspector} onKeyDown={(event) => { if (event.target !== event.currentTarget) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openInspector() } }}><span className="schedule-cell__count">{holiday ? 'NGHỈ' : isOff ? 'OFF' : `${trainingEntries.length}/${selectedTrainer?.slotCapacity || 2}`}</span>{holiday ? <><CalendarOff /><small>Không xếp lịch</small></> : isOff ? <CalendarOff /> : trainingEntries.length ? trainingEntries.map((entry) => {
+                return <td key={slotId} className={`${selectedDays.includes(day) ? 'is-mobile-visible' : ''}${holiday ? ' is-holiday' : ''}`}><div role={trainingEntries.length ? undefined : 'button'} tabIndex={!selectedTrainerId || holiday || trainingEntries.length ? -1 : 0} aria-label={cellDescription} aria-disabled={!selectedTrainerId || holiday} className={`schedule-cell${holiday ? ' is-holiday' : ''}${past ? ' is-past' : ''}${isOff ? ' is-off' : ''}${entries.length ? ' has-entry' : ''}${hasImportantWarning ? ' has-important-warning' : assignmentMismatches ? ' has-assignment-warning' : ''}${isTrainerAvailable ? ' is-trainer-available' : ''}${showsAvailability ? ' is-availability-hover' : ''}${showsStudentSchedule ? ' is-student-highlight' : ''}`} onClick={openInspector} onKeyDown={(event) => { if (event.target !== event.currentTarget) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openInspector() } }}><span className="schedule-cell__count">{holiday ? 'NGHỈ' : isOff ? 'OFF' : `${trainingEntries.length}/${selectedTrainer?.slotCapacity || 2}`}</span>{holiday ? <><CalendarOff /><small>Không xếp lịch</small></> : isOff ? <CalendarOff /> : trainingEntries.length ? trainingEntries.map((entry) => {
                   const branchWarning = entry.studentBranchWarning === true
                   const conflictWarning = matrixConflictWarningKeys.has(`${slotId}|${entry.studentId}|${entry.trainerId}`)
+                  const assignmentWarning = trainerAssignmentWarningByKey.get(`${slotId}|${entry.studentId}|${entry.trainerId}`)
                   const warningLabel = [
                     branchWarning ? 'Học viên khác chi nhánh' : '',
                     conflictWarning ? 'Lịch trùng hoặc xung đột' : '',
+                    assignmentWarning ? `Không đúng PT chính/phụ${assignmentWarning.expected ? ` (${assignmentWarning.expected})` : ''}` : '',
                   ].filter(Boolean).join(' · ')
                   const baseTitle = entry.sessionKind === 'makeup'
                     ? `Buổi bù · ${entry.makeupMode === 'paired_existing_shift' ? 'ghép vào ca có sẵn' : 'ca bù riêng'} · không trừ thêm buổi · không tính hoa hồng ca bù`
                     : 'Rê chuột: xem lịch rảnh · Chọn: xem lịch đã xếp'
-                  return <button type="button" className={`schedule-cell__student${highlightedStudentId === entry.studentId ? ' is-selected' : ''}${branchWarning ? ' has-branch-warning' : ''}${conflictWarning ? ' has-conflict-warning' : ''}${entry.sessionKind === 'makeup' ? ' is-makeup' : ''}`} key={`${entry.studentId}-${entry.trainerId}`} onPointerEnter={(event) => { if (event.pointerType === 'mouse') showStudentAvailability(entry.studentId) }} onPointerLeave={(event) => { if (event.pointerType === 'mouse') hideStudentAvailability(entry.studentId) }} onFocus={(event) => { if (event.currentTarget.matches(':focus-visible') && window.matchMedia('(hover: hover) and (pointer: fine)').matches) showStudentAvailability(entry.studentId) }} onBlur={() => hideStudentAvailability(entry.studentId)} onClick={(event) => { event.preventDefault(); event.stopPropagation(); if (hoverClearTimer.current !== null) window.clearTimeout(hoverClearTimer.current); hoverClearTimer.current = null; setHoveredStudentId(null); toggleStudentSchedule(entry.studentId) }} aria-pressed={highlightedStudentId === entry.studentId} title={`${baseTitle}${warningLabel ? ` · ${warningLabel}` : ''}`}><span>{studentName(entry.studentId)}</span>{entry.sessionKind === 'makeup' && <small aria-label="Buổi bù">BÙ</small>}{(branchWarning || conflictWarning) && <AlertTriangle size={11} aria-label={`Cảnh báo: ${warningLabel}`} />}{entry.isLocked && <Lock size={11} aria-label="Ca đã khóa" />}</button>
+                  return <button type="button" className={`schedule-cell__student${highlightedStudentId === entry.studentId ? ' is-selected' : ''}${assignmentWarning ? ' has-assignment-warning' : ''}${branchWarning ? ' has-branch-warning' : ''}${conflictWarning ? ' has-conflict-warning' : ''}${entry.sessionKind === 'makeup' ? ' is-makeup' : ''}`} key={`${entry.studentId}-${entry.trainerId}`} onPointerEnter={(event) => { if (event.pointerType === 'mouse') showStudentAvailability(entry.studentId) }} onPointerLeave={(event) => { if (event.pointerType === 'mouse') hideStudentAvailability(entry.studentId) }} onFocus={(event) => { if (event.currentTarget.matches(':focus-visible') && window.matchMedia('(hover: hover) and (pointer: fine)').matches) showStudentAvailability(entry.studentId) }} onBlur={() => hideStudentAvailability(entry.studentId)} onClick={(event) => { event.preventDefault(); event.stopPropagation(); if (hoverClearTimer.current !== null) window.clearTimeout(hoverClearTimer.current); hoverClearTimer.current = null; setHoveredStudentId(null); toggleStudentSchedule(entry.studentId) }} aria-pressed={highlightedStudentId === entry.studentId} title={`${baseTitle}${warningLabel ? ` · ${warningLabel}` : ''}`}><span>{studentName(entry.studentId)}</span>{entry.sessionKind === 'makeup' && <small aria-label="Buổi bù">BÙ</small>}{warningLabel && <AlertTriangle size={11} aria-label={`Cảnh báo: ${warningLabel}`} />}{entry.isLocked && <Lock size={11} aria-label="Ca đã khóa" />}</button>
                 }) : past ? <small>Bổ sung lịch sử</small> : <Plus size={15} aria-hidden="true" />}</div></td>
               })}</tr>)}</tbody>
             </table>
@@ -2625,7 +2633,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
               {inspectorSlotIsPast && <div className="schedule-inspector__past-note"><History size={18} /><div><strong>Điều chỉnh ca đã qua</strong><p>Admin có thể bổ sung, đổi hoặc gỡ ca nhanh trên ma trận. Buổi mới ghi vào lịch sử; thay đổi buổi đã có được đồng bộ với session thật và lưu audit.</p></div></div>}
               <section><div className="schedule-inspector__section-title"><strong>Trong ca</strong><span>{inspectorEntries.some((entry) => entry.type === 'off') ? 'PT nghỉ' : `${inspectorEntries.filter((entry) => entry.type !== 'off').length} học viên`}</span></div>
                 {inspectorEntries.filter((entry) => entry.type !== 'off').map((entry) => {
-                  const assignmentWarning = trainerAssignmentWarningKeys.has(`${inspectorSlotId}|${entry.studentId}|${entry.trainerId}`)
+                  const assignmentWarning = trainerAssignmentWarningByKey.has(`${inspectorSlotId}|${entry.studentId}|${entry.trainerId}`)
                   const adminWarning = entry.adminOverride === true
                   return <article className={`schedule-assigned-row${assignmentWarning ? ' has-assignment-warning' : ''}${adminWarning ? ' has-admin-warning' : ''}`} key={entry.studentId}>
                     <div><strong>{studentName(entry.studentId)}{entry.sessionKind === 'makeup' && <small> · BÙ</small>}{(assignmentWarning || adminWarning) && <AlertTriangle size={14} aria-label="Có cảnh báo" />}</strong><span>{entry.sessionKind === 'makeup' ? `Buổi bù · ${entry.makeupMode === 'paired_existing_shift' ? 'ghép vào ca có sẵn' : 'ca bù riêng'} · không trừ thêm buổi · không tính hoa hồng` : adminWarning ? `Admin xếp tay · ${(entry.adminOverrideWarnings || []).map(ptScheduleConflictLabel).join(' · ') || 'có cảnh báo'}` : assignmentWarning ? 'PT hỗ trợ ngoài danh sách PT chính/phụ' : entry.source === 'published_existing' ? 'Đã ghi nhận · điều chỉnh qua lịch sử' : entry.isLocked ? 'Đã khóa khỏi auto-arrange' : entry.source === 'manual_v2' ? 'Xếp tay · được giữ khi tối ưu' : 'Có thể xếp lại'}</span></div>
