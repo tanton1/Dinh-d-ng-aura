@@ -289,7 +289,12 @@ test('availability V4 defaults to next week and keeps its submit action above th
   await expect(page.getByText('Tuần sau', { exact: true })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Ma trận thời gian rảnh' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Tuần trước' })).toBeEnabled()
-  await expect(page.getByRole('button', { name: 'Tuần sau' })).toBeEnabled()
+  // Registration stops at next week: forward works only from the current week.
+  await expect(page.getByRole('button', { name: 'Tuần sau' })).toBeDisabled()
+  await page.getByRole('button', { name: 'Tuần trước' }).click()
+  await expect(page.getByRole('button', { name: 'Tuần trước' })).toBeDisabled()
+  await page.getByRole('button', { name: 'Tuần sau' }).click()
+  await expect(page.getByRole('button', { name: 'Tuần sau' })).toBeDisabled()
 
   const footer = page.locator('.student-availability-card > footer')
   const dock = page.getByRole('navigation', { name: 'Điều hướng học viên' })
