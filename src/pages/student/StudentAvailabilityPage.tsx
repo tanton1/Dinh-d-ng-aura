@@ -43,7 +43,8 @@ const DEFAULT_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
 const DEFAULT_HOURS = [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20]
 const MAX_REQUESTED_SESSIONS = 7
 const ACCESS_ISSUES = new Set(['AUTH_REQUIRED', 'ACCESS_SYNC_REQUIRED', 'ACCESS_DENIED', 'STUDENT_ROLE_REQUIRED', 'PROFILE_NOT_LINKED'])
-type AvailabilityWeekOffset = 0 | 1 | 2
+// Registration reaches next week at the latest; the server enforces the same rule.
+type AvailabilityWeekOffset = 0 | 1
 
 function toIsoDate(date: Date) {
   const year = date.getFullYear()
@@ -65,8 +66,8 @@ function startOfWeek(date: Date) {
 
 /**
  * `#/student-availability?week=YYYY-MM-DD` opens the week a reminder points to.
- * Only the three weeks the page can edit are accepted; anything else keeps
- * the default "next week" focus.
+ * Only this week and next week are accepted; anything else keeps the default
+ * "next week" focus.
  */
 function weekOffsetFromRoute(today: Date): AvailabilityWeekOffset | null {
   if (typeof window === 'undefined') return null
@@ -75,7 +76,7 @@ function weekOffsetFromRoute(today: Date): AvailabilityWeekOffset | null {
   const target = new Date(`${value}T00:00:00`)
   if (Number.isNaN(target.getTime())) return null
   const offset = Math.round((startOfWeek(target).getTime() - startOfWeek(today).getTime()) / (7 * 86_400_000))
-  return offset === 0 || offset === 1 || offset === 2 ? offset : null
+  return offset === 0 || offset === 1 ? offset : null
 }
 
 function slotIdForSession(session: StudentPtSession) {
@@ -132,7 +133,9 @@ function issueCopy(issue: StudentPtScheduleServiceError) {
     case 'REVISION_CONFLICT':
       return { title: 'Lịch rảnh vừa được cập nhật ở nơi khác', description: 'Aura đã tải phiên bản mới nhất. Hãy kiểm tra lại các khung muốn gửi.' }
     case 'AVAILABILITY_LOCKED':
-      return { title: 'Lịch rảnh của tuần đã khóa', description: 'Hãy chọn tuần kế tiếp hoặc liên hệ vận hành nếu cần điều chỉnh.' }
+      return { title: 'Lịch rảnh của tuần đã khóa', description: 'Hãy liên hệ vận hành nếu cần điều chỉnh.' }
+    case 'AVAILABILITY_WEEK_NOT_OPEN':
+      return { title: 'Tuần này chưa mở đăng ký', description: 'Bạn chỉ đăng ký lịch rảnh đến hết tuần sau.' }
     case 'MINIMUM_AVAILABILITY_REQUIRED':
       return { title: 'Cần xác nhận số khung giờ', description: issue.message }
     case 'AVAILABILITY_EMPTY':
@@ -524,7 +527,7 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
 
     {!loading && data?.student && <section className="student-availability-card">
       <header><div><small>MA TRẬN THỜI GIAN RẢNH · TUẦN {weekId}</small><h2>Đăng ký thời gian có thể tập</h2><p>{reopened ? `Admin đã mở lại lịch rảnh đến ${reopenedUntilLabel}.` : `Aura khuyến nghị ít nhất ${minimumSlots} khung. Lịch khóa theo chính sách đang áp dụng: ${cutoffLabel}.`}</p></div><button type="button" className={`student-availability-status-button is-${statusKey}`} onClick={() => document.querySelector('.student-schedule-matrix-scroll')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}><strong>{statusLabel}</strong><span>{selectedSlots.size}/{minimumSlots} khung</span></button></header>
-      {availabilityV4 ? <div className="student-availability-week-control"><button type="button" aria-label="Tuần trước" disabled={weekOffset === 0} onClick={() => setWeekOffset(Math.max(0, weekOffset - 1) as AvailabilityWeekOffset)}><ChevronLeft size={19} /></button><div><strong>{formatWeekRange(weekId)}</strong><span>{weekOffset === 0 ? 'Tuần này' : weekOffset === 1 ? 'Tuần sau' : 'Tuần kế tiếp'}</span></div><button type="button" aria-label="Tuần sau" disabled={weekOffset === 2} onClick={() => setWeekOffset(Math.min(2, weekOffset + 1) as AvailabilityWeekOffset)}><ChevronRight size={19} /></button></div> : <div className="student-availability-week-switch"><button type="button" className={weekOffset === 0 ? 'active' : ''} onClick={() => setWeekOffset(0)}>Tuần này</button><button type="button" className={weekOffset === 1 ? 'active' : ''} onClick={() => setWeekOffset(1)}>Tuần sau</button><button type="button" className={weekOffset === 2 ? 'active' : ''} onClick={() => setWeekOffset(2)}>Tuần kế</button></div>}
+      {availabilityV4 ? <div className="student-availability-week-control"><button type="button" aria-label="Tuần trước" disabled={weekOffset === 0} onClick={() => setWeekOffset(0)}><ChevronLeft size={19} /></button><div><strong>{formatWeekRange(weekId)}</strong><span>{weekOffset === 0 ? 'Tuần này' : 'Tuần sau'}</span></div><button type="button" aria-label="Tuần sau" disabled={weekOffset === 1} onClick={() => setWeekOffset(1)}><ChevronRight size={19} /></button></div> : <div className="student-availability-week-switch"><button type="button" className={weekOffset === 0 ? 'active' : ''} onClick={() => setWeekOffset(0)}>Tuần này</button><button type="button" className={weekOffset === 1 ? 'active' : ''} onClick={() => setWeekOffset(1)}>Tuần sau</button></div>}
       <section className="student-availability-target" aria-label="Số buổi muốn tập trong tuần">
         <div className="student-availability-target__copy"><small>SỐ BUỔI MỖI TUẦN</small><strong>{effectiveSessions} buổi</strong><span>{requestedSessions === null ? `Theo hợp đồng · ${contractDefaultSessions} buổi` : 'Đăng ký riêng tuần này'}</span></div>
         <div className="student-availability-target__controls">
@@ -560,7 +563,7 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
         <span><CalendarRange size={20} /></span><div><strong>Cần nghỉ trong tuần này?</strong><p>Giữ nguyên lịch rảnh và đăng ký OFF/bảo lưu. Khi được duyệt, hệ thống tự chặn xếp buổi trong ngày nghỉ.</p></div>
         <button type="button" disabled={!activeContract} onClick={() => setShowPauseRequest(true)}>{activeContract ? 'Đăng ký OFF / Bảo lưu' : 'Chưa có hợp đồng hiệu lực'}</button>
       </div>}
-      {locked && <div className="student-schedule-state is-warning student-availability-lock-note" role="status"><AlertCircle size={22} /><div><strong>Tuần này đã chốt lịch rảnh</strong><span>Khóa từ {cutoffLabel}. Tuần đã chốt không tự mở lại.</span></div>{weekOffset < 2 && <button type="button" onClick={() => setWeekOffset((weekOffset + 1) as AvailabilityWeekOffset)}>Chọn tuần kế tiếp <ChevronRight size={16} /></button>}</div>}
+      {locked && <div className="student-schedule-state is-warning student-availability-lock-note" role="status"><AlertCircle size={22} /><div><strong>Tuần này đã chốt lịch rảnh</strong><span>Khóa từ {cutoffLabel}. {weekOffset === 1 ? `Tuần ${formatWeekRange(toIsoDate(addDays(weekStart, 7)))} mở đăng ký từ Thứ Hai ${formatDateLabel(weekId)}. Tuần chưa đăng ký dùng lịch rảnh gần nhất.` : 'Tuần đã chốt không tự mở lại.'}</span></div>{weekOffset === 0 && <button type="button" onClick={() => setWeekOffset(1)}>Chọn tuần sau <ChevronRight size={16} /></button>}</div>}
       {!locked && <div className={`student-availability-guidance is-${guidance.tone}`} role="status" aria-live="polite"><span>{missingSlots > 0 ? <AlertCircle size={20} /> : <Check size={20} />}</span><div><strong>{guidance.title}</strong><p>{guidance.message}</p></div><em>{selectedSlots.size}/{minimumSlots}</em></div>}
       <div className="student-schedule-legend"><span><i className="is-available" /> Có thể tập</span><span><i className="is-booked" /> Đã xếp ca</span><span><i className="is-linked" /> Đã liên kết</span></div>
       <div className="student-schedule-matrix-scroll" role="region" aria-label="Ma trận thời gian rảnh" tabIndex={0}>

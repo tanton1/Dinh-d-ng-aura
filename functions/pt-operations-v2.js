@@ -8,7 +8,7 @@ const {
   completeSessionAttendanceTransaction,
   recordSessionAttendanceTransaction,
 } = require('./session-operations')
-const { assertSessionChangeDeadline, ptOperationsPolicySnapshot } = require('./pt-policy')
+const { availabilityWeekNotOpen, assertSessionChangeDeadline, ptOperationsPolicySnapshot } = require('./pt-policy')
 const {
   availabilityReopenForWeek,
   effectiveStudentAvailability,
@@ -455,7 +455,9 @@ function availabilityCutoff(weekId, policyValue = {}) {
 function availabilityState(weekId, value, now = new Date(), policyValue = {}) {
   const cutoff = availabilityCutoff(weekId, policyValue)
   const reopenedUntil = availabilityReopenForWeek({ ...value, weekId }, weekId, now)
-  const locked = now.getTime() >= cutoff.getTime() && !reopenedUntil
+  // A week after next is read-only until it becomes next week, also for an
+  // older app bundle that still offers it in the week picker.
+  const locked = availabilityWeekNotOpen(weekId, now) || (now.getTime() >= cutoff.getTime() && !reopenedUntil)
   const slots = Array.isArray(value?.slots) ? value.slots : []
   const source = value?.source || 'weekly'
   const confirmed = slots.length > 0 && (value?.confirmed === true
@@ -1750,6 +1752,12 @@ function createPtOperationsV2Functions({
     ])
     const config = scheduleConfig(configSnapshot.data())
     const weekId = availabilityWeekId(request.data?.weekId)
+    if (availabilityWeekNotOpen(weekId)) {
+      throw new HttpsError('failed-precondition', 'Chỉ đăng ký lịch rảnh đến hết tuần sau. Tuần này chưa mở đăng ký.', {
+        issueCode: 'AVAILABILITY_WEEK_NOT_OPEN',
+        action: 'select_next_week',
+      })
+    }
     const slots = normalizedAvailabilitySlots(request.data?.availableSlots, config)
     const expectedRevision = integer(request.data?.expectedRevision, 0, 0, 1000000)
     const defaultSessionsPerWeek = contractDefaultSessionsPerWeek(

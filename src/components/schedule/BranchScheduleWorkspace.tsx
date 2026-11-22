@@ -333,7 +333,6 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const [expandedWarningStudentId, setExpandedWarningStudentId] = useState<string | null>(null)
   const [warningFilter, setWarningFilter] = useState<WarningFilter>('priority')
   const [availabilityEditorStudentId, setAvailabilityEditorStudentId] = useState<string | null>(null)
-  const [availabilityDraft, setAvailabilityDraft] = useState<Set<string>>(new Set())
   const [availabilityBusy, setAvailabilityBusy] = useState(false)
   const [availabilityError, setAvailabilityError] = useState('')
   const [resetDraftOpen, setResetDraftOpen] = useState(false)
@@ -720,6 +719,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     setPublishIssues([])
     setHistory(null)
     setInspectorSlotId(null)
+    setAvailabilityEditorStudentId(null)
     setPendingManualCandidate(null)
     setPendingAdminRemoval(null)
     setAdminEditReason('')
@@ -2088,7 +2088,6 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
 
   const openAvailabilityEditor = (student: PtScheduleWorkspaceV2Result['students'][number]) => {
     setAvailabilityEditorStudentId((current) => current === student.id ? null : student.id)
-    setAvailabilityDraft(new Set(student.availableSlots || []))
     setAvailabilityError('')
   }
 
@@ -2116,7 +2115,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     return () => window.clearTimeout(timer)
   }, [availabilityEditorStudentId, studentRows.length, tab])
 
-  const saveStudentAvailability = async (student: PtScheduleWorkspaceV2Result['students'][number]) => {
+  const saveStudentAvailability = async (student: PtScheduleWorkspaceV2Result['students'][number], slots: string[], expectedSlots: string[], expectedRevision: number) => {
     if (availabilityBusy) return
     const commandScope = workspaceScope
     setAvailabilityBusy(true); setAvailabilityError('')
@@ -2125,9 +2124,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         weekId: currentWeekId,
         branchId,
         studentId: student.id,
-        availableSlots: [...availabilityDraft],
-        expectedRevision: student.availabilityRevision,
-        confirmBelowMinimum: isAdmin && availabilityDraft.size < Math.max(5, Number(student.sessionsPerWeek || 1)),
+        availableSlots: slots,
+        expectedSlots,
+        expectedRevision,
+        confirmBelowMinimum: isAdmin && slots.length < Math.max(5, Number(student.sessionsPerWeek || 1)),
       })
       if (activeWorkspaceScopeRef.current !== commandScope) return
       candidateCache.current.clear()
@@ -2139,10 +2139,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           availabilityRevision: result.availabilityRevision,
           availabilityStatus: result.availabilityStatus,
           availabilitySource: 'weekly',
+          availabilitySourceWeekId: currentWeekId,
           isScheduleConfirmed: true,
         } : item),
       } : current)
-      setAvailabilityDraft(new Set(result.availableSlots))
       setNoticeAction(null)
       setNotice(result.belowMinimumConfirmed
         ? `Đã cập nhật lịch rảnh của ${student.name} với ${result.availableSlots.length} khung; hồ sơ đang thiếu khung để xếp đủ buổi.`
@@ -2573,7 +2573,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
               <div className="branch-schedule__student-schedule"><small>Buổi trong tuần{crossBranchScheduledSessions > 0 ? ` · +${crossBranchScheduledSessions} ở cơ sở khác` : ''}</small><div>{scheduledEntries.length ? scheduledEntries.map((entry) => <span key={`${entry.slotId}-${entry.trainerId}`} className={entry.trainerAssignmentWarning ? 'has-assignment-warning' : ''}>{entry.label}{approvedOffOnDate(student, weekDates[entry.slotId.split('-')[0]]?.full || '') && <em>{entry.studentOffConfirmed ? 'OFF · Admin đã xác nhận xếp lịch' : 'Trùng OFF · chưa xác nhận ngoại lệ'}</em>}<b>{workspace.trainers.find((trainer) => trainer.id === entry.trainerId)?.name || 'PT chưa cập nhật'}{entry.trainerAssignmentWarning && <AlertTriangle size={12} aria-label="PT hỗ trợ" />}</b></span>) : crossBranchScheduledSessions > 0 ? <em>Đã có lịch ở cơ sở khác</em> : <em>Chưa có buổi trong tuần</em>}</div></div>
               {!approvedOffWeek && <div className="branch-schedule__student-availability-action"><button type="button" className={`is-${student.availabilityStatus}`} aria-expanded={availabilityEditorStudentId === student.id} onClick={() => openAvailabilityEditor(student)}><CalendarRange size={16} />{student.availabilityStatus === 'locked' ? 'Lịch rảnh đã khóa' : CONFIRMED_AVAILABILITY_STATUSES.has(student.availabilityStatus) ? 'Lịch rảnh' : 'Thêm lịch rảnh'}</button>{!CONFIRMED_AVAILABILITY_STATUSES.has(student.availabilityStatus) && <span className="is-warning">Cần lịch rảnh</span>}</div>}
               {availabilityEditorStudentId === student.id && <Suspense fallback={<section className="branch-schedule__availability-editor" role="status">Đang tải lịch rảnh…</section>}>
-                <ScheduleAvailabilityEditor student={student} weekId={currentWeekId} days={workingDays} hours={workingHours} selected={availabilityDraft} onChange={setAvailabilityDraft} busy={availabilityBusy} error={availabilityError} isAdmin={isAdmin} onClose={() => setAvailabilityEditorStudentId(null)} onReopen={() => void reopenStudentAvailability(student)} onSave={() => void saveStudentAvailability(student)} />
+                <ScheduleAvailabilityEditor student={student} weekId={currentWeekId} days={workingDays} hours={workingHours} weekOpen={weekOffset <= 1} busy={availabilityBusy} error={availabilityError} isAdmin={isAdmin} onClose={() => setAvailabilityEditorStudentId(null)} onReopen={() => void reopenStudentAvailability(student)} onSave={(...edit) => void saveStudentAvailability(student, ...edit)} />
               </Suspense>}
               </article>
             })}

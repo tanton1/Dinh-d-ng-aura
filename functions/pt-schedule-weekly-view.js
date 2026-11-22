@@ -142,7 +142,9 @@ function compactStudent(student = {}, branchId = '', contract = null) {
     availabilityRevision: Number(student.availabilityRevision || 0),
     // Keep the read model bounded even for a large branch. The manual search
     // path still reads the authoritative availability document on demand.
-    availableSlots: Array.isArray(student.availableSlots) ? student.availableSlots.slice(0, 48) : [],
+    // Same 100-slot bound as the save: the editor saves what this view shows,
+    // so a lower bound here would silently delete slots.
+    availableSlots: Array.isArray(student.availableSlots) ? student.availableSlots.slice(0, 100) : [],
     contractStatus: stringValue(student.contractStatus, 40) || 'missing',
     contractEndDate: stringValue(student.contractEndDate || contract?.endDate, 20),
     eligibleContractIds: Array.isArray(student.eligibleContractIds) ? student.eligibleContractIds.slice(0, 20) : [],

@@ -7,7 +7,7 @@ const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { commandReceiptExpiresAt } = require('./command-receipt-retention')
 const { branchScheduleSnapshot, branchSlotCapacity, dateForSlot, nextWeek, normalizedCapacity, normalizedScheduleConfig, reintroducedSessionId, storedDate, trainerProfileForWeek, trainerIsAvailable } = require('./pt-schedule-publish')
-const { effectiveStudentAvailability } = require('./student-availability')
+const { effectiveStudentAvailability, inheritedAvailabilityForWeek } = require('./student-availability')
 const { sessionCountsTowardContract, summarizeContractUsage } = require('./contract-usage')
 const { contractSchedulableOn, contractPausedOn } = require('./contract-status')
 const { findScheduleContract, requireScheduleContract, requireCrossBranchConfirmation } = require('./schedule-entitlement-policy')
@@ -814,7 +814,9 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
         for (const row of rows.filter((row) => row.contractId === contractId)) reserved.add(`${row.studentId}|${dateForSlot(week, row.slot.split('-')[0])}|${row.slot.split('-')[1]}`)
         if (!contract || usage.remainingSessions <= reserved.size) warnings.push('CONTRACT_SESSION_QUOTA_EXCEEDED')
       }
-      const availability = effectiveStudentAvailability({ targetWeek: week, exact: learnerWeek.exists ? learnerWeek.data() : null, profile: student })
+      const exact = learnerWeek.exists ? learnerWeek.data() : null
+      const inherited = await inheritedAvailabilityForWeek({ db, transaction, studentId, profile: student, exact, targetWeek: week })
+      const availability = effectiveStudentAvailability({ targetWeek: week, exact, inherited, profile: student })
       const availabilityReason = !availability.confirmed ? 'AVAILABILITY_NOT_SUBMITTED' : !availability.slots.includes(slotId) ? 'OUTSIDE_STUDENT_AVAILABILITY' : null
       if (availabilityReason) warnings.push(availabilityReason)
       const assigned = [contract?.trainerId, ...(contract?.trainerIds || [])].filter(Boolean)
@@ -850,9 +852,11 @@ async function applyAdminScheduleEdit({ db, actor, branchId, week, command, payl
         && storedDate(item.data().startDate) <= targetDate
         && storedDate(item.data().endDate || item.data().startDate) >= targetDate)) warnings.push('TRAINER_ON_LEAVE')
 
+      const exact = learnerWeek.exists ? learnerWeek.data() : null
       const studentAvailability = effectiveStudentAvailability({
         targetWeek: week,
-        exact: learnerWeek.exists ? learnerWeek.data() : null,
+        exact,
+        inherited: await inheritedAvailabilityForWeek({ db, transaction, studentId, profile: student, exact, targetWeek: week }),
         profile: student,
       })
       const availabilityReason = !studentAvailability.confirmed

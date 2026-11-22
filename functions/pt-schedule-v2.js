@@ -22,6 +22,8 @@ const {
 const {
   availabilityReopenForWeek,
   effectiveStudentAvailability,
+  inheritedAvailabilityForWeek,
+  submittedAhead,
   loadLatestSubmittedFallbacks,
   normalizeRequestedSessions,
   studentAvailabilityProfilePatch,
@@ -34,7 +36,7 @@ const {
   contractSchedulingEntitlement,
   resolveSchedulingContract,
 } = require('./contract-scheduling')
-const { ptOperationsPolicySnapshot } = require('./pt-policy')
+const { availabilityWeekNotOpen, ptOperationsPolicySnapshot } = require('./pt-policy')
 const { availabilityReopenedNotification } = require('./student-reminders')
 const { hiddenExpiredStudent, approvedContractOff, findScheduleContract, requireScheduleContract, confirmedStudentOff, entryOnApprovedOff, requireCrossBranchConfirmation } = require('./schedule-entitlement-policy')
 
@@ -92,6 +94,27 @@ function availabilityCutoff(weekId, policyValue = {}) {
   const monday = Date.parse(`${weekId}T00:00:00+07:00`)
   const daysBefore = (1 - policy.availabilityRegistrationCutoffDayOfWeek + 7) % 7 || 7
   return new Date(monday - daysBefore * 24 * 60 * 60 * 1000 + policy.availabilityRegistrationCutoffHour * 60 * 60 * 1000)
+}
+
+function activeProfilesSubmittedAhead(studentMap, week) {
+  return new Map([...studentMap].filter(([, profile]) => !['inactive', 'archived', 'deleted'].includes(String(profile?.status || '').toLowerCase())
+    && submittedAhead(profile, week)))
+}
+
+// Fast and reconciled projections share this, so a repaint cannot relabel a week.
+function workspaceAvailabilityStatus(effective, week, policyValue) {
+  if (effective.source === 'weekly') return availabilityStatusForWeek(effective, week, policyValue)
+  if (effective.source === 'inherited_weekly') return 'inherited'
+  return effective.source === 'legacy_default' && effective.confirmed ? 'recurring' : 'missing'
+}
+
+function availabilitySlotsKey(slots) {
+  return [...new Set(slots)].sort().join('|')
+}
+
+function assertAvailabilityWeekOpen(weekId) {
+  if (!availabilityWeekNotOpen(weekId)) return
+  throw new HttpsError('failed-precondition', 'Chỉ đăng ký lịch rảnh đến hết tuần sau. Tuần này chưa mở đăng ký.', { issueCode: 'AVAILABILITY_WEEK_NOT_OPEN' })
 }
 
 function availabilityWindowForWeek(weekId, policyValue = {}, availability = {}, now = new Date()) {
@@ -937,25 +960,25 @@ function leaveCovers(leave, trainerId, date) {
   return Boolean(start && end && date >= start && date <= end)
 }
 
-function initialStudentProjection(item, branchId, displayOnly = false, week = '', policyValue = {}, weeklyTargets = {}) {
+function initialStudentProjection(item, branchId, displayOnly, week, policyValue, weeklyTargets, evidence) {
   const data = item.data() || {}
   const inactive = ['inactive', 'archived', 'deleted'].includes(String(data.status || '').toLowerCase())
+  // students.availableSlots mirrors the newest submitted week, which is not
+  // necessarily the week on screen. Never paint it without resolving the week.
+  const effective = effectiveStudentAvailability({
+    targetWeek: week,
+    exact: evidence.exact.get(item.id),
+    inherited: evidence.inherited.get(item.id),
+    profile: data,
+  })
   const defaultSessionsPerWeek = Math.max(0, Math.min(7, Number(data.sessionsPerWeek || 0)))
   const hasWeeklyTarget = Object.prototype.hasOwnProperty.call(weeklyTargets || {}, item.id)
+  const availabilityRequestedSessions = normalizeRequestedSessions(effective.requestedSessions)
   const weeklyTarget = hasWeeklyTarget
     ? Math.max(0, Math.min(7, Number(weeklyTargets[item.id] || 0)))
-    : defaultSessionsPerWeek
-  const availableSlots = Array.isArray(data.availableSlots) ? data.availableSlots.slice(0, 100) : []
-  const storedWeekId = data.latestSubmittedAvailability?.weekId || data.availabilityWeekId || ''
-  const storedAvailability = {
-    source: data.availabilitySource === 'weekly' || storedWeekId === week ? 'weekly' : data.availabilitySource,
-    status: data.availabilityStatus,
-    reopenedUntil: availabilityReopenForWeek(data, week)?.toISOString() || null,
-  }
-  const availabilityWindow = week ? availabilityWindowForWeek(week, policyValue, storedAvailability) : null
-  const availabilityStatus = week
-    ? availabilityStatusForWeek(storedAvailability, week, policyValue)
-    : data.availabilityStatus
+    : availabilityRequestedSessions ?? defaultSessionsPerWeek
+  const availableSlots = effective.slots.slice(0, 100)
+  const availabilityWindow = availabilityWindowForWeek(week, policyValue, effective)
   return {
     id: item.id,
     name: data.name || 'Chưa cập nhật tên',
@@ -968,20 +991,20 @@ function initialStudentProjection(item, branchId, displayOnly = false, week = ''
     defaultSessionsPerWeek,
     weeklySessionTargetOverride: hasWeeklyTarget ? weeklyTarget : null,
     weeklySessionTargetOverridden: hasWeeklyTarget,
-    availabilityRequestedSessions: null,
-    availabilityTargetOverridden: false,
+    availabilityRequestedSessions,
+    availabilityTargetOverridden: availabilityRequestedSessions !== null,
     maxWeeklySessions: defaultSessionsPerWeek,
     schedulableSessionsThisWeek: defaultSessionsPerWeek,
     availableSlots,
-    availabilityStatus: availabilityStatus || (availableSlots.length ? 'recurring' : 'missing'),
-    availabilityLocked: availabilityWindow?.locked === true,
-    availabilityCutoffAt: availabilityWindow?.cutoffAt.toISOString() || null,
-    availabilityReopenedUntil: availabilityWindow?.reopenedUntil?.toISOString() || null,
-    availabilityRevision: Number(data.availabilityRevision || 0),
-    availabilitySourceRevision: Number(data.availabilitySourceRevision || 0),
-    availabilitySourceWeekId: data.availabilitySourceWeekId || null,
-    availabilitySource: data.availabilitySource || (availableSlots.length ? 'legacy_default' : 'none'),
-    isScheduleConfirmed: data.isScheduleConfirmed === true,
+    availabilityStatus: workspaceAvailabilityStatus(effective, week, policyValue),
+    availabilityLocked: availabilityWindow.locked,
+    availabilityCutoffAt: availabilityWindow.cutoffAt.toISOString(),
+    availabilityReopenedUntil: availabilityWindow.reopenedUntil?.toISOString() || null,
+    availabilityRevision: Number(effective.targetRevision || 0),
+    availabilitySourceRevision: Number(effective.sourceRevision || 0),
+    availabilitySourceWeekId: effective.sourceWeekId,
+    availabilitySource: effective.source,
+    isScheduleConfirmed: effective.confirmed === true,
     eligibleForWeek: false,
     eligibilityReasons: ['WORKSPACE_HYDRATING'],
     eligibleContractIds: [],
@@ -1090,10 +1113,16 @@ async function loadBranchDataInitial(db, branchId, week, options = {}) {
     return profile?.branchId && profile.branchId !== branchId
   }))
   const scheduleConfig = normalizedScheduleConfig(config.data())
-  const projectedStudents = students.docs.map((item) => initialStudentProjection(item, branchId, false, week, config.data(), weeklySessionTargets))
+  const ahead = activeProfilesSubmittedAhead(studentMap, week)
+  const exact = new Map((await exactAvailabilityForStudents(db, [...ahead.keys()], week))
+    .map((item) => item.data())
+    .filter((value) => ahead.has(value?.studentId))
+    .map((value) => [value.studentId, value]))
+  const evidence = { exact, inherited: await loadLatestSubmittedFallbacks(db, ahead, exact, week) }
+  const projectedStudents = students.docs.map((item) => initialStudentProjection(item, branchId, false, week, config.data(), weeklySessionTargets, evidence))
   const projectedCrossBranchStudents = referencedStudentSnapshots
     .filter((item) => crossBranchStudentIds.has(item.id))
-    .map((item) => initialStudentProjection(item, branchId, true, week, config.data(), weeklySessionTargets))
+    .map((item) => initialStudentProjection(item, branchId, true, week, config.data(), weeklySessionTargets, evidence))
   return {
     partial: true,
     readMode: 'display',
@@ -1334,19 +1363,9 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
   // The fast projection path still checks the small exceptional set whose
   // profile projection points to a future week: a learner can submit next
   // week's matrix before the current week's exact document is displayed.
-  const futureProjectedStudentIds = fastWorkspace
-    ? [...fallbackStudentMap.entries()]
-      .filter(([, profile]) => {
-        const projectedWeek = typeof profile.latestSubmittedAvailability?.weekId === 'string'
-          ? profile.latestSubmittedAvailability.weekId
-          : ''
-        return /^\d{4}-\d{2}-\d{2}$/.test(projectedWeek) && projectedWeek > week
-      })
-      .map(([studentId]) => studentId)
-    : []
-  const availability = fastWorkspace
-    ? await exactAvailabilityForStudents(db, futureProjectedStudentIds, week)
-    : await exactAvailabilityForStudents(db, [...fallbackStudentMap.keys()], week)
+  const aheadProfiles = activeProfilesSubmittedAhead(studentMap, week)
+  const availabilityProfiles = fastWorkspace ? aheadProfiles : new Map([...fallbackStudentMap, ...aheadProfiles])
+  const availability = await exactAvailabilityForStudents(db, [...availabilityProfiles.keys()], week)
   const weeklyAvailability = new Map(availability.map((item) => item.data()).filter((item) => studentMap.has(item.studentId)).map((item) => [item.studentId, item]))
   // Migrated profiles without the denormalized latest submission need a
   // bounded historical lookup. Only learners who can affect this workspace
@@ -1365,11 +1384,14 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
   const fallbackProfiles = options.skipLegacyAvailabilityFallback && publishedWorkspace
     ? new Map([...fallbackStudentMap].filter(([studentId]) => referencedStudentIds.has(studentId) || previousWeekSessionCounts.has(studentId)))
     : fallbackStudentMap
-  const inheritedAvailability = fastWorkspace
-    ? new Map()
-    : options.skipLegacyAvailabilityFallback && publishedWorkspace
-      ? await loadLatestSubmittedFallbacks(db, fallbackProfiles, weeklyAvailability, week)
-      : await loadLatestSubmittedFallbacks(db, fallbackStudentMap, weeklyAvailability, week)
+  // A learner who submitted a later week always needs the history lookup, in
+  // every mode: their profile cannot say which earlier week is the nearest.
+  const inheritedAvailability = await loadLatestSubmittedFallbacks(
+    db,
+    fastWorkspace ? aheadProfiles : new Map([...fallbackProfiles, ...aheadProfiles]),
+    weeklyAvailability,
+    week,
+  )
   const mappedStudents = [...students.docs, ...referencedStudentSnapshots].map((item) => {
     const data = item.data()
     const displayOnly = crossBranchStudentIds.has(item.id)
@@ -1380,13 +1402,7 @@ async function loadBranchDataFresh(db, branchId, week, options = {}) {
       inherited: inheritedAvailability.get(item.id),
       profile: data,
     })
-    const availabilityStatus = effectiveAvailability.source === 'weekly'
-      ? availabilityStatusForWeek(effectiveAvailability, week, config.data())
-      : effectiveAvailability.source === 'inherited_weekly'
-        ? 'inherited'
-        : effectiveAvailability.source === 'legacy_default' && effectiveAvailability.confirmed
-          ? 'recurring'
-          : 'missing'
+    const availabilityStatus = workspaceAvailabilityStatus(effectiveAvailability, week, config.data())
     const availabilityWindow = availabilityWindowForWeek(week, config.data(), effectiveAvailability)
     const studentContracts = mappedContractsByStudent.get(item.id) || []
     const eligibility = studentWeekEligibility(studentContracts, item.id, displayOnly ? data.branchId : branchId, week, undefined, false, config.data() || {})
@@ -4486,12 +4502,12 @@ function adminDraftContract(contracts, studentId, preferredId = '', targetDate =
     || String(left.id || '').localeCompare(String(right.id || '')))[0] || null
 }
 
-function adminDraftAvailabilityWarnings({ student, trainer, exactStudent, exactTrainer, slotId, week, leaves = [], contract = null }) {
+function adminDraftAvailabilityWarnings({ student, trainer, exactStudent, inheritedStudent = null, exactTrainer, slotId, week, leaves = [], contract = null }) {
   const warnings = new Set()
   const effective = effectiveStudentAvailability({
     targetWeek: week,
     exact: exactStudent,
-    inherited: null,
+    inherited: inheritedStudent,
     profile: student,
   })
   if (!['submitted', 'locked', 'inherited', 'recurring'].includes(effective.status)) warnings.add('AVAILABILITY_NOT_SUBMITTED')
@@ -4609,10 +4625,12 @@ async function applyFastAdminDraftCommand({ db, actor, branchId, week, command, 
       requireCrossBranchConfirmation(student, branchId, payload)
       const contract = requireScheduleContract(contracts, studentId, targetDate, typeof payload.contractId === 'string' ? payload.contractId : '', payload.confirmStudentOff === true)
       selectedContractId = contract?.id || ''
+      const exactStudent = snapshots.studentAvailability.exists ? snapshots.studentAvailability.data() : null
       const warnings = adminDraftAvailabilityWarnings({
         student,
         trainer,
-        exactStudent: snapshots.studentAvailability.exists ? snapshots.studentAvailability.data() : null,
+        exactStudent,
+        inheritedStudent: await inheritedAvailabilityForWeek({ db, transaction, studentId, profile: student, exact: exactStudent, targetWeek: week }),
         exactTrainer: snapshots.trainerAvailability.exists ? snapshots.trainerAvailability.data() : null,
         slotId,
         week,
@@ -5278,6 +5296,13 @@ function createPtScheduleV2Functions({
     const expectedRevision = Number(request.data?.expectedRevision)
     if (!Number.isInteger(expectedRevision) || expectedRevision < 0) throw new HttpsError('invalid-argument', 'Phiên bản lịch rảnh không hợp lệ.')
     const actor = await actorForBranch(request, db, branchId)
+    assertAvailabilityWeekOpen(week)
+    // Revisions restart every week, so they cannot tell two weeks apart. The
+    // editor also sends the slots it started from.
+    const expectedSlots = request.data?.expectedSlots
+    if (!Array.isArray(expectedSlots) || expectedSlots.length > 100) {
+      throw new HttpsError('failed-precondition', 'Bản ứng dụng đã cũ. Hãy tải lại trang rồi lưu lịch rảnh.', { issueCode: 'AVAILABILITY_RELOAD_REQUIRED' })
+    }
     const [studentSnapshot, configSnapshot] = await Promise.all([
       db.doc(`students/${studentId}`).get(),
       db.doc('settings/scheduleConfig').get(),
@@ -5314,6 +5339,16 @@ function createPtScheduleV2Functions({
       const availabilityStatus = Date.now() >= cutoff.getTime() && !reopenedUntil ? 'locked' : 'submitted'
       const revision = Number(current.data()?.revision || 0)
       if (revision !== expectedRevision) throw new HttpsError('aborted', 'Lịch rảnh đã thay đổi. Hãy tải lại trước khi lưu.', { issueCode: 'REVISION_CONFLICT', currentRevision: revision })
+      const exact = current.exists ? current.data() : null
+      const effective = effectiveStudentAvailability({
+        targetWeek: week,
+        exact,
+        inherited: await inheritedAvailabilityForWeek({ db, transaction, studentId, profile: currentProfile.data(), exact, targetWeek: week }),
+        profile: currentProfile.data(),
+      })
+      if (availabilitySlotsKey(effective.slots) !== availabilitySlotsKey(expectedSlots)) {
+        throw new HttpsError('aborted', 'Lịch rảnh trên màn hình không phải lịch hiện tại của tuần này. Chưa lưu gì; hãy tải lại rồi chỉnh.', { issueCode: 'REVISION_CONFLICT', currentRevision: revision })
+      }
       const next = {
         schemaVersion: 1,
         studentId,
@@ -5387,6 +5422,7 @@ function createPtScheduleV2Functions({
     const expectedRevision = Number(request.data?.expectedRevision)
     if (!Number.isInteger(expectedRevision) || expectedRevision < 0) throw new HttpsError('invalid-argument', 'Phiên bản lịch rảnh không hợp lệ.')
     const actor = await actorForBranch(request, db, branchId)
+    assertAvailabilityWeekOpen(week)
     if (!activeAdministrator(actor)) throw new HttpsError('permission-denied', 'Chỉ Admin mới được mở lại lịch rảnh cho học viên.')
     const studentReference = db.doc(`students/${studentId}`)
     const availabilityReference = db.doc(`ptAvailability/${studentId}_${week}`)

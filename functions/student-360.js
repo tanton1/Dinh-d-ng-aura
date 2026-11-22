@@ -17,6 +17,7 @@ const { sourceChanged, coalesceProjectionRebuild, upsertChangedTimeline, student
 const { calculateNutritionTargets, canonicalNutritionProfile } = require('./nutrition-core.mjs')
 const { canonicalSessionRows } = require('./session-schedule-normalization')
 const { cacheScope, createProcessCache } = require('./process-cache')
+const { inheritedAvailabilityForWeek, submittedAhead } = require('./student-availability')
 const { withStudent360CallableDiagnostics } = require('./student-360-callable-diagnostics')
 const { recordOperationMetrics } = require('./operation-metrics')
 const { enqueueStudent360Refresh } = require('./student-360-refresh-queue')
@@ -1291,6 +1292,8 @@ async function projectionSources(db, studentId, weekId, options = {}) {
   ])
   const profile = profileResult.profile
   const accountUid = profileResult.accountUid
+  const availability = availabilitySnapshot.exists ? { id: availabilitySnapshot.id, ...availabilitySnapshot.data() } : null
+  const inheritedAvailability = await inheritedAvailabilityForWeek({ db, studentId, profile: student, exact: availability, targetWeek: weekId })
   const [mealLogs, mealReviews, progressSources, trainingProgramSnapshot] = await Promise.all([
     !options.operationsOnly && accountUid ? latestDocuments(db.collection(`users/${accountUid}/mealLogs`), 'date', PROJECTION_READ_LIMITS.mealLogs) : [],
     !options.operationsOnly && accountUid ? latestDocuments(db.collection('mealReviews').where('userId', '==', accountUid), 'createdAt', PROJECTION_READ_LIMITS.mealReviews) : [],
@@ -1312,7 +1315,8 @@ async function projectionSources(db, studentId, weekId, options = {}) {
       ...payments.map((item) => ({ ...item, timelineSource: 'legacy_payment' })),
       ...ledgerEntries.map((item) => ({ ...item, timelineSource: 'finance_ledger' })),
     ],
-    availability: availabilitySnapshot.exists ? { id: availabilitySnapshot.id, ...availabilitySnapshot.data() } : null,
+    availability,
+    inheritedAvailability,
     profile,
     accountUid,
     accountLinkSource: profileResult.source || (accountUid ? 'students.accountUid' : 'missing'),
@@ -1653,8 +1657,12 @@ async function student360ProjectionData({ db, studentId, weekId, sources, operat
   const nutrition = operationsBase ? operationsBase.nutrition : mealProjection(sources.mealLogs, sources.profile, today)
   const progress = operationsBase ? operationsBase.progress : profileProgress(sources.profile || {}, sources.bodyMetrics).summary
   const progressAgeDays = progress?.latestDate ? Math.max(0, daysBetween(progress.latestDate, today)) : null
-  const availability = sources.availability || sources.student.latestSubmittedAvailability || sources.student.legacyDefaultAvailability || null
-  const slots = normalizedArray(availability?.slots || sources.student.availableSlots)
+  // The profile's newest submission may belong to next week; it never stands in for this one.
+  const profileIsAhead = submittedAhead(sources.student, weekId)
+  const availability = sources.availability || sources.inheritedAvailability
+    || (profileIsAhead ? null : sources.student.latestSubmittedAvailability)
+    || sources.student.legacyDefaultAvailability || null
+  const slots = normalizedArray(availability?.slots || (profileIsAhead ? [] : sources.student.availableSlots))
   const confirmedAvailability = Boolean(availability?.confirmed || ['submitted', 'locked', 'inherited'].includes(availability?.status) || sources.student.isScheduleConfirmed)
   const latestAttendanceMillis = Math.max(0, ...attendanceRows.map((item) => timestampMillis(item.updatedAt || item.createdAt) || dateKeyMillis(sessionDate(item))))
   const latestNonAttendanceActivityMillis = operationsBase ? operationsBase.nutritionRefreshBasis.operations.latestNonAttendanceActivityMillis : Math.max(0, ...[

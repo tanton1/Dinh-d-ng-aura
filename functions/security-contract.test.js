@@ -426,7 +426,10 @@ test('authenticated bootstrap confirms server data without blocking the profile 
 })
 
 test('schedule workspace scopes exact availability reads and bounds legacy fallback rounds', () => {
-  assert.match(ptScheduleV2Source, /exactAvailabilityForStudents\(db, \[\.\.\.fallbackStudentMap\.keys\(\)\], week\)/)
+  // Exact reads stay scoped to learners who affect the week, plus the few whose profile already points past it.
+  assert.match(ptScheduleV2Source, /availabilityProfiles = fastWorkspace \? aheadProfiles : new Map\(\[\.\.\.fallbackStudentMap, \.\.\.aheadProfiles\]\)/)
+  assert.match(ptScheduleV2Source, /exactAvailabilityForStudents\(db, \[\.\.\.availabilityProfiles\.keys\(\)\], week\)/)
+  assert.doesNotMatch(ptScheduleV2Source, /exactAvailabilityForStudents\(db, \[\.\.\.studentMap\.keys\(\)\], week\)/)
   assert.match(ptScheduleV2Source, /activeSessionsForStudents\(db, \[\.\.\.reservationStudentIds\], week\)/)
   assert.match(ptScheduleV2Source, /MAX_ACTIVE_RESERVATION_SESSIONS = 3000/)
   assert.doesNotMatch(ptScheduleV2Source, /collection\('sessions'\)\.where\('branchId', '==', branchId\)\.where\('status', 'in', \['scheduled', 'rescheduled'\]\)/)
@@ -810,7 +813,7 @@ test('PT schedule V2 is actor-scoped, date-exact, branch-owned and command revis
   assert.match(ptScheduleV2Source, /AMBIGUOUS_ACTIVE_CONTRACT/)
   assert.match(ptScheduleV2Source, /TRAINER_AVAILABILITY_UNCONFIGURED/)
   assert.match(ptScheduleV2Source, /const fallbackStudentMap = new Map[\s\S]*?studentWeekEligibility\(mappedContractsByStudent\.get\(studentId\) \|\| \[\], studentId, branchId, week, undefined, false, config\.data\(\) \|\| \{\}\)\.eligible/)
-  assert.match(ptScheduleV2Source, /loadLatestSubmittedFallbacks\(db, fallbackStudentMap, weeklyAvailability, week\)/)
+  assert.match(ptScheduleV2Source, /fastWorkspace \? aheadProfiles : new Map\(\[\.\.\.fallbackProfiles, \.\.\.aheadProfiles\]\),\s*weeklyAvailability,\s*week,/)
   assert.match(studentAvailabilitySource, /const weekly = normalizedSubmittedAvailability[\s\S]*?if \(weekly\)[\s\S]*?const inheritedCandidates[\s\S]*?const legacy = legacyDefaultAvailability/)
   assert.match(studentAvailabilitySource, /source: 'inherited_weekly'/)
   assert.match(studentAvailabilitySource, /source: 'legacy_default'/)

@@ -27,6 +27,7 @@ const {
 } = require('./pt-schedule-publish')
 const {
   effectiveStudentAvailability,
+  inheritedAvailabilityForWeek,
   loadLatestSubmittedFallbacks,
   normalizedSubmittedAvailability,
 } = require('./student-availability')
@@ -2503,10 +2504,11 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       if (!assignedTrainerIds.has(selectedSuggestion.trainerId) && trainerPolicy(trainer).employmentType !== 'full_time') throw new HttpsError('failed-precondition', 'Ca ngoài PT phụ trách chỉ được chọn PT chính thức toàn thời gian.')
       const { slotId } = assertOperatingCalendar(configSnapshot.exists ? configSnapshot.data() : {}, selectedSuggestion.date, selectedSuggestion.hour)
       if (!trainerIsAvailable(trainer, slotId)) throw new HttpsError('failed-precondition', 'Ca đăng ký không còn nằm trong lịch rảnh PT tuần này.')
+      const exactAvailability = availabilitySnapshot.exists ? availabilitySnapshot.data() : null
       const studentAvailability = effectiveStudentAvailability({
         targetWeek,
-        exact: availabilitySnapshot.exists ? availabilitySnapshot.data() : null,
-        inherited: null,
+        exact: exactAvailability,
+        inherited: await inheritedAvailabilityForWeek({ db, transaction, studentId, profile: student, exact: exactAvailability, targetWeek }),
         profile: student,
       })
       if (!studentAvailability.confirmed || !studentAvailability.slots.includes(slotId)) throw new HttpsError('failed-precondition', 'Ca đăng ký không còn nằm trong lịch rảnh hiệu lực của học viên.')
@@ -3524,10 +3526,11 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         if (!assignedTrainerIds.has(trainerId) && trainerPolicy(trainer).employmentType !== 'full_time') throw new HttpsError('failed-precondition', 'Ca ngoài PT phụ trách chỉ được chọn PT chính thức toàn thời gian.')
         const { slotId } = assertOperatingCalendar(configSnapshot.exists ? configSnapshot.data() : {}, targetDate, targetHour)
         if (!trainerIsAvailable(trainer, slotId)) throw new HttpsError('failed-precondition', 'Ca đăng ký không còn nằm trong lịch rảnh PT tuần này.')
+        const exactAvailability = availabilitySnapshot.exists ? availabilitySnapshot.data() : null
         const studentAvailability = effectiveStudentAvailability({
           targetWeek,
-          exact: availabilitySnapshot.exists ? availabilitySnapshot.data() : null,
-          inherited: null,
+          exact: exactAvailability,
+          inherited: await inheritedAvailabilityForWeek({ db, transaction, studentId, profile: student, exact: exactAvailability, targetWeek }),
           profile: student,
         })
         if (!studentAvailability.confirmed || !studentAvailability.slots.includes(slotId)) throw new HttpsError('failed-precondition', 'Ca đăng ký không còn nằm trong lịch rảnh hiệu lực của học viên.')
@@ -3812,10 +3815,11 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         targetSiteCapacity = targetBranchId ? branchSlotCapacity(normalizedScheduleConfig(configSnapshot.exists ? configSnapshot.data() : {}), targetBranchId, slotId) : null
         if (targetSiteCapacity !== null) branchDay = await transaction.get(dailySessionsQuery(db, 'branchId', targetBranchId, newDate))
         const studentData = studentSnapshot.data()
+        const exactAvailability = availabilitySnapshot.exists ? availabilitySnapshot.data() : null
         const studentAvailability = effectiveStudentAvailability({
           targetWeek,
-          exact: availabilitySnapshot.exists ? availabilitySnapshot.data() : null,
-          inherited: null,
+          exact: exactAvailability,
+          inherited: await inheritedAvailabilityForWeek({ db, transaction, studentId: session.studentId, profile: studentData, exact: exactAvailability, targetWeek }),
           profile: studentData,
         })
         const availabilityIssue = !studentAvailability.confirmed

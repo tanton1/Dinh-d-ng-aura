@@ -235,15 +235,15 @@ function studentAvailabilityProfilePatch(profile, submission) {
   return patch
 }
 
-async function latestSubmittedBeforeWeek(db, studentId, targetWeek) {
+async function latestSubmittedBeforeWeek(db, studentId, targetWeek, transaction = null) {
   const lowerBound = `${studentId}_0000-00-00`
   const upperBound = `${studentId}_${targetWeek}`
-  const snapshot = await db.collection('ptAvailability')
+  const query = db.collection('ptAvailability')
     .where(FieldPath.documentId(), '>=', lowerBound)
     .where(FieldPath.documentId(), '<', upperBound)
     .orderBy(FieldPath.documentId(), 'desc')
     .limit(52)
-    .get()
+  const snapshot = await (transaction ? transaction.get(query) : query.get())
   for (const item of snapshot.docs) {
     const value = item.data()
     if (value.studentId !== studentId) continue
@@ -251,6 +251,26 @@ async function latestSubmittedBeforeWeek(db, studentId, targetWeek) {
     if (normalized) return normalized
   }
   return null
+}
+
+// The profile keeps only the newest submission. Once that is a later week than
+// the one being read, the nearest earlier week exists only in ptAvailability.
+function submittedAhead(profile, targetWeek) {
+  const latest = normalizedSubmittedAvailability(profile?.latestSubmittedAvailability)
+  return Boolean(latest && latest.weekId > targetWeek)
+}
+
+/** One learner's nearest earlier week. Costs a query only when the profile points past the target week. */
+async function inheritedAvailabilityForWeek({ db, transaction = null, studentId, profile, exact, targetWeek }) {
+  if (normalizedSubmittedAvailability(exact, targetWeek) || !submittedAhead(profile, targetWeek)) return null
+  return latestSubmittedBeforeWeek(db, studentId, targetWeek, transaction)
+}
+
+// Every save advances this marker, including edits of a week older than the
+// newest one, so a cached fallback cannot outlive such an edit.
+function fallbackVersion(profile) {
+  const updatedAt = profile?.latestAvailabilityUpdatedAt
+  return String(updatedAt?.toMillis?.() ?? updatedAt ?? '')
 }
 
 async function cachedLatestSubmittedBeforeWeek(db, studentId, targetWeek, readVersion = '') {
@@ -299,7 +319,7 @@ async function loadLatestSubmittedFallbacks(db, profiles, exactAvailability, tar
   // from turning a 500-student branch into 25 sequential network rounds.
   for (let index = 0; index < unresolved.length; index += 50) {
     const chunk = unresolved.slice(index, index + 50)
-    const values = await Promise.all(chunk.map((studentId) => cachedLatestSubmittedBeforeWeek(db, studentId, targetWeek, readVersion)))
+    const values = await Promise.all(chunk.map((studentId) => cachedLatestSubmittedBeforeWeek(db, studentId, targetWeek, `${readVersion}|${fallbackVersion(profiles.get(studentId))}`)))
     values.forEach((value, valueIndex) => {
       if (value) result.set(chunk[valueIndex], value)
     })
@@ -310,6 +330,7 @@ async function loadLatestSubmittedFallbacks(db, profiles, exactAvailability, tar
 module.exports = {
   availabilityReopenForWeek,
   effectiveStudentAvailability,
+  inheritedAvailabilityForWeek,
   invalidateStudentAvailabilityFallbacks,
   latestProfileAvailability,
   latestSubmittedBeforeWeek,
@@ -318,4 +339,5 @@ module.exports = {
   normalizedSubmittedAvailability,
   normalizeRequestedSessions,
   studentAvailabilityProfilePatch,
+  submittedAhead,
 }

@@ -121,7 +121,7 @@ export const savePtStudentAvailability = async (input: any) => {
   track('save-availability', input)
   if ((window as any).__holdAvailabilitySave) await new Promise<void>((resolve) => { (window as any).__releaseAvailabilitySave = resolve })
   if ((window as any).__failAvailabilitySave) throw Error('Không lưu được lịch rảnh; hãy thử lại')
-  return { availableSlots: [], availabilityRevision: 2, availabilityStatus: 'submitted' }
+  return { availableSlots: input.availableSlots, availabilityRevision: 2, availabilityStatus: 'submitted' }
 }
 export const reopenPtStudentAvailability = async (input: any) => {
   track('reopen-availability', input)

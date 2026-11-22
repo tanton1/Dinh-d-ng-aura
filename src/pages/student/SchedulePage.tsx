@@ -125,7 +125,7 @@ function issueCopy(issue: StudentPtScheduleServiceError) {
     case 'REVISION_CONFLICT':
       return { title: 'Lịch rảnh vừa được cập nhật ở nơi khác', description: 'Aura đã tải lại phiên bản mới nhất. Hãy kiểm tra và chọn lại các thay đổi cần lưu.' }
     case 'AVAILABILITY_LOCKED':
-      return { title: 'Lịch rảnh của tuần đã khóa', description: 'Hạn gửi được áp dụng theo chính sách của tuần. Hãy chọn tuần kế tiếp hoặc liên hệ vận hành khi cần điều chỉnh.' }
+      return { title: 'Lịch rảnh của tuần đã khóa', description: 'Hạn gửi được áp dụng theo chính sách của tuần. Hãy liên hệ vận hành khi cần điều chỉnh.' }
     case 'MINIMUM_AVAILABILITY_REQUIRED':
       return { title: 'Chưa đủ khung giờ rảnh', description: issue.message }
     case 'AVAILABILITY_EMPTY':

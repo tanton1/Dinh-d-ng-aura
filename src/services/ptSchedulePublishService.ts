@@ -817,6 +817,8 @@ export function savePtStudentAvailability(input: {
   studentId: string
   availableSlots: string[]
   expectedRevision: number
+  /** The week's slots the edit started from; the server rejects a save based on another week. */
+  expectedSlots: string[]
   confirmBelowMinimum?: boolean
 }) {
   return invoke<typeof input, { schemaVersion: number; availableSlots: string[]; availabilityRevision: number; availabilityStatus: string; belowMinimumConfirmed?: boolean }>('savePtStudentAvailability', input)

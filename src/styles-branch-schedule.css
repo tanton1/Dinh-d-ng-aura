@@ -329,7 +329,8 @@
 .branch-schedule__availability-editor header strong { font-size:1rem; }
 .branch-schedule__availability-editor header span { color:#d12970; font-size:.72rem; font-weight:850; }
 .branch-schedule__availability-editor p { margin:0; padding:9px 12px; border-radius:12px; color:#a52b54; background:#fff0f3; font-size:.74rem; font-weight:700; }
-.branch-schedule__availability-editor footer { justify-content:flex-end; }
+.branch-schedule__availability-editor footer { flex-wrap:wrap; justify-content:flex-end; }
+.branch-schedule__availability-editor footer button:disabled { cursor:not-allowed; opacity:.5; }
 .branch-schedule__availability-editor footer button { border:1px solid #efdce3; border-radius:11px; padding:9px 13px; color:#765e69; background:#fff; font-weight:800; }
 .branch-schedule__availability-editor footer button.is-reopen { display:flex; align-items:center; gap:7px; border-color:#f2c58d; color:#9b5a1e; background:#fff7e9; }
 .branch-schedule__availability-editor footer button.is-save { display:flex; align-items:center; gap:7px; border:0; color:#fff; background:linear-gradient(135deg,#f72d83,#ff8650); }

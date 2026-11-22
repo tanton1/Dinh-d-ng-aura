@@ -41,6 +41,19 @@ function vietnamDateKey(value = new Date()) {
   return new Date(instant.getTime() + VIETNAM_OFFSET_MS).toISOString().slice(0, 10)
 }
 
+/** Monday of the week after the current Vietnam week: the furthest week open for learner availability. */
+function nextAvailabilityWeek(now = new Date()) {
+  const today = vietnamDateKey(now)
+  const weekday = new Date(`${today}T00:00:00.000Z`).getUTCDay()
+  return new Date(Date.parse(`${today}T00:00:00.000Z`) + (weekday === 0 ? 1 : 8 - weekday) * DAY_MS).toISOString().slice(0, 10)
+}
+
+// Registering two weeks ahead was how learners saved the wrong week: both the
+// learner and staff write paths, and every lock shown to learners, use this rule.
+function availabilityWeekNotOpen(weekId, now = new Date()) {
+  return weekId > nextAvailabilityWeek(now)
+}
+
 function vietnamMonthKey(value = new Date()) {
   return vietnamDateKey(value).slice(0, 7)
 }
@@ -215,9 +228,11 @@ module.exports = {
   addDateDays,
   assertSessionChangeDeadline,
   assertWeeklyOffDeadline,
+  availabilityWeekNotOpen,
   contractDurationMonths,
   dateKey,
   inclusiveDateDays,
+  nextAvailabilityWeek,
   normalizedPtOperationsPolicy,
   offRegistrationLimit,
   policyUsageDecision,
