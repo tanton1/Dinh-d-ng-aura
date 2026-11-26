@@ -85,6 +85,8 @@ jobs:
         run: npm --prefix functions audit --omit=dev --audit-level=high
       - name: Check and test Functions
         run: npm --prefix functions run check
+      - name: Test historical contract finance repair safeguards
+        run: node --test scripts/pt-contract-finance-evidence.test.cjs scripts/firebase-pt-duplicate-session-repair.test.cjs
       - name: Test meal reminder policy
         run: npm --prefix functions run test:meal-reminders
       - name: Check API provider contract
